@@ -1,0 +1,49 @@
+{% extends "base_customer.html" %}
+
+{% block title %}My orders — Blytz{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+  <h1 class="font-display text-3xl text-ink">Orders</h1>
+  <p class="mt-1 text-ink-muted">Track job phase and payments sent.</p>
+
+  {% if orders %}
+  <div class="mt-8 rounded-lg border border-border md:overflow-x-auto">
+    <table class="table-responsive-cards w-full border-collapse text-left text-sm md:min-w-[36rem]">
+      <thead>
+        <tr class="border-b border-border-strong bg-surface">
+          <th class="px-4 py-3 font-medium text-ink">Order</th>
+          <th class="px-4 py-3 font-medium text-ink">Design</th>
+          <th class="px-4 py-3 font-medium text-ink">Status</th>
+          <th class="px-4 py-3 font-medium text-ink">Payment</th>
+          <th class="px-4 py-3 font-medium text-ink">Total</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border">
+        {% for order in orders %}
+        <tr class="hover:bg-surface">
+          <td class="px-4 py-3" data-label="Order">
+            <a href="{% url 'order_detail' order.order_id %}" class="font-mono text-sm font-medium text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">{{ order.order_id }}</a>
+          </td>
+          <td class="px-4 py-3 text-ink-muted" data-label="Design">{{ order.design.title }}</td>
+          <td class="px-4 py-3" data-label="Status">{% include "components/badge.html" with label=order.get_status_display variant="muted" %}</td>
+          <td class="px-4 py-3" data-label="Payment">
+            {% if order.payment_status == "Fully Paid" %}
+              {% include "components/badge.html" with label=order.payment_status variant="success" %}
+            {% else %}
+              {% include "components/badge.html" with label=order.payment_status variant="warning" %}
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 font-mono text-sm" data-label="Total">{% if order.agreed_total %}₱{{ order.agreed_total }}{% else %}—{% endif %}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="mt-8">
+    {% include "components/empty_state.html" with title="No orders yet" description="Submit a design to open a job request." action_label="Go to designs" action_href="/app/designs/" %}
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

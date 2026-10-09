@@ -1,0 +1,83 @@
+{% extends "base_staff.html" %}
+
+{% block title %}{{ order.order_id }} — Staff{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+  <p class="text-sm text-ink-muted">
+    <a href="{% url 'jobs_pipeline' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Jobs</a>
+    <span class="mx-1">/</span>
+    <span class="font-mono">{{ order.order_id }}</span>
+  </p>
+
+  <div class="mt-4 flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h1 class="font-display text-3xl text-ink">{{ order.order_id }}</h1>
+      <p class="mt-1 text-ink-muted">{{ order.get_status_display }} · {{ order.design.title }}</p>
+    </div>
+    {% if next_status %}
+    <form method="post" action="{% url 'advance_order_phase' order.order_id %}">
+      {% csrf_token %}
+      {% include "components/button.html" with label=advance_label type="submit" variant="primary" %}
+    </form>
+    {% else %}
+      {% include "components/badge.html" with label="Completed" variant="success" %}
+    {% endif %}
+  </div>
+
+  <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
+    {% include "components/stepper.html" with steps=job_steps current=current_step %}
+  </div>
+
+  <div class="mt-8 grid gap-6 lg:grid-cols-2">
+    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
+      <h2 class="font-display text-xl text-ink">Customer</h2>
+      <dl class="mt-4 space-y-2 text-sm">
+        <div><dt class="text-ink-subtle">Name</dt><dd class="text-ink">{{ order.customer.get_full_name }}</dd></div>
+        <div><dt class="text-ink-subtle">Email</dt><dd class="text-ink">{{ order.customer.email }}</dd></div>
+        <div><dt class="text-ink-subtle">Phone</dt><dd class="text-ink">{{ order.customer.phone|default:"—" }}</dd></div>
+      </dl>
+      <h2 class="mt-8 font-display text-xl text-ink">Mock-up</h2>
+      {% if order.preview_image %}
+      <img src="{{ order.preview_image.url }}" alt="Order preview" class="mt-4 w-full rounded-md border border-border">
+      {% elif order.design.preview_image %}
+      <img src="{{ order.design.preview_image.url }}" alt="Design preview" class="mt-4 w-full rounded-md border border-border">
+      {% else %}
+      <div class="mt-4 flex h-40 items-center justify-center rounded-md border border-dashed border-border bg-surface text-ink-subtle">No preview image</div>
+      {% endif %}
+    </div>
+
+    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="font-display text-xl text-ink">Proof of payment</h2>
+        <a href="{% url 'accounting_detail' order.order_id %}" class="text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Accounting</a>
+      </div>
+      {% if payments %}
+      <ul class="mt-4 divide-y divide-border rounded-md border border-border">
+        {% for payment in payments %}
+        <li class="px-3 py-3 text-sm">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="font-medium text-ink">
+                {% if payment.channel %}{{ payment.channel.display_name }}{% else %}Manual{% endif %}
+                {% if payment.is_manual_adjustment %}
+                  {% include "components/badge.html" with label="Adjustment" variant="muted" %}
+                {% endif %}
+              </p>
+              <p class="text-xs text-ink-muted">{{ payment.created_at|date:"Y-m-d H:i" }}</p>
+            </div>
+            <p class="font-mono text-ink">₱{{ payment.amount_claimed }}</p>
+          </div>
+          {% if payment.proof_file %}
+          <a href="{{ payment.proof_file.url }}" target="_blank" rel="noopener" class="mt-2 inline-block text-xs underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">View proof</a>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="mt-4 text-sm text-ink-muted">No payments recorded yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}

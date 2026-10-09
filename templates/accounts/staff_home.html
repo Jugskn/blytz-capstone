@@ -1,0 +1,23 @@
+{% extends "base_staff.html" %}
+
+{% block title %}Staff — Blytz{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 py-12 sm:px-6">
+  <h1 class="font-display text-3xl text-ink">Overview</h1>
+  <p class="mt-2 text-ink-muted">Hello, {{ user.get_short_name }}.</p>
+
+  <div class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    {% include "components/stat_tile.html" with label="Orders" value=stat_orders %}
+    {% include "components/stat_tile.html" with label="Job requests" value=stat_job_requests %}
+    {% include "components/stat_tile.html" with label="Leads" value=stat_leads %}
+    {% include "components/stat_tile.html" with label="Incomplete designs" value=stat_incomplete accent=True %}
+  </div>
+
+  <div class="mt-10 flex flex-wrap gap-3">
+    {% include "components/button.html" with label="Jobs pipeline" href="/staff/jobs/" variant="primary" %}
+    {% include "components/button.html" with label="Accounting" href="/staff/accounting/" variant="secondary" %}
+    {% include "components/button.html" with label="Sales" href="/staff/sales/" variant="secondary" %}
+  </div>
+</section>
+{% endblock %}

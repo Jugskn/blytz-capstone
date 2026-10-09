@@ -1,0 +1,58 @@
+{% extends "base_staff.html" %}
+
+{% block title %}Accounting — Blytz{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+  <h1 class="font-display text-3xl text-ink">Accounting</h1>
+  <p class="mt-1 text-ink-muted">
+    {% if can_edit %}You can edit agreed totals and adjustments.{% else %}View only — ask an admin for accounting edit access.{% endif %}
+  </p>
+
+  <div class="mt-8 grid gap-4 sm:grid-cols-2">
+    {% include "components/stat_tile.html" with label="Total collected" value=total_collected %}
+    {% include "components/stat_tile.html" with label="Total outstanding" value=total_outstanding accent=True %}
+  </div>
+
+  <div class="mt-8 rounded-lg border border-border md:overflow-x-auto">
+    <table class="table-responsive-cards w-full border-collapse text-left text-sm md:min-w-[48rem]">
+      <thead>
+        <tr class="border-b border-border-strong bg-surface">
+          <th class="px-4 py-3 font-medium">Order</th>
+          <th class="px-4 py-3 font-medium">Customer</th>
+          <th class="px-4 py-3 font-medium">Agreed</th>
+          <th class="px-4 py-3 font-medium">Paid</th>
+          <th class="px-4 py-3 font-medium">Balance</th>
+          <th class="px-4 py-3 font-medium">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-border">
+        {% for order in orders %}
+        <tr class="hover:bg-surface">
+          <td class="px-4 py-3" data-label="Order">
+            <a href="{% url 'accounting_detail' order.order_id %}" class="font-mono font-medium underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">{{ order.order_id }}</a>
+          </td>
+          <td class="px-4 py-3" data-label="Customer">{{ order.customer.get_full_name }}</td>
+          <td class="px-4 py-3 font-mono" data-label="Agreed">{% if order.agreed_total %}₱{{ order.agreed_total }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-3 font-mono" data-label="Paid">₱{{ order.total_paid }}</td>
+          <td class="px-4 py-3 font-mono" data-label="Balance">{% if order.balance is not None %}₱{{ order.balance }}{% else %}—{% endif %}</td>
+          <td class="px-4 py-3" data-label="Status">
+            {% if order.payment_status == "Fully Paid" %}
+              {% include "components/badge.html" with label=order.payment_status variant="success" %}
+            {% else %}
+              {% include "components/badge.html" with label=order.payment_status variant="warning" %}
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr class="md:table-row">
+          <td colspan="6" class="px-4 py-8" data-label="">
+            {% include "components/empty_state.html" with title="No orders yet" description="Orders appear here after customers submit designs." %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

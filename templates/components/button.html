@@ -1,0 +1,34 @@
+{% comment %}
+  Button
+  Vars: label (required), href, type (button|submit|reset), variant (primary|secondary|ghost|danger),
+        size (sm|md|lg), accent (bool — gold border), class, attrs, id, name, disabled
+{% endcomment %}
+{% with variant=variant|default:"primary" size=size|default:"md" type=type|default:"button" %}
+{% if href %}
+<a href="{{ href }}"
+   {% if id %}id="{{ id }}"{% endif %}
+   class="inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink
+          {% if size == 'sm' %}px-3 py-1.5 text-sm{% elif size == 'lg' %}px-5 py-3 text-base{% else %}px-4 py-2 text-sm{% endif %}
+          {% if variant == 'secondary' %}border bg-canvas text-ink hover:bg-surface {% if accent %}border-gold{% else %}border-border-strong{% endif %}
+          {% elif variant == 'ghost' %}bg-transparent text-ink hover:bg-surface {% if accent %}border border-gold{% endif %}
+          {% elif variant == 'danger' %}bg-danger text-canvas hover:bg-ink {% if accent %}border border-gold{% endif %}
+          {% else %}bg-ink text-canvas hover:bg-ink/90 {% if accent %}border border-gold{% endif %}{% endif %}
+          {% if disabled %}pointer-events-none opacity-40{% endif %}
+          {{ class }}"
+   {% if disabled %}aria-disabled="true" tabindex="-1"{% endif %}
+   {{ attrs }}>{{ label }}</a>
+{% else %}
+<button type="{{ type }}"
+        {% if id %}id="{{ id }}"{% endif %}
+        {% if name %}name="{{ name }}"{% endif %}
+        {% if disabled %}disabled{% endif %}
+        class="inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink
+               {% if size == 'sm' %}px-3 py-1.5 text-sm{% elif size == 'lg' %}px-5 py-3 text-base{% else %}px-4 py-2 text-sm{% endif %}
+               {% if variant == 'secondary' %}border bg-canvas text-ink hover:bg-surface {% if accent %}border-gold{% else %}border-border-strong{% endif %}
+               {% elif variant == 'ghost' %}bg-transparent text-ink hover:bg-surface {% if accent %}border border-gold{% endif %}
+               {% elif variant == 'danger' %}bg-danger text-canvas hover:bg-ink {% if accent %}border border-gold{% endif %}
+               {% else %}bg-ink text-canvas hover:bg-ink/90 {% if accent %}border border-gold{% endif %}{% endif %}
+               {{ class }}"
+        {{ attrs }}>{{ label }}</button>
+{% endif %}
+{% endwith %}

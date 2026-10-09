@@ -1,0 +1,214 @@
+{% extends "base_customer.html" %}
+{% load static %}
+
+{% block title %}Editor · {{ design.title }} — Blytz{% endblock %}
+
+{% block extra_head %}
+<script src="{% static 'js/editor_contract.js' %}"></script>
+<script src="{% static 'js/editor_page.js' %}" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="flex min-h-[calc(100dvh-8rem)] flex-col"
+     data-editor-page
+     data-save-url="{% url 'design_save' design.pk %}"
+     data-submit-url="{% url 'design_submit' design.pk %}"
+     data-payment-window-minutes="{{ payment_window_minutes }}"
+     data-already-submitted="{% if already_submitted %}1{% else %}0{% endif %}"
+     data-canvas-json="{{ canvas_json_initial|escape }}">
+
+  <div class="border-b border-border bg-canvas">
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+      <div class="min-w-0">
+        <p class="text-xs text-ink-subtle">
+          <a href="{% url 'app_home' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Dashboard</a>
+          <span class="mx-1">/</span>
+          <a href="{% url 'design_list' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Designs</a>
+          <span class="mx-1">/</span>
+          {{ design.title }}
+        </p>
+        <h1 class="truncate font-display text-xl text-ink sm:text-2xl">{{ design.title }}</h1>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <p class="mr-2 text-sm text-ink-muted" data-editor-status aria-live="polite"></p>
+        <button type="button"
+                data-drawer-open="editor-tools"
+                class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+          Tools
+        </button>
+        <button type="button"
+                data-editor-save
+                class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+          Save
+        </button>
+        <button type="button"
+                data-editor-submit
+                {% if already_submitted %}disabled{% endif %}
+                class="inline-flex min-h-11 items-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas hover:bg-ink/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40">
+          {% if already_submitted %}Submitted{% else %}Submit{% endif %}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {# Full-width canvas host #}
+  <div id="editor-root"
+       class="relative flex flex-1 flex-col bg-surface"
+       aria-label="Design canvas">
+    <div class="flex flex-1 items-center justify-center p-6">
+      <div class="w-full max-w-3xl rounded-lg border border-dashed border-border bg-canvas p-10 text-center">
+        <p class="font-display text-2xl text-ink">Canvas placeholder</p>
+        <p class="mt-2 text-sm text-ink-muted" data-editor-stub-label>
+          Fabric.js will mount here via <code class="rounded bg-surface px-1">window.BlytzEditor</code>
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+{# Tools drawer #}
+<div id="editor-tools"
+     class="fixed inset-0 z-50 hidden"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="editor-tools-title"
+     data-drawer>
+  <div class="absolute inset-0 bg-ink/50" data-drawer-close tabindex="-1"></div>
+  <div class="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border bg-canvas shadow-lg">
+    <div class="flex items-center justify-between border-b border-border px-4 py-3">
+      <h2 id="editor-tools-title" class="font-display text-lg text-ink">Tools</h2>
+      <button type="button"
+              class="rounded-md p-1.5 text-ink-muted hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+              data-drawer-close
+              aria-label="Close">
+        <span aria-hidden="true">&times;</span>
+      </button>
+    </div>
+    <div class="flex-1 space-y-6 overflow-y-auto px-4 py-4 text-sm">
+      <section>
+        <h3 class="font-medium text-ink">Garment</h3>
+        <p class="mt-1 text-ink-muted">Template &amp; color controls (placeholder).</p>
+      </section>
+      <section>
+        <h3 class="font-medium text-ink">Images</h3>
+        <p class="mt-1 text-ink-muted">Upload &amp; place artwork (placeholder).</p>
+      </section>
+      <section>
+        <h3 class="font-medium text-ink">Text</h3>
+        <p class="mt-1 text-ink-muted">Add and style text layers (placeholder).</p>
+      </section>
+      <section>
+        <h3 class="font-medium text-ink">AI</h3>
+        <p class="mt-1 text-ink-muted">AI helpers plug in via <code class="rounded bg-surface px-1">services/</code>.</p>
+      </section>
+      <section>
+        <h3 class="font-medium text-ink">Layers</h3>
+        <p class="mt-1 text-ink-muted">Reorder and toggle layers (placeholder).</p>
+      </section>
+    </div>
+  </div>
+</div>
+
+{# Payment modal #}
+<div id="payment-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center p-4"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="payment-modal-title"
+     data-modal>
+  <div class="absolute inset-0 bg-ink/50" data-modal-close tabindex="-1"></div>
+  <div class="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-canvas shadow-lg">
+    <div class="flex items-center justify-between border-b border-border px-4 py-3 sm:px-6">
+      <h2 id="payment-modal-title" class="font-display text-lg text-ink">Confirm payment</h2>
+      <button type="button"
+              class="rounded-md p-1.5 text-ink-muted hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+              data-modal-close
+              aria-label="Close">
+        <span aria-hidden="true">&times;</span>
+      </button>
+    </div>
+
+    <form id="payment-submit-form"
+          method="post"
+          action="{% url 'design_submit' design.pk %}"
+          enctype="multipart/form-data"
+          class="flex flex-1 flex-col overflow-hidden">
+      {% csrf_token %}
+      <input type="hidden" name="canvas_json" id="submit-canvas-json" value="">
+      <input type="hidden" name="window_started_at" id="window-started-at" value="">
+
+      <div class="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
+        <div class="flex items-center justify-between rounded-md border border-gold bg-gold-soft/50 px-3 py-2 text-sm text-ink">
+          <span>Payment window</span>
+          <span class="font-mono text-base" data-payment-timer>00:00</span>
+        </div>
+
+        <p class="rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-sm font-medium text-danger">
+          Strictly no refunds. All sales are final once you send payment proof.
+        </p>
+
+        {% if channels %}
+        <div>
+          <label for="payment-channel" class="mb-1.5 block text-sm font-medium text-ink">Payment channel</label>
+          <select id="payment-channel"
+                  name="channel"
+                  required
+                  class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2.5 text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+            {% for ch in channels %}
+            <option value="{{ ch.pk }}"
+                    data-account-name="{{ ch.account_name }}"
+                    data-account-number="{{ ch.account_number }}"
+                    data-instructions="{{ ch.instructions|escape }}"
+                    {% if ch.qr_image %}data-qr-url="{{ ch.qr_image.url }}"{% endif %}>
+              {{ ch.display_name }} ({{ ch.get_kind_display }})
+            </option>
+            {% endfor %}
+          </select>
+          <div data-channel-details class="mt-2"></div>
+        </div>
+        {% else %}
+        <p class="text-sm text-danger">No active payment channels. Contact staff on Messenger.</p>
+        {% endif %}
+
+        <div>
+          <label for="payment-amount" class="mb-1.5 block text-sm font-medium text-ink">Amount claimed</label>
+          <input type="number"
+                 id="payment-amount"
+                 name="amount_claimed"
+                 min="0.01"
+                 step="0.01"
+                 inputmode="decimal"
+                 class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                 placeholder="0.00">
+        </div>
+
+        <div>
+          <label for="payment-proof" class="mb-1.5 block text-sm font-medium text-ink">Proof of payment</label>
+          <input type="file"
+                 id="payment-proof"
+                 name="proof_file"
+                 accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
+                 class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2 text-base text-ink file:mr-3 file:rounded file:border-0 file:bg-ink file:px-3 file:py-2 file:text-sm file:font-medium file:text-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+          <p class="mt-1.5 text-xs text-ink-subtle">PNG, JPG, JPEG, or PDF · max 5 MB</p>
+          <p class="mt-1 text-sm text-danger" data-payment-client-error role="alert"></p>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-6">
+        <button type="button"
+                id="payment-cancel-btn"
+                class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+          Cancel Payment
+        </button>
+        <button type="submit"
+                id="payment-sent-btn"
+                disabled
+                {% if not channels %}disabled{% endif %}
+                class="inline-flex min-h-11 items-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas hover:bg-ink/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40">
+          Payment Sent
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

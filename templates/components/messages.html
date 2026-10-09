@@ -1,0 +1,28 @@
+{% comment %}
+  Messages — Django messages framework.
+  Renders request messages; optional `extra` list of {level, text}.
+{% endcomment %}
+{% if messages or extra %}
+<div class="mx-auto w-full max-w-6xl px-4 pt-4 sm:px-6">
+  <div class="flex flex-col gap-2 {{ class }}" role="status" aria-live="polite">
+    {% for message in messages %}
+    <div class="rounded-md border px-4 py-3 text-sm
+                {% if message.tags == 'error' or 'error' in message.tags %}border-danger bg-danger/5 text-danger
+                {% elif message.tags == 'success' or 'success' in message.tags %}border-success bg-success/5 text-success
+                {% elif message.tags == 'warning' or 'warning' in message.tags %}border-warning bg-warning/5 text-warning
+                {% else %}border-border bg-surface text-ink{% endif %}">
+      {{ message }}
+    </div>
+    {% endfor %}
+    {% for m in extra %}
+    <div class="rounded-md border px-4 py-3 text-sm
+                {% if m.level == 'error' %}border-danger bg-danger/5 text-danger
+                {% elif m.level == 'success' %}border-success bg-success/5 text-success
+                {% elif m.level == 'warning' %}border-warning bg-warning/5 text-warning
+                {% else %}border-border bg-surface text-ink{% endif %}">
+      {{ m.text }}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}

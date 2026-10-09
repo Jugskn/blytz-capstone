@@ -1,0 +1,93 @@
+{% extends "base_staff.html" %}
+
+{% block title %}Jobs Pipeline — Blytz{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+  <h1 class="font-display text-3xl text-ink">Jobs Pipeline</h1>
+  <p class="mt-1 text-ink-muted">Move orders forward one phase at a time.</p>
+
+  <form method="get" class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end">
+    <div class="flex-1">
+      <label for="q" class="mb-1 block text-sm font-medium text-ink">Search order ID</label>
+      <input type="search" name="q" id="q" value="{{ q }}"
+             class="block w-full rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+             placeholder="BLY-000001">
+    </div>
+    <div class="flex-1">
+      <label for="customer" class="mb-1 block text-sm font-medium text-ink">Filter customer</label>
+      <input type="search" name="customer" id="customer" value="{{ customer }}"
+             class="block w-full rounded-md border border-border bg-canvas px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+             placeholder="Name or email">
+    </div>
+    {% include "components/button.html" with label="Apply" type="submit" variant="primary" %}
+  </form>
+
+  <div class="mt-8" data-pipeline>
+    {% if not columns.0.orders and not columns.1.orders and not columns.2.orders and not columns.3.orders %}
+      {% include "components/empty_state.html" with title="No jobs match" description="Try clearing search filters." %}
+    {% endif %}
+
+    {# Mobile: one phase tabs #}
+    <div class="pipeline-mobile">
+      <div class="flex gap-1 overflow-x-auto border-b border-border" role="tablist">
+        {% for col in columns %}
+        <button type="button" data-pipeline-tab="{{ col.status }}"
+                class="shrink-0 border-b-2 px-3 py-2 text-sm font-medium {% if forloop.first %}border-ink text-ink{% else %}border-transparent text-ink-muted{% endif %}">
+          {{ col.label }}
+        </button>
+        {% endfor %}
+      </div>
+      {% for col in columns %}
+      <div data-pipeline-panel="{{ col.status }}" class="mt-4 space-y-2 {% if not forloop.first %}hidden{% endif %}">
+        {% for order in col.orders %}
+          {% include "components/pipeline_card.html" with order=order %}
+        {% empty %}
+          <p class="rounded-md border border-dashed border-border bg-canvas px-3 py-6 text-center text-xs text-ink-subtle">Empty</p>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+
+    {# Tablet: horizontal snap #}
+    <div class="pipeline-tablet">
+      <div class="pipeline-snap">
+        {% for col in columns %}
+        <div class="rounded-lg border border-border bg-surface p-3">
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <h2 class="font-display text-lg text-ink">{{ col.label }}</h2>
+            <span class="font-mono text-xs text-ink-subtle">{{ col.orders|length }}</span>
+          </div>
+          <div class="flex flex-col gap-2">
+            {% for order in col.orders %}
+              {% include "components/pipeline_card.html" with order=order %}
+            {% empty %}
+              <p class="rounded-md border border-dashed border-border bg-canvas px-3 py-6 text-center text-xs text-ink-subtle">Empty</p>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {# Laptop: four columns #}
+    <div class="pipeline-desktop grid gap-4 lg:grid-cols-4">
+      {% for col in columns %}
+      <div class="rounded-lg border border-border bg-surface p-3">
+        <div class="mb-3 flex items-center justify-between gap-2">
+          <h2 class="font-display text-lg text-ink">{{ col.label }}</h2>
+          <span class="font-mono text-xs text-ink-subtle">{{ col.orders|length }}</span>
+        </div>
+        <div class="flex flex-col gap-2">
+          {% for order in col.orders %}
+            {% include "components/pipeline_card.html" with order=order %}
+          {% empty %}
+            <p class="rounded-md border border-dashed border-border bg-canvas px-3 py-6 text-center text-xs text-ink-subtle">Empty</p>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</section>
+{% endblock %}

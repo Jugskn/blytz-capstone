@@ -1,0 +1,86 @@
+{% extends "base_customer.html" %}
+
+{% block title %}{{ order.order_id }} — Blytz{% endblock %}
+
+{% block content %}
+<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+  <p class="text-sm text-ink-muted">
+    <a href="{% url 'app_home' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Dashboard</a>
+    <span class="mx-1">/</span>
+    <a href="{% url 'order_list' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Orders</a>
+    <span class="mx-1">/</span>
+    <span class="font-mono">{{ order.order_id }}</span>
+  </p>
+
+  <div class="mt-4 flex flex-wrap items-end justify-between gap-4">
+    <div>
+      <h1 class="font-display text-3xl text-ink">{{ order.order_id }}</h1>
+      <p class="mt-1 text-ink-muted">{{ order.design.title }} · {{ order.get_status_display }}</p>
+    </div>
+    {% if order.payment_status == "Fully Paid" %}
+      {% include "components/badge.html" with label=order.payment_status variant="success" %}
+    {% else %}
+      {% include "components/badge.html" with label=order.payment_status variant="warning" %}
+    {% endif %}
+  </div>
+
+  <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
+    <h2 class="mb-4 text-sm font-medium uppercase tracking-wide text-ink-subtle">Job phase</h2>
+    {% include "components/stepper.html" with steps=job_steps current=current_step %}
+  </div>
+
+  <div class="mt-8 grid gap-6 lg:grid-cols-2">
+    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
+      <h2 class="font-display text-xl text-ink">Mock-up preview</h2>
+      {% if order.preview_image %}
+      <img src="{{ order.preview_image.url }}" alt="Order preview" class="mt-4 w-full rounded-md border border-border object-contain">
+      {% elif order.design.preview_image %}
+      <img src="{{ order.design.preview_image.url }}" alt="Design preview" class="mt-4 w-full rounded-md border border-border object-contain">
+      {% else %}
+      <div class="mt-4 flex h-48 items-center justify-center rounded-md border border-dashed border-border bg-surface font-display text-ink-subtle">
+        Preview placeholder
+      </div>
+      {% endif %}
+      <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt class="text-ink-subtle">Agreed total</dt>
+          <dd class="font-mono text-ink">{% if order.agreed_total %}₱{{ order.agreed_total }}{% else %}Not set{% endif %}</dd>
+        </div>
+        <div>
+          <dt class="text-ink-subtle">Total paid</dt>
+          <dd class="font-mono text-ink">₱{{ order.total_paid }}</dd>
+        </div>
+        <div>
+          <dt class="text-ink-subtle">Balance</dt>
+          <dd class="font-mono text-ink">{% if order.balance is not None %}₱{{ order.balance }}{% else %}—{% endif %}</dd>
+        </div>
+      </dl>
+      {% if order.notes %}
+      <p class="mt-4 text-sm text-ink-muted">{{ order.notes }}</p>
+      {% endif %}
+    </div>
+
+    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
+      <h2 class="font-display text-xl text-ink">Payments sent</h2>
+      <p class="mt-1 text-sm text-ink-muted">P2P claims only — money never touches Blytz. Strictly no refunds.</p>
+      {% if payments %}
+      <ul class="mt-4 divide-y divide-border rounded-md border border-border">
+        {% for payment in payments %}
+        <li class="flex items-center justify-between gap-3 px-3 py-3 text-sm">
+          <div>
+            <p class="font-medium text-ink">{{ payment.channel.display_name }}</p>
+            <p class="text-xs text-ink-muted">{{ payment.created_at|date:"Y-m-d H:i" }}</p>
+          </div>
+          <p class="font-mono text-ink">₱{{ payment.amount_claimed }}</p>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="mt-4">
+        {% include "components/empty_state.html" with title="No payments yet" description="After you transfer, staff will record your proof here." class="py-8" %}
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</section>
+{% endblock %}
