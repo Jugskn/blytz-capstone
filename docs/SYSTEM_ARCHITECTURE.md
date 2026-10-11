@@ -627,7 +627,10 @@ Focus: `focus-visible:outline-ink`. Mobile-first.
 
 | File | Role |
 | --- | --- |
-| `editor_contract.js` | `window.BlytzEditor` public API (stub today) |
+| `editor_contract.js` | `window.BlytzEditor` public API |
+| `editor_canvas.js` | Fabric workspace + schema helpers |
+| `ai_chat.js` | Stage 2 mocked AI Assistant (§5.4 two-candidate preview/commit; no network) |
+| `vendor/fabric/fabric.min.js` | Fabric.js 6.6.1 (local) |
 | `editor_page.js` | Save, payment modal timer, submit validation, CSRF |
 | `nav.js` | Navigation behavior |
 | `ui.js` | Shared UI helpers |
@@ -639,23 +642,95 @@ Additional CSS: `static/css/responsive.css`; compiled Tailwind → `static/css/t
 
 ## 11. Design editor contract
 
-The Fabric.js (or other) canvas implementation is expected to honor this **stable public API** on `window.BlytzEditor`:
+The Fabric.js canvas implementation honors this **stable public API** on `window.BlytzEditor`:
 
 | Method | Behavior |
 | --- | --- |
-| `getCanvasJSON()` | Return current canvas object |
+| `getCanvasJSON()` | Return current canvas object (Blytz schema envelope) |
 | `loadCanvasJSON(json\|string)` | Load state into editor |
-| `getPreviewPNG()` | Return PNG data-URL (stub returns 1×1 transparent) |
+| `getPreviewPNG()` | Return PNG data-URL of the logical 800×800 workspace |
 | `onCommittedChange(cb)` | Subscribe to commits; returns unsubscribe |
+| `validateCanvasJSON(json)` | Validate Blytz schema v1 envelope (no mutation) |
+| `applyCanvasJSON(json)` / `previewCanvasJSON(json)` | Safe validate → snapshot → load; restore on failure; loads do not fire commit listeners |
+
+### 11.1 Client modules
+
+| File | Role |
+| --- | --- |
+| `static/vendor/fabric/fabric.min.js` | Fabric.js **6.6.1** UMD browser build (MIT; see `LICENSE`) |
+| `static/js/editor_canvas.js` | Fabric workspace, B1 views, safety scan, image pipeline, commits |
+| `static/js/editor_garments.js` | Garment silhouettes, colors, `renderGarmentLayer`, contrast helpers |
+| `static/js/editor_tools.js` | Upload / Elements / Layers / Garment panels, shape factories |
+| `static/js/editor_properties.js` | Properties sheet, clamps, Edit pill, ≤1279 exclusivity |
+| `static/js/editor_contract.js` | `window.BlytzEditor` public API |
+| `static/js/ai_chat.js` | Local two-candidate mock (no network) |
+| `static/js/editor_page.js` | Save, payment modal timer, submit validation, CSRF |
+| `apps/designs/canvas_safety.py` | Server twin of `scanCanvasPayload` (v1 only) |
+| `apps/designs/garment_choices.py` | Template/color allow-lists + stale-client views guard |
+| `qa/` | Console-paste GATE / regression / garment scripts + device checklist |
 
 `editor_page.js` wires:
 
 - Initial load from `data-canvas-json` on the editor root
-- Save POST with canvas JSON (+ CSRF cookie)
-- Submit modal: channel, amount, proof, `window_started_at`, canvas snapshot
+- Save POST with `canvas_json` (+ optional `garment_template` / `garment_color`) and CSRF cookie
+- Submit modal: channel, amount, proof, `window_started_at`, canvas snapshot, garment fields
 - Disables submit when window expired or design already submitted
 
-**Current state:** stub implementation (`stub: true`) awaiting teammate canvas work; backend already stores/loads JSON.
+### 11.2 Canvas JSON schema (`schema_version` 1) — storage B1
+
+Logical working canvas: **800×800** units (provisional; not garment or print size). Garment template/color remain `Design` model fields (not inside Fabric objects).
+
+```json
+{
+  "schema_version": 1,
+  "width": 800,
+  "height": 800,
+  "canvas": { "...": "FRONT Fabric.js canvas.toObject() output" },
+  "views": { "back": { "...": "BACK Fabric canvas JSON" } }
+}
+```
+
+- **`canvas` is always the FRONT view.** Older saves without `views` load as front-only; the client always writes `views.back` (empty Fabric canvas when unused).
+- **`getCanvasJSON` / `preparePersistPayload` / commit snapshots** use the **full** envelope (both views).
+- **`getActiveCanvasJSON`** returns only the active view’s canvas (for AI context).
+- **`loadCanvasJSON`** replaces all views (front → live Fabric, `views.back` → `viewStore`, `activeView = "front"`).
+- **`previewCanvasJSON` / `applyCanvasJSON`** replace **only** the active live canvas; AI candidates with a `views` key are rejected.
+- **`setActiveView`**: snapshots the live canvas into the inactive store, loads the target via `loadFabricPayload` with commits suppressed (0 commits; does not call `notifyCommitted`). Blocked while AI candidates are pending (`VIEW_SWITCH_DURING_AI_PREVIEW = blocked`).
+- **Stale-client guard (server):** if `schema_version == 1` and the POST omits `views` while the stored design has a `views` key with objects, stored views are kept. Explicit `views` (even empty) overwrites. Non-v1 payloads stay opaque.
+
+**Shared safety rules** (`scanCanvasPayload` ↔ `canvas_safety.py`; must stay identical): depth ≤ 20; typeKey allowlist `rect|ellipse|circle|line|polygon|path|text|itext|textbox|image` (Groups/unknown rejected); `src|source|url|href|xlink:href` strings must be `data:image/(png|jpeg|webp);base64,`; pattern fills with `source` rejected; `backgroundImage` / `overlayImage` rejected; `views` keys only `back` (`views.front` rejected); `text` may contain `https://`.
+
+**Image pipeline:** input ≤ `IMAGE_INPUT_LIMIT_BYTES` (8 MiB); decode via `createImageBitmap` / Image; reject `IMAGE_MAX_PIXELS`; downscale/re-encode toward `IMAGE_TARGET_BYTES` (300 KB) using `IMAGE_EDGE_STEPS` / `IMAGE_QUALITY_STEPS`; keep original data URL when already small; 80% insert budget and 2 MiB hard cap measured on the **whole envelope** via `measureEnvelopeBytes`.
+
+**Commits:** `commitEdit(label, applyFn)` → one `notifyCommitted` per successful op; `runSilent` suppresses; first committed edit after AI preview discards the sibling candidate. `SERIALIZE_PROPS`: `selectable`, `evented`, `blytzId`, `blytzName` (`blytzLocked` reserved). Fabric object type `i-text` → `typeKey` strips non-letters → `itext` for comparisons.
+
+**Garment layer:** `#editor-garment-layer` SVG (first child of `#editor-canvas-wrap`, pointer-events none); Fabric canvas background forced transparent after every load/preview/apply/view switch so the mockup shows through. Print-area dashed rect is a placeholder estimate. Contrast defaults: new text/shapes/graphics/lines use `contrastColor(garment)` at insert time only.
+
+**UI breakpoints:** bottom toolbar + Edit pill ≤1023px; Properties sheet exclusive with tool panels when `!min-width:1280` (CSS `not all and (min-width: 1280px)`); coexist ≥1280px. Front/Back uses a **toolbar toggle button** (an overlay was measured to overlap `#editor-canvas-wrap` at standard viewports, so the prompt fallback applies).
+
+**Client persist guards:**
+
+- `loadCanvasJSON()` readiness via `getLoadState()` / `whenReady()` / `canPersist()`.
+- Save/Submit use `preparePersistPayload()` (2 MiB UTF-8 whole-envelope cap).
+- Unsafe saved loads use the failed-load pathway (persist blocked; stored data not overwritten).
+- Additive BlytzEditor methods: `getActiveView`, `setActiveView`, `onViewChange`, `getActiveCanvasJSON`, `getGarmentState`, `setGarmentState`, `onGarmentChange`.
+
+**Deployment note:** stale cached scripts caused false failures earlier — prefer hashed static filenames in production. B1 stale clients that omit `views` are additionally covered by the server guard (hashed filenames not implemented in this stage).
+
+**Known limitations:** front/back only (no sleeve views); `getPreviewPNG` is active-view only and excludes the garment; mobile keyboard/touch unverified on real devices; client deterrents do not stop screenshots; safety rules are duplicated in JS and Python; garment colors and print areas are placeholders.
+
+### 11.3 Legacy compatibility
+
+| Incoming data | Behavior |
+| --- | --- |
+| Blytz `{schema_version:1, canvas:{…}}` | Load Fabric payload |
+| Empty legacy stub / seed: `{version:1, objects:[]}` (optional `stub`, `demo`, …) | Empty canvas (ready to edit/save) |
+| Raw Fabric canvas JSON (`version` string + `objects`) | Wrap into schema v1 and load |
+| Unknown `schema_version` (≠ 1) | **Not loaded** — persist blocked; original data preserved |
+| Non-empty pre-Fabric stub objects (e.g. `{version:1, objects:[{type:"text"}]}`) | **Not loaded** — persist blocked; original data preserved |
+| Missing / malformed JSON | Empty workspace + persist blocked when data was expected to load |
+
+**Current state:** Fabric-backed editor (Stage 1); backend still stores/loads opaque JSON via existing save/submit endpoints.
 
 ---
 
@@ -793,7 +868,7 @@ Command: `python manage.py seed_demo` (idempotent, atomic).
 
 ## 17. Testing
 
-Run: `python manage.py test`
+Run: `python manage.py test` or `python manage.py test apps.designs`.
 
 | Test module | Focus |
 | --- | --- |
@@ -801,10 +876,15 @@ Run: `python manage.py test`
 | `apps.accounts.tests.test_admin_pages` | Admin user/channel pages |
 | `apps.designs.tests.test_ownership` | Owner isolation |
 | `apps.designs.tests.test_submit` | Submit transaction / window |
+| `apps.designs.tests.test_canvas_schema` | Schema round-trip + SOURCE-STRING |
+| `apps.designs.tests.test_canvas_safety` | Shared safety rules (BEHAVIOR) |
+| `apps.designs.tests.test_garment_views` | Garment fields + B1 views (BEHAVIOR/SOURCE-STRING) |
 | `apps.orders.tests.test_models` | Order ID, payment aggregates, phases |
 | `apps.accounting.tests.test_staff` | View vs edit accounting |
 | `apps.core.tests.test_landing_nav` | Landing / nav |
 | `apps.core.tests.test_template_leaks` | Template leakage checks |
+
+**Browser QA:** paste scripts from `qa/` (`gate.js`, `regression_commits.js`, `garment_checks.js`) into DevTools on the editor with cache disabled. `qa/manual_device_checklist.md` covers real-phone items. Playwright is **not** approved/installed for this stage.
 
 ---
 
@@ -828,7 +908,9 @@ Run: `python manage.py test`
 
 | Item | Status |
 | --- | --- |
-| Fabric.js (or full) canvas editor | Stub API only |
+| Fabric.js (or full) canvas editor | Stage 1: Fabric 6.6.1 + Blytz schema v1 (basic tools) |
+| AI chat (mocked) / two-candidate preview + commit-on-edit | Stage 2: `ai_chat.js` + `previewCanvasJSON` / `onCommittedChange` (§5.4) |
+| Area-specific prompting / real AI / services wrappers | Not started (Stages 3–5) |
 | remove.bg integration | `services/` placeholder |
 | AI helpers | `services/` placeholder |
 | HTTPS transactional email (anymail) | Commented optional dep + `ANYMAIL` stub |

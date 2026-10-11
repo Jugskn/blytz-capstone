@@ -1,6 +1,8 @@
 from django.conf import settings
 from django.db import models
 
+from apps.designs.garment_choices import GARMENT_COLOR_CHOICES, GARMENT_TEMPLATE_CHOICES
+
 
 class Design(models.Model):
     owner = models.ForeignKey(
@@ -9,8 +11,13 @@ class Design(models.Model):
         related_name="designs",
     )
     title = models.CharField(max_length=200)
-    garment_template = models.CharField(max_length=100, blank=True)
-    garment_color = models.CharField(max_length=50, blank=True)
+    # Choices aligned with static/js/editor_garments.js (see garment_choices.py).
+    garment_template = models.CharField(
+        max_length=100, blank=True, choices=GARMENT_TEMPLATE_CHOICES
+    )
+    garment_color = models.CharField(
+        max_length=50, blank=True, choices=GARMENT_COLOR_CHOICES
+    )
     canvas_json = models.JSONField(default=dict, blank=True)
     preview_image = models.ImageField(upload_to="design_previews/", blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

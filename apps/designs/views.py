@@ -109,7 +109,7 @@ def design_editor(request, pk):
 @require_POST
 def design_save(request, pk):
     design = get_object_or_404(Design, pk=pk, owner=request.user)
-    form = DesignSaveForm(request.POST)
+    form = DesignSaveForm(request.POST, stored_canvas=design.canvas_json)
     if not form.is_valid():
         if _wants_json(request):
             return JsonResponse({"ok": False, "errors": form.errors}, status=400)
@@ -119,6 +119,10 @@ def design_save(request, pk):
     design.canvas_json = form.cleaned_data["canvas_json"]
     if form.cleaned_data.get("title"):
         design.title = form.cleaned_data["title"]
+    if form.cleaned_data.get("garment_template") is not None:
+        design.garment_template = form.cleaned_data["garment_template"]
+    if form.cleaned_data.get("garment_color") is not None:
+        design.garment_color = form.cleaned_data["garment_color"]
     design.save()
 
     if _wants_json(request):
@@ -136,7 +140,9 @@ def design_submit(request, pk):
         messages.error(request, "This design was already submitted.")
         return redirect("design_editor", pk=pk)
 
-    form = DesignSubmitForm(request.POST, request.FILES)
+    form = DesignSubmitForm(
+        request.POST, request.FILES, stored_canvas=design.canvas_json
+    )
     if not form.is_valid():
         if _wants_json(request):
             return JsonResponse({"ok": False, "errors": form.errors}, status=400)
@@ -163,8 +169,17 @@ def design_submit(request, pk):
     try:
         with transaction.atomic():
             design.canvas_json = canvas
-            design.save(update_fields=["canvas_json", "updated_at"])
+            update_fields = ["canvas_json", "updated_at"]
+            if form.cleaned_data.get("garment_template") is not None:
+                design.garment_template = form.cleaned_data["garment_template"]
+                update_fields.append("garment_template")
+            if form.cleaned_data.get("garment_color") is not None:
+                design.garment_color = form.cleaned_data["garment_color"]
+                update_fields.append("garment_color")
+            design.save(update_fields=update_fields)
 
+            # Staff read garment on order.design; both views live in
+            # order.canvas_json_snapshot (and design.canvas_json) under B1.
             order = Order.objects.create(
                 customer=request.user,
                 design=design,

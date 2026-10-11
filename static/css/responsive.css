@@ -103,6 +103,861 @@ img, svg, video {
   }
 }
 
+/*
+ * Editor shell: viewport-locked height so AI candidate content cannot grow the page.
+ * Canvas display size is derived from #editor-root (stable), not content-driven host height.
+ * Toolbar is a sibling of #editor-root (outside it). Bottom toolbar must not grow shell height.
+ */
+.editor-shell[data-editor-page] {
+  height: calc(100dvh - 8rem);
+  max-height: calc(100dvh - 8rem);
+  min-height: 0;
+  overflow: hidden;
+}
+.editor-workspace {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Editor canvas wrap: keep CSS box aligned with Fabric display size */
+#editor-canvas-wrap {
+  position: relative;
+  background: #f4f4f5;
+  box-sizing: content-box;
+  max-width: 100%;
+  flex-shrink: 0;
+}
+#editor-canvas-host {
+  min-height: 0;
+}
+
+/*
+ * Shared tool panel (Upload / Elements / later Properties).
+ * Absolutely positioned inside #editor-root — must not affect clientWidth or ResizeObserver.
+ */
+.editor-tool-panel {
+  display: none;
+  position: absolute;
+  z-index: 30;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #E5E5E5;
+  box-shadow: 0 8px 24px rgba(10, 10, 10, 0.1);
+  max-height: 60%;
+  overflow: hidden;
+}
+.editor-tool-panel.is-open,
+.editor-tool-panel:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+.editor-tool-panel[hidden] {
+  display: none !important;
+}
+.editor-tool-panel-chrome {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+.editor-tool-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid #E5E5E5;
+  flex: 0 0 auto;
+}
+.editor-tool-panel-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #0a0a0a;
+}
+.editor-tool-panel-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #0a0a0a;
+}
+.editor-tool-panel-close:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: 2px;
+}
+.editor-panel-feedback {
+  margin: 0;
+  padding: 0.35rem 0.75rem 0;
+  min-height: 1.25rem;
+  font-size: 0.75rem;
+  color: #525252;
+  flex: 0 0 auto;
+}
+.editor-tool-panel-body {
+  padding: 0.75rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.editor-panel-lead {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  color: #404040;
+}
+.editor-panel-meta {
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  color: #737373;
+}
+.editor-panel-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.75rem;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  border: 1px solid #0a0a0a;
+  border-radius: 0.375rem;
+  background: #0a0a0a;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.editor-panel-primary:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: 2px;
+}
+.editor-panel-section + .editor-panel-section {
+  margin-top: 1rem;
+}
+.editor-panel-h {
+  margin: 0 0 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #737373;
+}
+.editor-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+.editor-panel-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.5rem;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.375rem;
+  background: #fafafa;
+  color: #0a0a0a;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.editor-panel-tile:hover {
+  background: #f5f5f5;
+  border-color: #0a0a0a;
+}
+.editor-panel-tile:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: 2px;
+}
+.editor-panel-tile-mark {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+.editor-panel-tile-label {
+  font-weight: 500;
+}
+
+/* Mobile / tablet: bottom sheet above the toolbar */
+@media (max-width: 1023px) {
+  .editor-tool-panel {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 60%;
+    border-radius: 0.75rem 0.75rem 0 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+  }
+}
+
+/* Desktop: flyout beside the left toolbar edge (panel lives inside #editor-root) */
+@media (min-width: 1024px) {
+  .editor-tool-panel {
+    top: 0.75rem;
+    left: 0.75rem;
+    bottom: auto;
+    width: min(18rem, calc(100% - 1.5rem));
+    max-height: 60%;
+    border-radius: 0.5rem;
+  }
+}
+
+/* ---- Properties panel (absolute inside #editor-root) ---- */
+.editor-props-pill {
+  position: absolute;
+  z-index: 35;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0 0.85rem;
+  border: 1px solid #0a0a0a;
+  border-radius: 999px;
+  background: #0a0a0a;
+  color: #fff;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-props-pill:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: 2px;
+}
+.editor-properties-panel {
+  display: none;
+  position: absolute;
+  z-index: 34;
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #E5E5E5;
+  box-shadow: 0 8px 24px rgba(10, 10, 10, 0.1);
+  overflow: hidden;
+}
+.editor-properties-panel.is-open:not([hidden]) {
+  display: flex;
+  flex-direction: column;
+}
+.editor-properties-panel[hidden] {
+  display: none !important;
+}
+.editor-properties-chrome {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+.editor-properties-header {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid #E5E5E5;
+  flex: 0 0 auto;
+}
+.editor-properties-title {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #0a0a0a;
+}
+.editor-properties-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  border: 0;
+  border-radius: 0.375rem;
+  background: transparent;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: #0a0a0a;
+}
+.editor-properties-body {
+  padding: 0.65rem 0.75rem 0.85rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.editor-props-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.65rem;
+}
+.editor-props-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #525252;
+}
+.editor-props-hint {
+  font-size: 0.7rem;
+  color: #a3a3a3;
+}
+.editor-props-input,
+.editor-props-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 2.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: #0a0a0a;
+  background: #fff;
+}
+.editor-props-textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+.editor-props-range-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.editor-props-range {
+  flex: 1 1 auto;
+  min-height: 2.5rem;
+}
+.editor-props-range-val {
+  min-width: 2.75rem;
+  font-size: 0.75rem;
+  color: #525252;
+  text-align: right;
+}
+.editor-props-color-input {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.375rem;
+  background: #fff;
+  cursor: pointer;
+}
+.editor-props-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+.editor-props-swatch {
+  width: 2rem;
+  height: 2rem;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  padding: 0;
+}
+.editor-props-check-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.5rem;
+  font-size: 0.875rem;
+  color: #0a0a0a;
+}
+.editor-props-readonly {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #525252;
+}
+.editor-properties-panel.is-collapsed .editor-properties-body {
+  display: none;
+}
+
+/* Match JS isNarrowProps: !min-width:1280 (closes subpixel gap below 1280). */
+@media not all and (min-width: 1280px) {
+  .editor-properties-panel {
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 40%;
+    border-radius: 0.75rem 0.75rem 0 0;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+  }
+  .editor-props-input,
+  .editor-props-textarea,
+  .editor-props-color-input,
+  .editor-props-range {
+    min-height: 2.75rem;
+  }
+  .editor-props-swatch {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+}
+
+@media (max-width: 1023px) {
+  .editor-props-pill:not([hidden]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
+@media (min-width: 1280px) {
+  .editor-properties-panel {
+    top: 0.75rem;
+    right: 0.75rem;
+    bottom: auto;
+    left: auto;
+    width: 16.25rem; /* ~260px */
+    max-height: 70%;
+    border-radius: 0.5rem;
+  }
+  .editor-props-pill {
+    display: none !important;
+  }
+}
+
+/* ---- Layers list (inside shared tool panel) ---- */
+.editor-layers-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.65rem;
+}
+.editor-layers-action {
+  flex: 1 1 auto;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.375rem;
+  background: #fafafa;
+  color: #0a0a0a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-layers-action:disabled,
+.editor-layers-action[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.editor-layers-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.editor-layer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #0a0a0a;
+  font-size: 0.875rem;
+  text-align: left;
+  cursor: pointer;
+}
+.editor-layer-row.is-selected,
+.editor-layer-row[aria-pressed="true"] {
+  border-color: #0a0a0a;
+  background: #f5f5f5;
+}
+.editor-layer-glyph {
+  flex: 0 0 auto;
+  width: 1.5rem;
+  text-align: center;
+}
+.editor-layer-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.editor-layers-empty {
+  margin: 0.5rem 0;
+  font-size: 0.875rem;
+  color: #737373;
+}
+
+/* ---- Editor toolbar (sibling of #editor-root) ---- */
+.editor-toolbar {
+  flex: 0 0 auto;
+  z-index: 20;
+  background: #fff;
+  border-color: #E5E5E5;
+}
+.editor-toolbar-inner {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(10, 10, 10, 0.25) transparent;
+}
+.editor-toolbar-inner::-webkit-scrollbar {
+  height: 4px;
+}
+.editor-toolbar-inner::-webkit-scrollbar-thumb {
+  background: rgba(10, 10, 10, 0.2);
+  border-radius: 4px;
+}
+
+/* Front / back view toggle (overlays #editor-root, not in layout flow) */
+.editor-view-toggle {
+  position: absolute;
+  top: 0.75rem;
+  left: 50%;
+  z-index: 25;
+  display: flex;
+  transform: translateX(-50%);
+  overflow: hidden;
+  border: 1px solid #e5e5e5;
+  border-radius: 0.5rem;
+  background: #fff;
+  box-shadow: 0 2px 10px rgba(10, 10, 10, 0.08);
+}
+.editor-view-toggle button {
+  min-height: 2.25rem;
+  padding: 0.35rem 1rem;
+  border: 0;
+  background: transparent;
+  color: #0a0a0a;
+  font-size: 0.8125rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.editor-view-toggle button:hover {
+  background: #f5f5f5;
+}
+.editor-view-toggle button:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: -2px;
+  z-index: 1;
+}
+.editor-view-toggle button[aria-pressed="true"] {
+  background: #f5f5f5;
+  font-weight: 600;
+}
+.editor-view-toggle button[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Garment tool panel */
+.editor-garment-types {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.editor-garment-type-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 2.75rem;
+  padding: 0.5rem;
+  border: 1px solid #e5e5e5;
+  border-radius: 0.375rem;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: #0a0a0a;
+}
+.editor-garment-type-btn:hover {
+  background: #f5f5f5;
+}
+.editor-garment-type-btn[aria-pressed="true"] {
+  border-color: #0a0a0a;
+  background: #f5f5f5;
+}
+.editor-garment-thumb {
+  display: block;
+  width: 4rem;
+  height: 4rem;
+  flex-shrink: 0;
+}
+.editor-garment-swatches {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.editor-garment-swatch {
+  box-sizing: border-box;
+  width: 100%;
+  aspect-ratio: 1;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 2px solid rgba(10, 10, 10, 0.12);
+  border-radius: 9999px;
+  cursor: pointer;
+}
+.editor-garment-swatch[aria-pressed="true"] {
+  border-color: #0a0a0a;
+  box-shadow: 0 0 0 2px #fff inset;
+}
+.editor-garment-swatch:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: 2px;
+}
+.editor-garment-live {
+  margin: 0.75rem 0 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #0a0a0a;
+}
+.editor-toolbar-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.125rem;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 0.375rem;
+  background: transparent;
+  color: #0a0a0a;
+  font-size: 0.65rem;
+  line-height: 1.1;
+  cursor: pointer;
+}
+.editor-toolbar-btn:hover {
+  background: #f5f5f5;
+}
+.editor-toolbar-btn:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: 2px;
+}
+.editor-toolbar-btn.is-active,
+.editor-toolbar-btn[aria-pressed="true"] {
+  border-color: #0a0a0a;
+  background: #f5f5f5;
+}
+.editor-toolbar-btn--soon,
+.editor-toolbar-btn[disabled],
+.editor-toolbar-btn[aria-disabled="true"] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.editor-toolbar-icon {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+}
+.editor-toolbar-label {
+  white-space: nowrap;
+}
+.editor-toolbar-feedback {
+  margin: 0;
+  font-size: 0.65rem;
+  color: #737373;
+  max-width: 6.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mobile / tablet: fixed bottom toolbar inside the locked shell (no document growth). */
+@media (max-width: 1023px) {
+  .editor-workspace {
+    flex-direction: column !important;
+    padding-bottom: 3.75rem; /* room for bottom toolbar */
+  }
+  .editor-toolbar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 3.75rem;
+    max-height: 3.75rem;
+    border-top: 1px solid #E5E5E5;
+    box-shadow: 0 -4px 12px rgba(10, 10, 10, 0.06);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .editor-toolbar-inner {
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 0.25rem 0.35rem;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .editor-toolbar-feedback {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+  }
+  #editor-root {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .editor-view-toggle button {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+}
+
+/*
+ * Editor shell layout fallback (independent of Tailwind rebuild state).
+ * Desktop: toolbar | #editor-root | AI panel.
+ */
+@media (min-width: 1024px) {
+  .editor-workspace {
+    flex-direction: row !important;
+    align-items: stretch;
+    padding-bottom: 0;
+  }
+  .editor-toolbar {
+    position: static;
+    width: 4.5rem;
+    max-width: 4.5rem;
+    height: auto;
+    max-height: none;
+    border-top: 0;
+    border-right: 1px solid #E5E5E5;
+    box-shadow: none;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .editor-toolbar-inner {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 0.5rem 0.35rem;
+    gap: 0.35rem;
+    overflow-y: auto;
+  }
+  .editor-toolbar-btn {
+    width: 100%;
+  }
+  .editor-toolbar-feedback {
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
+    padding: 0 0.35rem 0.5rem;
+    clip: auto;
+    white-space: normal;
+    max-width: none;
+  }
+  #editor-root {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  #ai-assistant.ai-assistant-panel {
+    flex: 0 0 auto;
+    width: min(24rem, 100%);
+    max-width: 24rem;
+    height: auto;
+    max-height: 100%;
+    min-height: 0;
+    align-self: stretch;
+    overflow: hidden;
+  }
+}
+
+/* AI Assistant: side panel on desktop, bottom sheet on smaller screens */
+.ai-assistant-panel {
+  display: none;
+}
+.ai-assistant-panel.is-open {
+  display: flex;
+  position: fixed;
+  z-index: 50;
+  inset: auto 0 0 0;
+  max-height: 85dvh;
+  max-width: 100%;
+  border-top: 1px solid #E5E5E5;
+  border-radius: 1rem 1rem 0 0;
+  box-shadow: 0 -8px 24px rgba(10, 10, 10, 0.08);
+}
+/* Tablet: slightly taller sheet so candidates + input stay reachable */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .ai-assistant-panel.is-open {
+    max-height: 70dvh;
+    max-width: min(28rem, 100%);
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    border-radius: 1rem 1rem 0 0;
+  }
+}
+@media (min-width: 1024px) {
+  .ai-assistant-panel,
+  .ai-assistant-panel.is-open {
+    display: flex !important;
+    position: static;
+    z-index: auto;
+    inset: auto;
+    /* Stay within the locked editor shell; scroll messages/candidates inside. */
+    max-height: 100%;
+    max-width: 24rem;
+    border-radius: 0;
+    border-top: 0;
+    box-shadow: none;
+    transform: none;
+    overflow: hidden;
+  }
+  #ai-assistant-backdrop {
+    display: none !important;
+  }
+}
+@media (min-width: 1920px) {
+  .ai-assistant-panel,
+  .ai-assistant-panel.is-open {
+    max-width: 26rem;
+  }
+}
+
+/* Candidate strip: scroll if needed; never expand the editor shell */
+.ai-turn-panel:not(.hidden) {
+  max-height: 42%;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+[data-ai-candidates] {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 1024px) {
+  [data-ai-candidates] {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 /* Nav drawer */
 .nav-drawer {
   position: fixed;
