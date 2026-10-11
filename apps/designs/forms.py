@@ -6,6 +6,12 @@ from django import forms
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+from apps.designs.canvas_safety import CanvasSafetyError, validate_v1_envelope
+from apps.designs.garment_choices import (
+    GARMENT_COLOR_IDS,
+    GARMENT_TEMPLATE_IDS,
+    apply_stale_client_views_guard,
+)
 from apps.orders.models import PaymentChannel
 
 ALLOWED_PROOF_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pdf"}
@@ -15,28 +21,98 @@ ALLOWED_PROOF_CONTENT_TYPES = {
     "application/pdf",
 }
 MAX_PROOF_BYTES = 5 * 1024 * 1024
+# Match client MAX_CANVAS_JSON_BYTES (2 MiB UTF-8).
+MAX_CANVAS_JSON_BYTES = 2 * 1024 * 1024
 
 
-def _parse_canvas_json(raw):
-    if isinstance(raw, dict):
-        return raw
-    if not raw:
-        return {}
-    try:
-        data = json.loads(raw)
-    except (TypeError, json.JSONDecodeError) as exc:
-        raise forms.ValidationError("Invalid canvas JSON.") from exc
-    if not isinstance(data, dict):
-        raise forms.ValidationError("Canvas JSON must be an object.")
+def _utf8_byte_length(value: str) -> int:
+    return len(value.encode("utf-8"))
+
+
+def _apply_v1_safety(data: dict) -> dict:
+    """
+    Run shared safety scan only for schema_version == 1.
+    Non-v1 payloads stay opaque (must stay identical to client policy).
+    Rules: apps/designs/canvas_safety.py ↔ static/js/editor_canvas.js scanCanvasPayload.
+    """
+    if isinstance(data, dict) and data.get("schema_version") == 1:
+        try:
+            validate_v1_envelope(data)
+        except CanvasSafetyError as exc:
+            raise forms.ValidationError(
+                "This design contains content that cannot be saved safely."
+            ) from exc
     return data
+
+
+def _parse_canvas_json(raw, *, stored_canvas=None):
+    if isinstance(raw, dict):
+        data = raw
+    elif not raw:
+        data = {}
+    elif not isinstance(raw, str):
+        raise forms.ValidationError("Invalid canvas JSON.")
+    else:
+        if _utf8_byte_length(raw) > MAX_CANVAS_JSON_BYTES:
+            raise forms.ValidationError("Canvas JSON exceeds the 2 MiB size limit.")
+        try:
+            data = json.loads(raw)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise forms.ValidationError("Invalid canvas JSON.") from exc
+        if not isinstance(data, dict):
+            raise forms.ValidationError("Canvas JSON must be an object.")
+
+    # Stale-client guard before size re-encode / safety (v1 only; non-v1 opaque).
+    data = apply_stale_client_views_guard(data, stored_canvas)
+
+    encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    if _utf8_byte_length(encoded) > MAX_CANVAS_JSON_BYTES:
+        raise forms.ValidationError(
+            "Canvas JSON exceeds the 2 MiB size limit."
+        )
+    return _apply_v1_safety(data)
+
+
+def _clean_optional_garment_template(value):
+    if value in (None, ""):
+        return None
+    if value not in GARMENT_TEMPLATE_IDS:
+        raise forms.ValidationError("Invalid garment selection.")
+    return value
+
+
+def _clean_optional_garment_color(value):
+    if value in (None, ""):
+        return None
+    if value not in GARMENT_COLOR_IDS:
+        raise forms.ValidationError("Invalid garment selection.")
+    return value
 
 
 class DesignSaveForm(forms.Form):
     canvas_json = forms.CharField(required=False)
     title = forms.CharField(max_length=200, required=False)
+    # Optional; absent means unchanged. Cross-ref: garment_choices.py ↔ editor_garments.js
+    garment_template = forms.CharField(max_length=100, required=False)
+    garment_color = forms.CharField(max_length=50, required=False)
+
+    def __init__(self, *args, stored_canvas=None, **kwargs):
+        self.stored_canvas = stored_canvas
+        super().__init__(*args, **kwargs)
 
     def clean_canvas_json(self):
-        return _parse_canvas_json(self.cleaned_data.get("canvas_json") or "{}")
+        return _parse_canvas_json(
+            self.cleaned_data.get("canvas_json") or "{}",
+            stored_canvas=self.stored_canvas,
+        )
+
+    def clean_garment_template(self):
+        return _clean_optional_garment_template(
+            self.cleaned_data.get("garment_template")
+        )
+
+    def clean_garment_color(self):
+        return _clean_optional_garment_color(self.cleaned_data.get("garment_color"))
 
 
 class DesignSubmitForm(forms.Form):
@@ -47,9 +123,26 @@ class DesignSubmitForm(forms.Form):
     proof_file = forms.FileField()
     canvas_json = forms.CharField(required=False)
     window_started_at = forms.CharField()
+    garment_template = forms.CharField(max_length=100, required=False)
+    garment_color = forms.CharField(max_length=50, required=False)
+
+    def __init__(self, *args, stored_canvas=None, **kwargs):
+        self.stored_canvas = stored_canvas
+        super().__init__(*args, **kwargs)
 
     def clean_canvas_json(self):
-        return _parse_canvas_json(self.cleaned_data.get("canvas_json") or "{}")
+        return _parse_canvas_json(
+            self.cleaned_data.get("canvas_json") or "{}",
+            stored_canvas=self.stored_canvas,
+        )
+
+    def clean_garment_template(self):
+        return _clean_optional_garment_template(
+            self.cleaned_data.get("garment_template")
+        )
+
+    def clean_garment_color(self):
+        return _clean_optional_garment_color(self.cleaned_data.get("garment_color"))
 
     def clean_window_started_at(self):
         raw = self.cleaned_data["window_started_at"]

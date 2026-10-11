@@ -11,10 +11,6 @@
     return (root || document).querySelector(sel);
   }
 
-  function qsa(sel, root) {
-    return Array.from((root || document).querySelectorAll(sel));
-  }
-
   function getCookie(name) {
     const match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
     return match ? decodeURIComponent(match[2]) : "";
@@ -46,16 +42,9 @@
     if (!root || !window.BlytzEditor) return;
 
     const saveUrl = root.dataset.saveUrl;
-    const submitUrl = root.dataset.submitUrl;
     const windowMinutes = parseInt(root.dataset.paymentWindowMinutes || "10", 10);
     const initialJson = root.dataset.canvasJson || "{}";
     const alreadySubmitted = root.dataset.alreadySubmitted === "1";
-
-    try {
-      window.BlytzEditor.loadCanvasJSON(JSON.parse(initialJson));
-    } catch (e) {
-      window.BlytzEditor.loadCanvasJSON({});
-    }
 
     const saveBtn = qs("[data-editor-save]", root);
     const submitBtn = qs("[data-editor-submit]", root);
@@ -81,11 +70,21 @@
       if (statusEl) statusEl.textContent = msg || "";
     }
 
+    function updateActionButtons() {
+      const allow =
+        window.BlytzEditor.canPersist && window.BlytzEditor.canPersist();
+      if (saveBtn) saveBtn.disabled = !allow;
+      if (submitBtn) submitBtn.disabled = !allow || alreadySubmitted;
+    }
+
     function updateSendEnabled() {
       if (!sendBtn) return;
       const hasAmount = amountInput && parseFloat(amountInput.value) > 0;
       const hasProof = proofInput && proofInput.files && proofInput.files.length > 0;
-      sendBtn.disabled = windowExpired || alreadySubmitted || !(hasAmount && hasProof);
+      const editorOk =
+        window.BlytzEditor.canPersist && window.BlytzEditor.canPersist();
+      sendBtn.disabled =
+        windowExpired || alreadySubmitted || !editorOk || !(hasAmount && hasProof);
     }
 
     function validateProofClient() {
@@ -183,12 +182,58 @@
       updateSendEnabled();
     }
 
+    function preparePayloadOrWarn() {
+      if (!window.BlytzEditor.preparePersistPayload) {
+        return {
+          ok: false,
+          error: "Editor is not ready.",
+        };
+      }
+      return window.BlytzEditor.preparePersistPayload();
+    }
+
+    // Initial load — do not treat sync return as "ready".
+    setStatus("Loading design…");
+    updateActionButtons();
+    try {
+      window.BlytzEditor.loadCanvasJSON(JSON.parse(initialJson));
+    } catch (e) {
+      window.BlytzEditor.loadCanvasJSON({});
+    }
+
+    if (window.BlytzEditor.whenReady) {
+      window.BlytzEditor.whenReady().then(function (result) {
+        updateActionButtons();
+        updateSendEnabled();
+        if (result && result.state === "error") {
+          setStatus(
+            (window.BlytzEditor.getPersistBlockReason &&
+              window.BlytzEditor.getPersistBlockReason()) ||
+              "Design could not be loaded."
+          );
+        } else if (result && result.canPersist) {
+          setStatus("");
+        }
+      });
+    }
+
     if (saveBtn) {
       saveBtn.addEventListener("click", function () {
+        const prepared = preparePayloadOrWarn();
+        if (!prepared.ok) {
+          setStatus(prepared.error || "Save blocked.");
+          return;
+        }
         const body = new FormData();
-        body.append("canvas_json", JSON.stringify(window.BlytzEditor.getCanvasJSON()));
+        body.append("canvas_json", prepared.jsonString);
         body.append("csrfmiddlewaretoken", getCookie("csrftoken"));
+        if (window.BlytzEditor && typeof window.BlytzEditor.getGarmentState === "function") {
+          const g = window.BlytzEditor.getGarmentState();
+          if (g && g.template) body.append("garment_template", g.template);
+          if (g && g.color) body.append("garment_color", g.color);
+        }
         setStatus("Saving…");
+        saveBtn.disabled = true;
         fetch(saveUrl, {
           method: "POST",
           body: body,
@@ -196,15 +241,23 @@
           credentials: "same-origin",
         })
           .then(function (r) {
-            return r.json().then(function (data) {
-              return { ok: r.ok, data: data };
-            });
+            return r
+              .json()
+              .then(function (data) {
+                return { httpOk: r.ok, data: data };
+              })
+              .catch(function () {
+                return { httpOk: false, data: null };
+              });
           })
           .then(function (res) {
-            setStatus(res.ok ? "Saved." : "Save failed.");
+            const success = !!(res.httpOk && res.data && res.data.ok);
+            setStatus(success ? "Saved." : "Save failed.");
+            updateActionButtons();
           })
           .catch(function () {
             setStatus("Save failed.");
+            updateActionButtons();
           });
       });
     }
@@ -215,8 +268,20 @@
           setStatus("Already submitted.");
           return;
         }
+        const prepared = preparePayloadOrWarn();
+        if (!prepared.ok) {
+          setStatus(prepared.error || "Submit blocked.");
+          return;
+        }
         if (canvasField) {
-          canvasField.value = JSON.stringify(window.BlytzEditor.getCanvasJSON());
+          canvasField.value = prepared.jsonString;
+        }
+        const gTpl = document.getElementById("submit-garment-template");
+        const gCol = document.getElementById("submit-garment-color");
+        if (window.BlytzEditor && typeof window.BlytzEditor.getGarmentState === "function") {
+          const g = window.BlytzEditor.getGarmentState();
+          if (gTpl && g && g.template) gTpl.value = g.template;
+          if (gCol && g && g.color) gCol.value = g.color;
         }
         openModal(modalId);
         showChannelDetails();
@@ -244,7 +309,6 @@
       });
     }
 
-    // Intercept modal backdrop close as cancel (no records)
     const modal = document.getElementById(modalId);
     if (modal) {
       modal.querySelectorAll("[data-modal-close]").forEach(function (el) {
@@ -261,6 +325,13 @@
           setStatus("Payment window expired. Nothing was recorded.");
           return;
         }
+        const prepared = preparePayloadOrWarn();
+        if (!prepared.ok) {
+          e.preventDefault();
+          setStatus(prepared.error || "Submit blocked.");
+          if (clientError) clientError.textContent = prepared.error || "Submit blocked.";
+          return;
+        }
         const proofErr = validateProofClient();
         if (proofErr) {
           e.preventDefault();
@@ -273,13 +344,21 @@
           return;
         }
         if (canvasField) {
-          canvasField.value = JSON.stringify(window.BlytzEditor.getCanvasJSON());
+          canvasField.value = prepared.jsonString;
+        }
+        const gTpl2 = document.getElementById("submit-garment-template");
+        const gCol2 = document.getElementById("submit-garment-color");
+        if (window.BlytzEditor && typeof window.BlytzEditor.getGarmentState === "function") {
+          const g2 = window.BlytzEditor.getGarmentState();
+          if (gTpl2 && g2 && g2.template) gTpl2.value = g2.template;
+          if (gCol2 && g2 && g2.color) gCol2.value = g2.color;
         }
         sendBtn.disabled = true;
         setStatus("Submitting…");
       });
     }
 
+    updateActionButtons();
     updateSendEnabled();
     showChannelDetails();
   }

@@ -4,21 +4,29 @@
 {% block title %}Editor · {{ design.title }} — Blytz{% endblock %}
 
 {% block extra_head %}
+<script src="{% static 'vendor/fabric/fabric.min.js' %}"></script>
+<script src="{% static 'js/editor_canvas.js' %}"></script>
+<script src="{% static 'js/editor_garments.js' %}"></script>
+<script src="{% static 'js/editor_tools.js' %}"></script>
+<script src="{% static 'js/editor_properties.js' %}"></script>
 <script src="{% static 'js/editor_contract.js' %}"></script>
+<script src="{% static 'js/ai_chat.js' %}" defer></script>
 <script src="{% static 'js/editor_page.js' %}" defer></script>
 {% endblock %}
 
 {% block content %}
-<div class="flex min-h-[calc(100dvh-8rem)] flex-col"
+<div class="editor-shell flex flex-col"
      data-editor-page
      data-save-url="{% url 'design_save' design.pk %}"
      data-submit-url="{% url 'design_submit' design.pk %}"
      data-payment-window-minutes="{{ payment_window_minutes }}"
      data-already-submitted="{% if already_submitted %}1{% else %}0{% endif %}"
+     data-garment-template="{{ design.garment_template|default:'tee'|escape }}"
+     data-garment-color="{{ design.garment_color|default:''|escape }}"
      data-canvas-json="{{ canvas_json_initial|escape }}">
 
   <div class="border-b border-border bg-canvas">
-    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
+    <div class="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:max-w-none lg:px-6">
       <div class="min-w-0">
         <p class="text-xs text-ink-subtle">
           <a href="{% url 'app_home' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Dashboard</a>
@@ -32,9 +40,14 @@
       <div class="flex flex-wrap items-center gap-2">
         <p class="mr-2 text-sm text-ink-muted" data-editor-status aria-live="polite"></p>
         <button type="button"
+                data-ai-open
+                class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink lg:hidden">
+          AI
+        </button>
+        <button type="button"
                 data-drawer-open="editor-tools"
                 class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-          Tools
+          Design info
         </button>
         <button type="button"
                 data-editor-save
@@ -51,22 +64,250 @@
     </div>
   </div>
 
-  {# Full-width canvas host #}
-  <div id="editor-root"
-       class="relative flex flex-1 flex-col bg-surface"
-       aria-label="Design canvas">
-    <div class="flex flex-1 items-center justify-center p-6">
-      <div class="w-full max-w-3xl rounded-lg border border-dashed border-border bg-canvas p-10 text-center">
-        <p class="font-display text-2xl text-ink">Canvas placeholder</p>
-        <p class="mt-2 text-sm text-ink-muted" data-editor-stub-label>
-          Fabric.js will mount here via <code class="rounded bg-surface px-1">window.BlytzEditor</code>
+  <div class="editor-workspace flex min-h-0 flex-1 flex-col lg:flex-row">
+    {# Toolbar is a sibling of #editor-root (not a child) so it does not affect ResizeObserver sizing of the artboard column. #}
+    <aside id="editor-toolbar"
+           class="editor-toolbar"
+           aria-label="Editor tools">
+      <div class="editor-toolbar-inner">
+        <button type="button"
+                data-editor-action="garment"
+                aria-label="Garment"
+                aria-expanded="false"
+                aria-controls="editor-tool-panel"
+                title="Garment"
+                class="editor-toolbar-btn">
+          <span aria-hidden="true" class="editor-toolbar-icon">G</span>
+          <span class="editor-toolbar-label">Garment</span>
+        </button>
+        {# Overlay Front/Back overlapped the artboard at standard viewports; toolbar toggle fallback. #}
+        <button type="button"
+                data-editor-action="toggle-view"
+                id="editor-view-toggle-btn"
+                aria-label="Garment view: Front"
+                title="Switch garment view"
+                class="editor-toolbar-btn">
+          <span aria-hidden="true" class="editor-toolbar-icon" data-view-toggle-icon>F</span>
+          <span class="editor-toolbar-label" data-view-toggle-label>Front</span>
+        </button>
+        <button type="button"
+                data-editor-action="select"
+                aria-label="Select"
+                aria-pressed="true"
+                title="Select"
+                class="editor-toolbar-btn is-active">
+          <span aria-hidden="true" class="editor-toolbar-icon">↖</span>
+          <span class="editor-toolbar-label">Select</span>
+        </button>
+        <button type="button"
+                data-editor-action="multi-select"
+                aria-label="Multi-select"
+                aria-pressed="false"
+                title="Multi-select (tap to add or remove)"
+                class="editor-toolbar-btn">
+          <span aria-hidden="true" class="editor-toolbar-icon">☰</span>
+          <span class="editor-toolbar-label">Multi</span>
+        </button>
+        <button type="button"
+                data-editor-action="add-text"
+                aria-label="Add text"
+                title="Add text"
+                class="editor-toolbar-btn">
+          <span aria-hidden="true" class="editor-toolbar-icon">T</span>
+          <span class="editor-toolbar-label">Text</span>
+        </button>
+        <button type="button"
+                data-editor-action="add-image"
+                aria-label="Upload image"
+                title="Upload image"
+                class="editor-toolbar-btn">
+          <span aria-hidden="true" class="editor-toolbar-icon">▣</span>
+          <span class="editor-toolbar-label">Image</span>
+        </button>
+        <input type="file"
+               data-editor-image-input
+               accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+               class="sr-only"
+               tabindex="-1"
+               aria-hidden="true">
+        <button type="button"
+                data-editor-action="delete"
+                aria-label="Delete selected"
+                title="Delete selected"
+                class="editor-toolbar-btn">
+          <span aria-hidden="true" class="editor-toolbar-icon">⌫</span>
+          <span class="editor-toolbar-label">Delete</span>
+        </button>
+        <button type="button"
+                data-editor-action="elements"
+                aria-label="Elements"
+                title="Elements"
+                class="editor-toolbar-btn">
+          <span aria-hidden="true" class="editor-toolbar-icon">◇</span>
+          <span class="editor-toolbar-label">Elements</span>
+        </button>
+        <button type="button"
+                data-editor-action="layers"
+                aria-label="Layers"
+                title="Layers"
+                class="editor-toolbar-btn">
+          <span aria-hidden="true" class="editor-toolbar-icon">▤</span>
+          <span class="editor-toolbar-label">Layers</span>
+        </button>
+      </div>
+      <p class="editor-toolbar-feedback"
+         data-editor-tool-feedback
+         role="status"
+         aria-live="polite"></p>
+    </aside>
+
+    <div id="editor-root"
+         class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface"
+         aria-label="Design canvas">
+      {# Shared tool panel: absolute inside #editor-root so it never changes clientWidth / ResizeObserver sizing. #}
+      <div id="editor-tool-panel"
+           class="editor-tool-panel"
+           role="dialog"
+           aria-modal="false"
+           aria-labelledby="editor-tool-panel-title"
+           hidden>
+        <div class="editor-tool-panel-chrome">
+          <div class="editor-tool-panel-header">
+            <h2 id="editor-tool-panel-title" class="editor-tool-panel-title">Tools</h2>
+            <button type="button"
+                    class="editor-tool-panel-close"
+                    data-panel-close
+                    aria-label="Close panel">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <p class="editor-panel-feedback" data-panel-feedback role="status" aria-live="polite"></p>
+          <div class="editor-tool-panel-body" data-panel-body></div>
+        </div>
+      </div>
+      <button type="button"
+              id="editor-props-pill"
+              class="editor-props-pill"
+              aria-controls="editor-properties-panel"
+              aria-expanded="false"
+              hidden>
+        Edit
+      </button>
+      <aside id="editor-properties-panel"
+             class="editor-properties-panel"
+             role="group"
+             aria-labelledby="editor-properties-title"
+             hidden>
+        <div class="editor-properties-chrome">
+          <div class="editor-properties-header">
+            <h2 id="editor-properties-title" class="editor-properties-title">Properties</h2>
+            <button type="button"
+                    class="editor-properties-icon-btn"
+                    data-props-expand
+                    aria-label="Expand properties"
+                    hidden>
+              <span aria-hidden="true">▸</span>
+            </button>
+            <button type="button"
+                    class="editor-properties-icon-btn"
+                    data-props-close
+                    aria-label="Collapse or close properties">
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+          <div class="editor-properties-body" data-props-body></div>
+        </div>
+      </aside>
+      <div id="editor-canvas-host"
+           class="flex min-h-0 w-full flex-1 flex-col items-center justify-center gap-3 overflow-hidden p-4 sm:p-6">
+        <div id="editor-canvas-wrap"
+             class="overflow-hidden rounded-md border border-border shadow-sm">
+          <canvas id="blytz-fabric-canvas"
+                  width="800"
+                  height="800"
+                  class="touch-manipulation"></canvas>
+        </div>
+        <p class="text-center text-xs text-ink-subtle">
+          Working canvas 800×800 (provisional). Use the toolbar or the AI Assistant for ideas.
         </p>
       </div>
     </div>
+
+    <div id="ai-assistant-backdrop"
+         class="fixed inset-0 z-40 hidden bg-ink/50 lg:hidden"
+         aria-hidden="true"></div>
+
+    <aside id="ai-assistant"
+           class="ai-assistant-panel flex w-full max-w-md flex-col border-border bg-canvas lg:max-w-sm lg:border-l"
+           aria-label="AI Assistant"
+           aria-hidden="false">
+      <div class="flex items-center justify-between border-b border-border px-4 py-3">
+        <div>
+          <h2 class="font-display text-lg text-ink">AI Assistant</h2>
+          <p class="text-xs text-ink-subtle">Local demo candidates — not a live AI model</p>
+        </div>
+        <button type="button"
+                data-ai-close
+                class="rounded-md p-1.5 text-ink-muted hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink lg:hidden"
+                aria-label="Close AI Assistant">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+
+      <div data-ai-messages
+           class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
+           aria-live="polite">
+        <div data-ai-empty class="space-y-3 text-sm text-ink-muted">
+          <p>Describe a look for this tee. Each turn returns two local demo candidates you can preview on the canvas. The first real edit keeps that option and discards the other.</p>
+          <p class="text-xs text-ink-subtle">Try a starter prompt:</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button"
+                    data-ai-starter="Bold wordmark across the chest"
+                    class="inline-flex min-h-9 items-center rounded-md border border-border bg-surface px-3 text-xs font-medium text-ink hover:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+              Bold wordmark across the chest
+            </button>
+            <button type="button"
+                    data-ai-starter="Minimal monogram in the corner"
+                    class="inline-flex min-h-9 items-center rounded-md border border-border bg-surface px-3 text-xs font-medium text-ink hover:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+              Minimal monogram in the corner
+            </button>
+            <button type="button"
+                    data-ai-starter="Sporty number badge"
+                    class="inline-flex min-h-9 items-center rounded-md border border-border bg-surface px-3 text-xs font-medium text-ink hover:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+              Sporty number badge
+            </button>
+          </div>
+          <p class="text-xs text-ink-subtle">Tip: include the word “fail” to exercise the error/retry path.</p>
+        </div>
+      </div>
+
+      <div data-ai-turn
+           class="ai-turn-panel hidden shrink-0 border-t border-border px-4 py-3"
+           aria-label="Current turn candidates"></div>
+
+      <p class="px-4 text-xs text-ink-muted" data-ai-status role="status" aria-live="polite"></p>
+
+      <form data-ai-form class="border-t border-border p-4">
+        <label for="ai-chat-input" class="sr-only">Prompt</label>
+        <textarea id="ai-chat-input"
+                  data-ai-input
+                  rows="2"
+                  placeholder="Describe a design idea…"
+                  class="block w-full rounded-md border border-border bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"></textarea>
+        <div class="mt-2 flex items-center justify-between gap-2">
+          <p class="text-xs text-ink-subtle">Enter to send · Shift+Enter for a new line</p>
+          <button type="submit"
+                  data-ai-send
+                  class="inline-flex min-h-11 items-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas hover:bg-ink/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40">
+            Send
+          </button>
+        </div>
+      </form>
+    </aside>
   </div>
 </div>
 
-{# Tools drawer #}
+{# Design-info drawer: garment metadata only (edit tools live in #editor-toolbar). #}
 <div id="editor-tools"
      class="fixed inset-0 z-50 hidden"
      role="dialog"
@@ -76,7 +317,7 @@
   <div class="absolute inset-0 bg-ink/50" data-drawer-close tabindex="-1"></div>
   <div class="absolute inset-y-0 right-0 flex w-full max-w-sm flex-col border-l border-border bg-canvas shadow-lg">
     <div class="flex items-center justify-between border-b border-border px-4 py-3">
-      <h2 id="editor-tools-title" class="font-display text-lg text-ink">Tools</h2>
+      <h2 id="editor-tools-title" class="font-display text-lg text-ink">Design info</h2>
       <button type="button"
               class="rounded-md p-1.5 text-ink-muted hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
               data-drawer-close
@@ -87,23 +328,31 @@
     <div class="flex-1 space-y-6 overflow-y-auto px-4 py-4 text-sm">
       <section>
         <h3 class="font-medium text-ink">Garment</h3>
-        <p class="mt-1 text-ink-muted">Template &amp; color controls (placeholder).</p>
+        <p class="mt-1 text-ink-muted">
+          Template and color are design metadata (not part of the canvas JSON). Use the Garment tool in the toolbar to change them.
+        </p>
+        <p id="editor-garment-summary"
+           class="mt-3 font-medium text-ink"
+           aria-live="polite"></p>
       </section>
+
       <section>
-        <h3 class="font-medium text-ink">Images</h3>
-        <p class="mt-1 text-ink-muted">Upload &amp; place artwork (placeholder).</p>
+        <h3 class="font-medium text-ink">Editing</h3>
+        <p class="mt-1 text-ink-muted">
+          Use the editor toolbar for select, text, image upload, and delete.
+          Images: PNG, JPG, or WebP · up to 8&nbsp;MB input (stored smaller).
+        </p>
       </section>
-      <section>
-        <h3 class="font-medium text-ink">Text</h3>
-        <p class="mt-1 text-ink-muted">Add and style text layers (placeholder).</p>
-      </section>
+
       <section>
         <h3 class="font-medium text-ink">AI</h3>
-        <p class="mt-1 text-ink-muted">AI helpers plug in via <code class="rounded bg-surface px-1">services/</code>.</p>
-      </section>
-      <section>
-        <h3 class="font-medium text-ink">Layers</h3>
-        <p class="mt-1 text-ink-muted">Reorder and toggle layers (placeholder).</p>
+        <p class="mt-1 text-ink-muted">Use the AI Assistant panel for local demo candidates. Real AI arrives in a later stage.</p>
+        <button type="button"
+                data-ai-open
+                data-drawer-close
+                class="mt-3 inline-flex min-h-11 w-full items-center justify-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink lg:hidden">
+          Open AI Assistant
+        </button>
       </section>
     </div>
   </div>
@@ -135,6 +384,8 @@
           class="flex flex-1 flex-col overflow-hidden">
       {% csrf_token %}
       <input type="hidden" name="canvas_json" id="submit-canvas-json" value="">
+      <input type="hidden" name="garment_template" id="submit-garment-template" value="">
+      <input type="hidden" name="garment_color" id="submit-garment-color" value="">
       <input type="hidden" name="window_started_at" id="window-started-at" value="">
 
       <div class="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
@@ -188,7 +439,7 @@
                  id="payment-proof"
                  name="proof_file"
                  accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
-                 class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2 text-base text-ink file:mr-3 file:rounded file:border-0 file:bg-ink file:px-3 file:py-2 file:text-sm file:font-medium file:text-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+                 class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2 text-base text-ink file:mr-3 file:rounded file:border-0 file:bg-ink file:px-3 file:py-2 file:text-sm file:font-medium file:text-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink">
           <p class="mt-1.5 text-xs text-ink-subtle">PNG, JPG, JPEG, or PDF · max 5 MB</p>
           <p class="mt-1 text-sm text-danger" data-payment-client-error role="alert"></p>
         </div>

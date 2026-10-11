@@ -162,3 +162,5 @@ class DesignSubmitTests(TestCase):
         self.assertContains(response, 'id="editor-root"')
         self.assertContains(response, "Strictly no refunds")
         self.assertContains(response, "editor_contract.js")
+        self.assertContains(response, "fabric.min.js")
+        self.assertContains(response, "blytz-fabric-canvas")
