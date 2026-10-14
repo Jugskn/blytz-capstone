@@ -6,8 +6,20 @@
 <section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
   <h1 class="font-display text-3xl text-ink">Jobs Pipeline</h1>
   <p class="mt-1 text-ink-muted">Move orders forward one phase at a time.</p>
+  {% if pending_review %}
+  <div class="mt-3 flex flex-wrap items-center gap-3">
+    {% include "components/badge.html" with label="Showing orders with payment awaiting review" variant="warning" %}
+    <a href="{% url 'jobs_pipeline' %}"
+       class="text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+      Clear filter
+    </a>
+  </div>
+  {% endif %}
 
   <form method="get" class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end">
+    {% if pending_review %}
+    <input type="hidden" name="pending_review" value="1">
+    {% endif %}
     <div class="flex-1">
       <label for="q" class="mb-1 block text-sm font-medium text-ink">Search order ID</label>
       <input type="search" name="q" id="q" value="{{ q }}"
@@ -28,12 +40,12 @@
       {% include "components/empty_state.html" with title="No jobs match" description="Try clearing search filters." %}
     {% endif %}
 
-    {# Mobile: one phase tabs #}
+    {% comment %}Mobile: one phase tabs{% endcomment %}
     <div class="pipeline-mobile">
-      <div class="flex gap-1 overflow-x-auto border-b border-border" role="tablist">
+      <div class="flex gap-1 overflow-x-auto border-b border-border" role="tablist" style="padding-bottom:env(safe-area-inset-bottom,0)">
         {% for col in columns %}
         <button type="button" data-pipeline-tab="{{ col.status }}"
-                class="shrink-0 border-b-2 px-3 py-2 text-sm font-medium {% if forloop.first %}border-ink text-ink{% else %}border-transparent text-ink-muted{% endif %}">
+                class="shrink-0 border-b-2 px-3 py-2.5 text-sm font-medium min-h-11 {% if forloop.first %}border-ink text-ink{% else %}border-transparent text-ink-muted{% endif %}">
           {{ col.label }}
         </button>
         {% endfor %}
@@ -49,8 +61,8 @@
       {% endfor %}
     </div>
 
-    {# Tablet: horizontal snap #}
-    <div class="pipeline-tablet">
+    {% comment %}Tablet portrait: horizontal snap-scroll{% endcomment %}
+    <div class="pipeline-tablet-snap">
       <div class="pipeline-snap">
         {% for col in columns %}
         <div class="rounded-lg border border-border bg-surface p-3">
@@ -70,7 +82,28 @@
       </div>
     </div>
 
-    {# Laptop: four columns #}
+    {% comment %}Tablet landscape (~768–1279): 2×2 grid{% endcomment %}
+    <div class="pipeline-tablet-grid">
+      <div class="grid grid-cols-2 gap-4">
+        {% for col in columns %}
+        <div class="rounded-lg border border-border bg-surface p-3 min-w-0">
+          <div class="mb-3 flex items-center justify-between gap-2">
+            <h2 class="font-display text-lg text-ink">{{ col.label }}</h2>
+            <span class="font-mono text-xs text-ink-subtle">{{ col.orders|length }}</span>
+          </div>
+          <div class="flex flex-col gap-2">
+            {% for order in col.orders %}
+              {% include "components/pipeline_card.html" with order=order %}
+            {% empty %}
+              <p class="rounded-md border border-dashed border-border bg-canvas px-3 py-6 text-center text-xs text-ink-subtle">Empty</p>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    {% comment %}Laptop: four columns{% endcomment %}
     <div class="pipeline-desktop grid gap-4 lg:grid-cols-4">
       {% for col in columns %}
       <div class="rounded-lg border border-border bg-surface p-3">

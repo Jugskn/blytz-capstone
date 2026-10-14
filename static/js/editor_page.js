@@ -4,9 +4,6 @@
 (function () {
   "use strict";
 
-  const ALLOWED_EXT = [".png", ".jpg", ".jpeg", ".pdf"];
-  const MAX_BYTES = 5 * 1024 * 1024;
-
   function qs(sel, root) {
     return (root || document).querySelector(sel);
   }
@@ -43,12 +40,15 @@
 
     const saveUrl = root.dataset.saveUrl;
     const windowMinutes = parseInt(root.dataset.paymentWindowMinutes || "10", 10);
+    const proofMaxMb = root.dataset.proofMaxMb || "15";
     const initialJson = root.dataset.canvasJson || "{}";
     const alreadySubmitted = root.dataset.alreadySubmitted === "1";
 
     const saveBtn = qs("[data-editor-save]", root);
     const submitBtn = qs("[data-editor-submit]", root);
     const statusEl = qs("[data-editor-status]", root);
+    const titleInput = qs("[data-editor-title]", root);
+    const titleCrumb = qs("[data-editor-title-crumb]");
     const modalId = "payment-modal";
     const form = qs("#payment-submit-form");
     const amountInput = qs("#payment-amount");
@@ -88,53 +88,22 @@
     }
 
     function validateProofClient() {
+      if (!window.BlytzPaymentDetails) {
+        return "Payment helpers failed to load.";
+      }
       if (!proofInput || !proofInput.files || !proofInput.files[0]) {
         return "Choose a proof file.";
       }
-      const file = proofInput.files[0];
-      const name = (file.name || "").toLowerCase();
-      const okExt = ALLOWED_EXT.some(function (ext) {
-        return name.endsWith(ext);
-      });
-      if (!okExt) {
-        return "Proof must be PNG, JPG, JPEG, or PDF.";
-      }
-      if (file.size > MAX_BYTES) {
-        return "Proof file must be 5 MB or smaller.";
-      }
-      return "";
+      return window.BlytzPaymentDetails.validateProofFile(
+        proofInput.files[0],
+        proofMaxMb
+      );
     }
 
     function showChannelDetails() {
-      if (!channelSelect || !channelDetails) return;
+      if (!channelSelect || !channelDetails || !window.BlytzPaymentDetails) return;
       const opt = channelSelect.options[channelSelect.selectedIndex];
-      if (!opt) {
-        channelDetails.innerHTML = "";
-        return;
-      }
-      const name = opt.dataset.accountName || "";
-      const number = opt.dataset.accountNumber || "";
-      const qr = opt.dataset.qrUrl || "";
-      const instructions = opt.dataset.instructions || "";
-      channelDetails.innerHTML =
-        '<dl class="mt-3 space-y-2 text-sm">' +
-        '<div><dt class="text-ink-subtle">Account name</dt><dd class="font-medium text-ink">' +
-        name +
-        "</dd></div>" +
-        '<div><dt class="text-ink-subtle">Account number</dt><dd class="font-mono text-ink">' +
-        number +
-        "</dd></div>" +
-        (instructions
-          ? '<div><dt class="text-ink-subtle">Instructions</dt><dd class="text-ink-muted">' +
-            instructions +
-            "</dd></div>"
-          : "") +
-        "</dl>" +
-        (qr
-          ? '<img src="' +
-            qr +
-            '" alt="Payment QR" class="mt-3 max-h-48 max-w-full w-40 rounded-md border border-border object-contain bg-surface">'
-          : '<p class="mt-3 text-sm text-ink-subtle">No QR image uploaded.</p>');
+      window.BlytzPaymentDetails.renderChannelDetails(channelDetails, opt || null);
     }
 
     function stopTimer() {
@@ -192,6 +161,35 @@
       return window.BlytzEditor.preparePersistPayload();
     }
 
+    function dataURLToBlob(dataURL) {
+      if (!dataURL || typeof dataURL !== "string" || dataURL.indexOf("data:image/png") !== 0) {
+        throw new Error("Invalid preview PNG.");
+      }
+      var parts = dataURL.split(",");
+      var mimeMatch = parts[0].match(/:(.*?);/);
+      var mime = mimeMatch ? mimeMatch[1] : "image/png";
+      var binary = atob(parts[1] || "");
+      var len = binary.length;
+      var bytes = new Uint8Array(len);
+      for (var i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mime });
+    }
+
+    function resolvePreview(result) {
+      return Promise.resolve(result).then(function (url) {
+        if (!url || typeof url !== "string" || url.indexOf("data:image/png") !== 0) {
+          throw new Error("Preview generation failed.");
+        }
+        // Reject the 1×1 fallback stub — not a real mock-up.
+        if (url.length < 200) {
+          throw new Error("Preview generation failed.");
+        }
+        return url;
+      });
+    }
+
     // Initial load — do not treat sync return as "ready".
     setStatus("Loading design…");
     updateActionButtons();
@@ -227,6 +225,9 @@
         const body = new FormData();
         body.append("canvas_json", prepared.jsonString);
         body.append("csrfmiddlewaretoken", getCookie("csrftoken"));
+        if (titleInput) {
+          body.append("title", titleInput.value || "");
+        }
         if (window.BlytzEditor && typeof window.BlytzEditor.getGarmentState === "function") {
           const g = window.BlytzEditor.getGarmentState();
           if (g && g.template) body.append("garment_template", g.template);
@@ -252,6 +253,11 @@
           })
           .then(function (res) {
             const success = !!(res.httpOk && res.data && res.data.ok);
+            if (success && res.data && res.data.title) {
+              if (titleInput) titleInput.value = res.data.title;
+              if (titleCrumb) titleCrumb.textContent = res.data.title;
+              document.title = "Editor · " + res.data.title + " — Blytz";
+            }
             setStatus(success ? "Saved." : "Save failed.");
             updateActionButtons();
           })
@@ -320,26 +326,23 @@
 
     if (form) {
       form.addEventListener("submit", function (e) {
+        e.preventDefault();
         if (windowExpired) {
-          e.preventDefault();
           setStatus("Payment window expired. Nothing was recorded.");
           return;
         }
         const prepared = preparePayloadOrWarn();
         if (!prepared.ok) {
-          e.preventDefault();
           setStatus(prepared.error || "Submit blocked.");
           if (clientError) clientError.textContent = prepared.error || "Submit blocked.";
           return;
         }
         const proofErr = validateProofClient();
         if (proofErr) {
-          e.preventDefault();
           if (clientError) clientError.textContent = proofErr;
           return;
         }
         if (!amountInput || !(parseFloat(amountInput.value) > 0)) {
-          e.preventDefault();
           if (clientError) clientError.textContent = "Enter an amount.";
           return;
         }
@@ -353,8 +356,94 @@
           if (gTpl2 && g2 && g2.template) gTpl2.value = g2.template;
           if (gCol2 && g2 && g2.color) gCol2.value = g2.color;
         }
-        sendBtn.disabled = true;
-        setStatus("Submitting…");
+        if (sendBtn) sendBtn.disabled = true;
+        if (clientError) clientError.textContent = "";
+        setStatus("Generating previews…");
+
+        var getPreview =
+          window.BlytzEditor && window.BlytzEditor.getPreviewPNG
+            ? window.BlytzEditor.getPreviewPNG.bind(window.BlytzEditor)
+            : null;
+        if (!getPreview) {
+          setStatus("Could not create preview. Please try again.");
+          if (clientError) {
+            clientError.textContent =
+              "Could not create preview. Please try again.";
+          }
+          if (sendBtn) sendBtn.disabled = false;
+          updateSendEnabled();
+          return;
+        }
+
+        Promise.all([
+          resolvePreview(getPreview({ view: "front", includeGarment: true })),
+          resolvePreview(getPreview({ view: "back", includeGarment: true })),
+        ])
+          .then(function (urls) {
+            setStatus("Submitting…");
+            var body = new FormData(form);
+            body.set(
+              "preview_image",
+              dataURLToBlob(urls[0]),
+              "preview_front.png"
+            );
+            body.set(
+              "preview_back_image",
+              dataURLToBlob(urls[1]),
+              "preview_back.png"
+            );
+            return fetch(form.action, {
+              method: "POST",
+              body: body,
+              headers: {
+                "X-Requested-With": "XMLHttpRequest",
+                Accept: "application/json",
+              },
+              credentials: "same-origin",
+            }).then(function (r) {
+              return r
+                .json()
+                .then(function (data) {
+                  return { httpOk: r.ok, status: r.status, data: data };
+                })
+                .catch(function () {
+                  return { httpOk: false, status: r.status, data: null };
+                });
+            });
+          })
+          .then(function (res) {
+            if (res && res.httpOk && res.data && res.data.ok && res.data.redirect) {
+              window.location.href = res.data.redirect;
+              return;
+            }
+            var msg = "Submit failed. Please try again.";
+            if (res && res.data && res.data.errors) {
+              var parts = [];
+              Object.keys(res.data.errors).forEach(function (key) {
+                var vals = res.data.errors[key];
+                if (Array.isArray(vals)) {
+                  vals.forEach(function (v) {
+                    parts.push(v);
+                  });
+                } else if (vals) {
+                  parts.push(String(vals));
+                }
+              });
+              if (parts.length) msg = parts.join(" ");
+            }
+            setStatus(msg);
+            if (clientError) clientError.textContent = msg;
+            if (sendBtn) sendBtn.disabled = false;
+            updateSendEnabled();
+          })
+          .catch(function () {
+            var msg =
+              "Could not create preview. Please try again.";
+            setStatus(msg);
+            if (clientError) clientError.textContent = msg;
+            if (sendBtn) sendBtn.disabled = false;
+            updateSendEnabled();
+          });
       });
     }
 

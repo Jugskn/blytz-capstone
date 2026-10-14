@@ -11,6 +11,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env(
     DEBUG=(bool, True),
     PAYMENT_WINDOW_MINUTES=(int, 10),
+    PROOF_MAX_UPLOAD_MB=(int, 15),
 )
 
 environ.Env.read_env(BASE_DIR / ".env")
@@ -144,6 +145,7 @@ TAILWIND_CLI_DIST_CSS = "css/tailwind.css"
 # Blytz business settings
 MESSENGER_PAGE_USERNAME = env("MESSENGER_PAGE_USERNAME", default="")
 PAYMENT_WINDOW_MINUTES = env("PAYMENT_WINDOW_MINUTES")
+PROOF_MAX_UPLOAD_MB = env("PROOF_MAX_UPLOAD_MB")
 
 # Email — console in development; set EMAIL_BACKEND to anymail later, e.g.
 # EMAIL_BACKEND=anymail.backends.mailgun.EmailBackend (+ django-anymail + provider keys)

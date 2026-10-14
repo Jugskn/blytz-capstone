@@ -2,8 +2,9 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import Max, Sum
+from django.db.models import Max, Q, Sum
 from django.urls import reverse
+from django.utils import timezone
 
 
 class PaymentChannel(models.Model):
@@ -57,6 +58,12 @@ class Order(models.Model):
     )
     canvas_json_snapshot = models.JSONField(default=dict, blank=True)
     preview_image = models.ImageField(upload_to="order_previews/", blank=True)
+    preview_back_image = models.ImageField(upload_to="order_previews/", blank=True)
+    final_design = models.FileField(upload_to="final_designs/", blank=True)
+    final_design_version = models.PositiveIntegerField(default=0)
+    final_design_uploaded_at = models.DateTimeField(null=True, blank=True)
+    approved_version = models.PositiveIntegerField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -121,9 +128,27 @@ class Order(models.Model):
             self.order_id = self.generate_order_id()
         super().save(*args, **kwargs)
 
+    def _payments_cached(self):
+        cache = getattr(self, "_prefetched_objects_cache", None)
+        if cache is not None and "payments" in cache:
+            return list(self.payments.all())
+        return None
+
     @property
     def total_paid(self) -> Decimal:
-        total = self.payments.aggregate(total=Sum("amount_claimed"))["total"]
+        cached = self._payments_cached()
+        if cached is not None:
+            return sum(
+                (
+                    p.amount_claimed
+                    for p in cached
+                    if p.status == Payment.Status.ACCEPTED
+                ),
+                Decimal("0.00"),
+            )
+        total = self.payments.filter(status=Payment.Status.ACCEPTED).aggregate(
+            total=Sum("amount_claimed")
+        )["total"]
         return total if total is not None else Decimal("0.00")
 
     @property
@@ -140,8 +165,57 @@ class Order(models.Model):
             return self.FULLY_PAID
         return self.OUTSTANDING
 
+    @property
+    def has_accepted_payment(self) -> bool:
+        cached = self._payments_cached()
+        if cached is not None:
+            return any(p.status == Payment.Status.ACCEPTED for p in cached)
+        return self.payments.filter(status=Payment.Status.ACCEPTED).exists()
+
+    @property
+    def pending_payment(self):
+        cached = self._payments_cached()
+        if cached is not None:
+            for payment in cached:
+                if payment.status == Payment.Status.PENDING:
+                    return payment
+            return None
+        return self.payments.filter(status=Payment.Status.PENDING).first()
+
+    def can_accept_additional_payment(self) -> bool:
+        """True when a customer may upload another payment proof."""
+        if self.pending_payment is not None:
+            return False
+        if self.payment_status == self.FULLY_PAID:
+            return False
+        # Balance > 0, or no agreed total yet.
+        return True
+
+    @property
+    def final_design_is_pdf(self) -> bool:
+        name = (getattr(self.final_design, "name", "") or "").lower()
+        return name.endswith(".pdf")
+
+    @property
+    def final_design_is_image(self) -> bool:
+        name = (getattr(self.final_design, "name", "") or "").lower()
+        return name.endswith((".png", ".jpg", ".jpeg"))
+
+    def can_approve_final_design(self) -> bool:
+        """True when the owning customer may approve the current final design."""
+        return (
+            self.status == self.Status.PENDING_EDIT
+            and bool(self.final_design)
+            and self.final_design_version > 0
+        )
+
 
 class Payment(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        ACCEPTED = "accepted", "Accepted"
+        REJECTED = "rejected", "Rejected"
+
     order = models.ForeignKey(
         Order,
         on_delete=models.CASCADE,
@@ -158,6 +232,20 @@ class Payment(models.Model):
     proof_file = models.FileField(upload_to="payment_proofs/", blank=True)
     is_manual_adjustment = models.BooleanField(default=False)
     note = models.CharField(max_length=255, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    rejection_reason = models.CharField(max_length=255, blank=True)
+    reviewed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="reviewed_payments",
+    )
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
@@ -169,6 +257,79 @@ class Payment(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order"],
+                condition=Q(status="pending"),
+                name="unique_pending_payment_per_order",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.order.order_id} · {self.amount_claimed}"
+
+    @property
+    def is_pending(self) -> bool:
+        return self.status == self.Status.PENDING
+
+    @property
+    def is_reviewed(self) -> bool:
+        return self.status in {self.Status.ACCEPTED, self.Status.REJECTED}
+
+    def accept(self, reviewer) -> None:
+        if self.status != self.Status.PENDING:
+            raise ValueError("Only pending payments can be reviewed.")
+        self.status = self.Status.ACCEPTED
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.rejection_reason = ""
+        self.save(
+            update_fields=[
+                "status",
+                "reviewed_by",
+                "reviewed_at",
+                "rejection_reason",
+            ]
+        )
+
+    def reject(self, reviewer, reason: str = "") -> None:
+        if self.status != self.Status.PENDING:
+            raise ValueError("Only pending payments can be reviewed.")
+        self.status = self.Status.REJECTED
+        self.reviewed_by = reviewer
+        self.reviewed_at = timezone.now()
+        self.rejection_reason = (reason or "").strip()[:255]
+        self.save(
+            update_fields=[
+                "status",
+                "reviewed_by",
+                "reviewed_at",
+                "rejection_reason",
+            ]
+        )
+
+
+class OrderPhaseChange(models.Model):
+    """Audit row for every staff phase advance on an order."""
+
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="phase_changes",
+    )
+    from_status = models.CharField(max_length=20, choices=Order.Status.choices)
+    to_status = models.CharField(max_length=20, choices=Order.Status.choices)
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="order_phase_changes",
+    )
+    changed_at = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ["-changed_at"]
+
+    def __str__(self) -> str:
+        return f"{self.order}: {self.from_status} → {self.to_status}"

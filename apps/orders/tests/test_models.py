@@ -105,6 +105,7 @@ class OrderModelTests(TestCase):
             order=order,
             channel=self.channel,
             amount_claimed=Decimal("400.00"),
+            status=Payment.Status.ACCEPTED,
         )
         self.assertEqual(order.total_paid, Decimal("400.00"))
         self.assertEqual(order.balance, Decimal("600.00"))
@@ -114,6 +115,7 @@ class OrderModelTests(TestCase):
             order=order,
             channel=self.channel,
             amount_claimed=Decimal("600.00"),
+            status=Payment.Status.ACCEPTED,
         )
         self.assertEqual(order.total_paid, Decimal("1000.00"))
         self.assertEqual(order.balance, Decimal("0.00"))
@@ -130,6 +132,7 @@ class OrderModelTests(TestCase):
             order=order,
             channel=self.channel,
             amount_claimed=Decimal("100.00"),
+            status=Payment.Status.ACCEPTED,
         )
         self.assertIsNone(order.balance)
         self.assertEqual(order.payment_status, Order.OUTSTANDING)

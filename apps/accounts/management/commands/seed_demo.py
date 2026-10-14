@@ -1,13 +1,15 @@
+from datetime import timedelta
 from io import BytesIO
 
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 from django.db import transaction
+from django.utils import timezone
 from PIL import Image
 
 from apps.accounts.models import User
 from apps.designs.models import ActivityLog, Design
-from apps.orders.models import Order, Payment, PaymentChannel
+from apps.orders.models import Order, OrderPhaseChange, Payment, PaymentChannel
 from apps.sales.models import Lead
 
 
@@ -26,6 +28,13 @@ def placeholder_qr(label: str) -> ContentFile:
     buffer = BytesIO()
     img.save(buffer, format="PNG")
     return ContentFile(buffer.getvalue(), name=f"{label}-qr.png")
+
+
+def placeholder_preview(label: str, color=(180, 180, 190)) -> ContentFile:
+    img = Image.new("RGB", (400, 400), color=color)
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    return ContentFile(buffer.getvalue(), name=f"{label}.png")
 
 
 class Command(BaseCommand):
@@ -86,6 +95,15 @@ class Command(BaseCommand):
             account_number="09179876543",
             instructions="Include order ID in the note. Strictly no refunds.",
         )
+        bank = self._channel(
+            kind=PaymentChannel.Kind.BANK,
+            display_name="Blytz Bank",
+            account_name="Blytz Clothing Inc.",
+            account_number="1234-5678-9012",
+            instructions="Transfer then upload proof. Strictly no refunds.",
+        )
+        channels = [gcash, maya, bank]
+        now = timezone.now()
 
         designs = []
         for i in range(1, 13):
@@ -165,6 +183,41 @@ class Command(BaseCommand):
                 order.notes = f"Demo order for {design.title}"
                 order.save()
 
+            # Spread order created_at across the last 60 days for realistic charts.
+            order_days_ago = 2 + (idx * 6) % 55
+            order_created = now - timedelta(days=order_days_ago, hours=idx % 12)
+            Order.objects.filter(pk=order.pk).update(created_at=order_created)
+            order.created_at = order_created
+
+            if not order.preview_image:
+                order.preview_image.save(
+                    f"{order.order_id}-front.png",
+                    placeholder_preview(f"{order.order_id}-front", (210, 210, 215)),
+                    save=True,
+                )
+            if not order.preview_back_image:
+                order.preview_back_image.save(
+                    f"{order.order_id}-back.png",
+                    placeholder_preview(f"{order.order_id}-back", (190, 195, 205)),
+                    save=True,
+                )
+
+            # Phase history spread across the last 60 days (idempotent rebuild).
+            OrderPhaseChange.objects.filter(order=order).delete()
+            try:
+                target_idx = Order.PHASE_FLOW.index(order.status)
+            except ValueError:
+                target_idx = 0
+            for step in range(target_idx):
+                days_ago = max(1, order_days_ago - (step + 1) * 3)
+                OrderPhaseChange.objects.create(
+                    order=order,
+                    from_status=Order.PHASE_FLOW[step],
+                    to_status=Order.PHASE_FLOW[step + 1],
+                    changed_by=staff_edit if step % 2 == 0 else staff_view,
+                    changed_at=now - timedelta(days=days_ago, hours=step),
+                )
+
             ActivityLog.objects.get_or_create(
                 customer=design.owner,
                 design=design,
@@ -180,15 +233,79 @@ class Command(BaseCommand):
                 )
 
             claimed = pricing[idx][1]
-            channel = gcash if idx % 2 == 0 else maya
-            if claimed and claimed != "0.00":
-                Payment.objects.update_or_create(
+            channel = channels[idx % len(channels)]
+            Payment.objects.filter(order=order).delete()
+            # Mix accepted / pending / rejected claims for demo review flows.
+            # Orders past Job Request always get an accepted payment so gates stay valid.
+            # Payment created_at is backdated within the last 60 days for charts.
+            def _add_payment(*, amount, status, channel_obj, days_offset=0, **extra):
+                payment = Payment.objects.create(
                     order=order,
-                    channel=channel,
-                    defaults={"amount_claimed": claimed},
+                    channel=channel_obj,
+                    amount_claimed=amount,
+                    status=status,
+                    **extra,
                 )
-            else:
-                Payment.objects.filter(order=order).delete()
+                pay_days = max(0, order_days_ago - days_offset)
+                pay_created = now - timedelta(days=pay_days, hours=(idx + days_offset) % 20)
+                Payment.objects.filter(pk=payment.pk).update(created_at=pay_created)
+                if status == Payment.Status.ACCEPTED:
+                    Payment.objects.filter(pk=payment.pk).update(
+                        reviewed_at=pay_created + timedelta(hours=2),
+                        reviewed_by=staff_edit,
+                    )
+                return payment
+
+            if claimed and claimed != "0.00":
+                if order.status == Order.Status.JOB_REQUEST and idx == 1:
+                    # Outstanding job request with only a pending claim
+                    _add_payment(
+                        amount=claimed,
+                        status=Payment.Status.PENDING,
+                        channel_obj=channel,
+                    )
+                elif idx == 3:
+                    # Accepted partial + a second pending top-up
+                    _add_payment(
+                        amount=claimed,
+                        status=Payment.Status.ACCEPTED,
+                        channel_obj=channel,
+                        days_offset=2,
+                    )
+                    _add_payment(
+                        amount="200.00",
+                        status=Payment.Status.PENDING,
+                        channel_obj=channels[(idx + 1) % len(channels)],
+                    )
+                elif idx == 7:
+                    # Rejected claim plus an accepted partial
+                    _add_payment(
+                        amount="100.00",
+                        status=Payment.Status.REJECTED,
+                        channel_obj=channel,
+                        days_offset=4,
+                        rejection_reason="Unreadable proof",
+                    )
+                    _add_payment(
+                        amount=claimed,
+                        status=Payment.Status.ACCEPTED,
+                        channel_obj=channel,
+                        days_offset=1,
+                    )
+                else:
+                    _add_payment(
+                        amount=claimed,
+                        status=Payment.Status.ACCEPTED,
+                        channel_obj=channel,
+                        days_offset=1,
+                    )
+            elif idx == 5:
+                # No accepted payment yet; pending claim only (still Job Request / Production demo)
+                _add_payment(
+                    amount="500.00",
+                    status=Payment.Status.PENDING,
+                    channel_obj=channel,
+                )
 
             Lead.objects.update_or_create(
                 order=order,

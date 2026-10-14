@@ -17,7 +17,7 @@ alwaysApply: true
 
 - Use `django-environ`. Prefer env vars over hard-coded secrets.
 - Default DB is SQLite via `DATABASE_URL` fallback; MySQL comes later through `DATABASE_URL`.
-- Respect `MESSENGER_PAGE_USERNAME` and `PAYMENT_WINDOW_MINUTES` (default 10).
+- Respect `MESSENGER_PAGE_USERNAME`, `PAYMENT_WINDOW_MINUTES` (default 10), and `PROOF_MAX_UPLOAD_MB` (default 15).
 - Dev email stays on the console backend unless explicitly changed.
 
 ## Tailwind

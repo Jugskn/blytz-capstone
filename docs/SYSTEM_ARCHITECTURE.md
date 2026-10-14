@@ -46,7 +46,7 @@ Blytz is a server-rendered Django web application for a custom apparel business.
 | Persistence | SQLite by default; MySQL via `DATABASE_URL` |
 | Domain split | Django apps under `apps/<name>`; project package `config/` |
 | Third-party I/O | Intended behind `services/` wrappers (stubs today) |
-| Money model | P2P claims only — Blytz records `amount_claimed` + proof; no payment gateway |
+| Money model | P2P **claims** — customers upload proof; staff accept/reject; only **accepted** payments count as paid; no payment gateway |
 
 **Primary actors**
 
@@ -67,7 +67,7 @@ Blytz is a server-rendered Django web application for a custom apparel business.
 | Auth | django-allauth | Email-only login; mandatory email verification |
 | CSS | Tailwind via django-tailwind-cli | No Node toolchain |
 | Static serving | WhiteNoise | Compressed manifest storage when `DEBUG=False` |
-| Images | Pillow | Seed QR placeholders; design/order previews |
+| Images | Pillow | Seed QR placeholders; design/order previews; payment-proof shrink/sanitize |
 | MySQL driver | PyMySQL | Installed as MySQLdb in `config/__init__.py` |
 | Email (dev) | Django console backend | Anymail optional later |
 | Hosting target | Railway | TLS proxy header support |
@@ -92,7 +92,7 @@ apps/
   orders/                 # Order, Payment, PaymentChannel, jobs pipeline
   accounting/             # Staff accounting views (no own models)
   sales/                  # Lead pipeline
-services/                 # Future remove.bg / AI / email wrappers (empty today)
+services/                 # proof_images (+ future remove.bg / AI / email wrappers)
 templates/                # Root templates + components + per-app pages
 static/                   # css/, js/, img/
 src/styles/main.css       # Tailwind source + @theme tokens
@@ -117,7 +117,7 @@ Procfile                  # gunicorn bind
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                         Browser (customer / staff)                       │
 │  Templates (base_public / base_customer / base_staff) + Tailwind CSS     │
-│  JS: editor_contract.js, editor_page.js, nav.js, ui.js                   │
+│  JS: editor_*.js, editor_chrome.js, payment_*.js, nav.js, ui.js          │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │ HTTPS
 ┌───────────────────────────────▼─────────────────────────────────────────┐
@@ -148,11 +148,12 @@ Procfile                  # gunicorn bind
                                ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  Database (SQLite default · MySQL via DATABASE_URL)                      │
-│  User · Design · ActivityLog · Order · Payment · PaymentChannel · Lead   │
+│  User · Design · ActivityLog · Order · OrderPhaseChange · Payment ·     │
+│  PaymentChannel · Lead                                                   │
 └─────────────────────────────────────────────────────────────────────────┘
 
-Future (services/):
-  remove.bg  ·  AI helpers  ·  transactional email (anymail)
+services/:
+  proof_images · preview_images (live)  ·  remove.bg / AI / email (planned)
 ```
 
 **Request path principles**
@@ -174,7 +175,7 @@ Future (services/):
 | Auth adapter | Post-login: staff/admin → `/staff/`; customers → `/app/` |
 | Signup | `BlytzSignupForm` — optional phone; forces `role=customer` |
 | Profile | Customers and staff can edit name/phone/email |
-| Staff home | Dashboard stats (orders, job requests, leads, incomplete designs) |
+| Staff home | Dashboard stats + Chart.js overview (orders by phase, new orders/30d, pending-payment tile) |
 | User management | Admin-only: list, create staff, edit role / accounting flag / active |
 | Guards | `decorators.py` (FBV) and `mixins.py` (CBV): customer / staff / admin |
 
@@ -193,7 +194,7 @@ Future (services/):
 
 | Responsibility | Details |
 | --- | --- |
-| Landing | Public home with how-it-works, gallery placeholders, testimonials, FAQs |
+| Landing | Public home with how-it-works, gallery placeholders, testimonials, FAQs. Authenticated visitors are redirected: customers → `/app/`, staff/admin → `/staff/` |
 | Context processor | `MESSENGER_PAGE_USERNAME`, `messenger_url` (`https://m.me/...`), `PAYMENT_WINDOW_MINUTES`, `DEBUG` |
 | Component gallery | `/dev/components/` (+ customer/staff variants) — **DEBUG only** |
 | Models | None (placeholder files) |
@@ -203,26 +204,26 @@ Future (services/):
 | Responsibility | Details |
 | --- | --- |
 | Design ownership | Customer-owned drafts; submitted = has related `Order` |
-| Editor | Canvas JSON save; submit with payment claim |
+| Editor | Canvas JSON save; inline draft title rename (saved with Save); submit with payment claim. Saves (including rename) rejected once a related Order exists |
 | ActivityLog | Audit trail across design/order/lead lifecycle |
-| Forms | `DesignSaveForm`, `DesignSubmitForm` (proof validation, window timestamp) |
+| Forms | `DesignSaveForm`, `DesignSubmitForm` (proof + front/back preview PNGs, window timestamp) |
 
 ### 5.4 `apps.orders`
 
 | Responsibility | Details |
 | --- | --- |
-| Orders | `BLY-######` IDs; phase pipeline; agreed totals; payment aggregates |
-| Payments | Customer claims + staff manual adjustments |
+| Orders | `BLY-######` IDs; phase pipeline; agreed totals; payment aggregates (accepted only); final design upload/approval |
+| Payments | Customer claims (pending → staff review); staff/admin manual adjustments (auto-accepted) |
 | PaymentChannel | GCash / Maya / Bank; QR; active flag — admin CRUD |
-| Jobs UI | Kanban-style pipeline + staff order detail + advance phase |
+| Jobs UI | Kanban-style pipeline + staff order detail (mock-ups, final design in Pending Edit, design details, phase history, artwork download) + advance phase + payment review |
 
 ### 5.5 `apps.accounting`
 
 | Responsibility | Details |
 | --- | --- |
 | Views only | No domain models — operates on `Order` / `Payment` |
-| List | Totals collected / outstanding; edit capability flag in template |
-| Detail | Set `agreed_total`; add manual payment adjustments |
+| List | Totals collected / outstanding; Chart.js (collected vs outstanding, collections/30d, by channel — **accepted only**); pending-payment marker; edit capability flag |
+| Detail | Payment status per row; set `agreed_total`; add manual payment adjustments (auto-accepted) |
 
 ### 5.6 `apps.sales`
 
@@ -234,7 +235,13 @@ Future (services/):
 
 ### 5.7 `services/`
 
-Empty package reserved for remove.bg, AI, and email clients. Apps must call wrappers here rather than SDKs directly once integrations land.
+| Module | Role |
+| --- | --- |
+| `proof_images.py` | Verify/shrink PNG/JPEG proofs (EXIF orientation, strip metadata incl. GPS, max edge 2000 px, PNG optimize / JPEG ~q85); PDFs unchanged |
+| `preview_images.py` | Validate submit mock-up PNGs (real PNG via Pillow, ≤5 MB, max edge 2400 px) |
+| *(planned)* | remove.bg, AI helpers, transactional email |
+
+Apps call wrappers here rather than vendor SDKs directly.
 
 ---
 
@@ -247,6 +254,7 @@ User (accounts)
  ├──< Design (designs) ──< Order (orders) >── PaymentChannel
  │         │                    │                  ▲
  │         │                    ├──< Payment ──────┘
+ │         │                    ├──< OrderPhaseChange
  │         │                    └─── Lead (sales) 1:1
  │         └── ActivityLog ─────────┘
  └── can_edit_accounting (staff flag)
@@ -286,8 +294,8 @@ User (accounts)
 | --- | --- |
 | `design_created` | New draft |
 | `design_submitted` | Submit creates order |
-| `design_revised` | Reserved / available |
-| `design_approved` | Reserved / available |
+| `design_revised` | Staff replaces final design (version > 1) |
+| `design_approved` | Customer approves final design → Production |
 | `order_confirmed` | Logged on submit (and seed) |
 | `phase_moved` | Staff advances order phase |
 | `lead_stage_changed` | Staff changes lead stage |
@@ -313,12 +321,20 @@ Links: `customer` (required), optional `design`, optional `order`.
 | customer | FK → User | PROTECT |
 | design | FK → Design | PROTECT |
 | canvas_json_snapshot | JSONField | Frozen at submit |
-| preview_image | ImageField | `order_previews/` |
+| preview_image | ImageField | `order_previews/` — front mock-up (garment + artwork) required at submit |
+| preview_back_image | ImageField | `order_previews/` — back mock-up required at submit |
+| final_design | FileField | `final_designs/` — staff print-ready file (png/jpg/jpeg/pdf); not shrunk |
+| final_design_version | PositiveInteger | Starts at 0; increments on each upload/replace (no history kept) |
+| final_design_uploaded_at | DateTime nullable | Set on each final-design upload |
+| approved_version | PositiveInteger nullable | Version the customer approved |
+| approved_at | DateTime nullable | When the customer approved |
 | status | TextChoices | See phase flow |
 | agreed_total | Decimal nullable | Set by accounting |
 | notes | TextField | |
 | accounting_edited_by / accounting_edited_at | Audit | Last accounting edit |
 | created_at | DateTime | |
+
+**Final design helpers:** `final_design_is_pdf` / `final_design_is_image`; `can_approve_final_design()` — true only in `pending_edit` with a file and version ≥ 1.
 
 **Phase flow (strict forward-only):**
 
@@ -326,30 +342,55 @@ Links: `customer` (required), optional `design`, optional `order`.
 job_request → pending_edit → production → completed
 ```
 
-**Derived payment properties**
+**Derived payment properties** (accepted payments only)
 
 | Property | Logic |
 | --- | --- |
-| `total_paid` | Sum of `payments.amount_claimed` |
+| `total_paid` | Sum of `payments.amount_claimed` where `status=accepted` |
 | `balance` | `agreed_total - total_paid` (None if no agreed total) |
 | `payment_status` | `"Fully Paid"` if balance ≤ 0; else `"Outstanding Balance"` |
+| `has_accepted_payment` | True if any accepted payment exists |
+| `pending_payment` | The single pending payment, if any |
+| `can_accept_additional_payment` | No pending claim, and not fully paid (balance > 0 or no agreed total) |
 
-### 6.7 `orders.Payment`
+**Phase gate:** moving `job_request` → `pending_edit` requires `has_accepted_payment` (server-enforced; UI disables the advance button with reason).
+
+### 6.7 `orders.OrderPhaseChange`
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| order | FK → Order | CASCADE; `related_name=phase_changes` |
+| from_status / to_status | CharField | Same choices as `Order.status` |
+| changed_by | FK → User | SET_NULL; staff who advanced |
+| changed_at | DateTime | Indexed; set on create (seed spreads over last 60 days) |
+
+A row is written on every successful `advance_order_phase` POST (in addition to `ActivityLog(PHASE_MOVED)`).
+
+### 6.8 `orders.Payment`
 
 | Field | Type | Notes |
 | --- | --- | --- |
 | order | FK | CASCADE |
 | channel | FK → PaymentChannel | PROTECT; nullable for manual adj. |
 | amount_claimed | Decimal | Customer claim or staff entry |
-| proof_file | FileField | `payment_proofs/` |
+| proof_file | FileField | `payment_proofs/` (images shrunk/sanitized on upload) |
+| status | TextChoices | `pending` \| `accepted` \| `rejected` (default pending) |
+| rejection_reason | CharField | Optional short reason on reject |
+| reviewed_by / reviewed_at | FK / DateTime | Set when staff accept/reject |
 | is_manual_adjustment | Boolean | True when staff adds from accounting |
 | note | CharField | |
 | recorded_by | FK → User | Staff who recorded manual payment |
 | created_at | DateTime | |
 
-Many payments per order are allowed.
+**Rules**
 
-### 6.8 `sales.Lead`
+- Customer submit + later order-page uploads create **pending** claims.
+- Manual accounting adjustments (admin, or staff with accounting-edit) are **accepted** automatically (`reviewed_by` / `reviewed_at` set).
+- Only **pending** payments can be reviewed; accepted/rejected are final in this batch.
+- At most one pending payment per order (`UniqueConstraint` on `order` where `status=pending`).
+- Many payments per order are allowed (history of accepted/rejected + one pending).
+
+### 6.9 `sales.Lead`
 
 | Field | Type | Notes |
 | --- | --- | --- |
@@ -361,12 +402,12 @@ Many payments per order are allowed.
 **Stages:** `new_lead` → `order_confirmed` → `design_review` → `approved` → `completed` \| `lost`  
 (Staff can set any valid stage; not a forced linear FSM in code.)
 
-### 6.9 Apps without models
+### 6.10 Apps without models
 
 - `apps.accounting` — views/forms only
 - `apps.core` — no persistent models
 
-### 6.10 Django admin registrations
+### 6.11 Django admin registrations
 
 | Model | App admin highlights |
 | --- | --- |
@@ -375,6 +416,7 @@ Many payments per order are allowed.
 | ActivityLog | Kind, relations, time |
 | PaymentChannel | Kind, active |
 | Order | order_id, status, totals |
+| OrderPhaseChange | from/to status, changed_by, time |
 | Payment | Order, channel, amount |
 | Lead | Customer, order, stage |
 
@@ -418,6 +460,7 @@ Logout (GET allowed: ACCOUNT_LOGOUT_ON_GET=True)
 | `/staff/` overview, jobs, sales | ✗ | ✓ | ✓ | ✓ |
 | Accounting **view** | ✗ | ✓ | ✓ | ✓ |
 | Accounting **edit** (set total / add payment) | ✗ | ✗ | ✓ | ✓ |
+| Review payment claims (accept/reject) | ✗ | ✓ | ✓ | ✓ |
 | Payment channels CRUD | ✗ | ✗ | ✗ | ✓ |
 | User management | ✗ | ✗ | ✗ | ✓ |
 | `/staff/admin-only/` | ✗ | ✗ | ✗ | ✓ |
@@ -428,6 +471,7 @@ Logout (GET allowed: ACCOUNT_LOGOUT_ON_GET=True)
 - Function views: `@customer_required`, `@staff_required`, `@admin_required` (login + role; else `PermissionDenied` → 403)
 - Class views: matching mixins in `apps.accounts.mixins`
 - Accounting POST additionally checks `user.can_edit_accounting_page()`
+- Payment review does **not** require accounting-edit; any staff/admin may accept/reject
 - Design/order customer views filter by `owner` / `customer=request.user`
 - Role changes apply on the user’s **next request** (session user reloaded from DB)
 
@@ -449,7 +493,7 @@ DEBUG only: `static()` for media; core component gallery routes.
 
 | Path | Name | Access |
 | --- | --- | --- |
-| `/` | `home` | Public |
+| `/` | `home` | Public (anonymous). Logged-in customer → `/app/`; staff/admin → `/staff/` |
 | `/accounts/signup/` | allauth | Public |
 | `/accounts/login/` | allauth | Public |
 | `/accounts/logout/` | allauth | Auth |
@@ -468,17 +512,21 @@ DEBUG only: `static()` for media; core component gallery routes.
 | `/app/designs/<id>/save/` | `design_save` | POST | Save canvas (HTML or JSON) |
 | `/app/designs/<id>/submit/` | `design_submit` | POST | Submit + payment (HTML or JSON) |
 | `/app/orders/` | `order_list` | GET | Orders |
-| `/app/orders/<order_id>/` | `order_detail` | GET | Order detail + stepper |
+| `/app/orders/<order_id>/` | `order_detail` | GET/POST | Order detail + payment history + additional proof upload + final design preview/approve |
+| `/app/orders/<order_id>/approve-final-design/` | `approve_final_design` | Customer POST | Approve final design (version must match); owner only; Pending Edit only |
 
 ### 8.3 Staff / admin (`/staff/`)
 
 | Path | Name | Access | Purpose |
 | --- | --- | --- | --- |
-| `/staff/` | `staff_home` | Staff+ | Overview stats |
-| `/staff/jobs/` | `jobs_pipeline` | Staff+ | Jobs kanban (`q`, `customer` filters) |
-| `/staff/orders/<order_id>/` | `staff_order_detail` | Staff+ | Order ops |
-| `/staff/orders/<order_id>/advance/` | `advance_order_phase` | Staff+ POST | Next phase only |
-| `/staff/accounting/` | `accounting_list` | Staff+ | Accounting list |
+| `/staff/` | `staff_home` | Staff+ | Overview stats + charts (customers 403) |
+| `/staff/jobs/` | `jobs_pipeline` | Staff+ | Jobs kanban (`q`, `customer`, `pending_review=1` filters) |
+| `/staff/orders/<order_id>/` | `staff_order_detail` | Staff+ | Order ops, mock-ups, final design (Pending Edit), design details, phase history, payment review |
+| `/staff/orders/<order_id>/previews/<side>/download/` | `download_order_preview` | Staff+ GET | Full-res front/back mock-up PNG download |
+| `/staff/orders/<order_id>/final-design/` | `upload_final_design` | Staff+ POST | Upload/replace final design (Pending Edit only); bumps version; no history |
+| `/staff/orders/<order_id>/advance/` | `advance_order_phase` | Staff+ POST | Next phase only (gate: accepted payment before Pending Edit); records `OrderPhaseChange` |
+| `/staff/orders/<order_id>/payments/<id>/review/` | `review_payment` | Staff+ POST | Accept or reject pending payment |
+| `/staff/accounting/` | `accounting_list` | Staff+ | Accounting list + charts (accepted payments only; customers 403) |
 | `/staff/accounting/<order_id>/` | `accounting_detail` | Staff+ | Detail; POST if can edit |
 | `/staff/sales/` | `sales_pipeline` | Staff+ | Leads; `?tab=incomplete` |
 | `/staff/sales/<lead_id>/` | `lead_detail` | Staff+ | Lead + timeline |
@@ -513,56 +561,138 @@ POST /app/designs/new/
   → redirect editor
 
 POST /app/designs/<id>/save/
-  → DesignSaveForm(canvas_json, optional title)
-  → JSON {ok:true} if Accept/XHR else redirect
+  → reject if design already has an Order (clear error; no canvas/title change)
+  → DesignSaveForm(canvas_json, optional title; empty/whitespace title → "Untitled design")
+  → last save wins (no conflict check)
+  → JSON {ok:true, title, updated_at} if Accept/XHR else redirect
 
 POST /app/designs/<id>/submit/   [atomic]
-  guards: not already submitted; form valid; payment window not expired
-  → update design.canvas_json
-  → Order(status=job_request, canvas_json_snapshot=…)
-  → Payment(channel, amount_claimed, proof_file)
+  guards: not already submitted; form valid; payment window not expired;
+          front + back preview PNGs validated (Pillow)
+  → update design.canvas_json (+ optional garment fields)
+  → Order(status=job_request, canvas_json_snapshot=…,
+          preview_image, preview_back_image)
+  → Payment(channel, amount_claimed, proof_file, status=pending)
   → Lead(stage=new_lead)
   → ActivityLog(DESIGN_SUBMITTED + ORDER_CONFIRMED)
-  → redirect order detail
+  → redirect order detail (JSON {ok, redirect} for XHR)
 ```
 
-**Payment window**
+**Submit previews (client)**
+
+1. On payment-form submit, `editor_page.js` blocks the native POST.
+2. Calls `BlytzEditor.getPreviewPNG({ view: "front"|"back", includeGarment: true })` for both views (garment SVG + artwork composite).
+3. Appends `preview_image` / `preview_back_image` file fields and POSTs via `fetch`.
+4. If preview generation fails, shows an error and does **not** create an order.
+
+**Payment window** (initial submit only)
 
 1. Client opens payment modal → records `window_started_at` (ISO datetime).
 2. Countdown = `PAYMENT_WINDOW_MINUTES` (default 10).
 3. Server rejects submit if `now > window_started_at + PAYMENT_WINDOW_MINUTES`.
 4. Future start timestamps (> now + 1 minute) rejected by form.
 
-**Proof file rules** (client + server)
+**Proof file rules** (client + server; setting `PROOF_MAX_UPLOAD_MB`, default 15)
 
 - Extensions: `.png`, `.jpg`, `.jpeg`, `.pdf`
-- Max size: 5 MB
+- Max size: `PROOF_MAX_UPLOAD_MB` MB (browser check, form validator, messages, tests)
 - Content types checked when present
+- Images: verified, EXIF-oriented, metadata stripped, longest side ≤ 2000 px, PNG optimized / JPEG ~q85 via `services.proof_images`
+- PDFs stored as uploaded; corrupt/fake images rejected with a friendly message
 
-### 9.2 Staff: jobs pipeline
+**Later uploads** (customer order page, any phase including Completed)
+
+- Show history table (amount, channel, date, status, rejection reason).
+- Upload form when no pending payment and (balance > 0 **or** no agreed total).
+- If pending → “Payment awaiting staff review”; if fully paid → “Fully paid” (no form).
+- POST uses `transaction.atomic` + `select_for_update` on the order; unique pending constraint as a race backstop.
+
+### 9.2 Staff: jobs pipeline + payment review
 
 ```
 GET /staff/jobs/?q=&customer=
   → columns by Order.status
+  → cards show “Payment awaiting review” when pending_payment exists
 
 POST /staff/orders/<id>/advance/
-  → status = next in PHASE_FLOW only (ignores client target)
+  → if next is pending_edit and not has_accepted_payment → reject (message + disabled UI)
+  → else status = next in PHASE_FLOW only (ignores client target)
+  → OrderPhaseChange(from, to, changed_by)
   → ActivityLog(PHASE_MOVED)
+
+GET /staff/orders/<id>/previews/<front|back>/download/
+  → staff/admin only; attachment PNG (customers 403)
+
+POST /staff/orders/<id>/payments/<payment_id>/review/
+  → action=accept|reject (optional rejection_reason)
+  → any staff/admin; only pending payments; reviewed payments are final
 ```
+
+### 9.2b Pending Edit: final design upload & customer approval
+
+```
+Staff (Pending Edit only):
+  GET /staff/orders/<id>/
+    → two-column layout on landscape tablets/laptops (`md:landscape:grid-cols-2`)
+       LEFT: customer, payments, mock-up previews
+       RIGHT: final design preview + upload/replace form
+    → stack to one column on phones / portrait tablets
+    → “Move to Production” always available; browser confirm if no final design yet
+
+  POST /staff/orders/<id>/final-design/
+    → validate png/jpg/jpeg/pdf ≤ PROOF_MAX_UPLOAD_MB (no shrink/alter)
+    → delete previous file if any; store new file; final_design_version += 1
+    → ActivityLog(DESIGN_REVISED) when version > 1
+    → customers 403
+
+Customer:
+  GET /app/orders/<id>/
+    → shows final design as soon as uploaded (image preview or PDF download link)
+    → “Approve final design” only while status=pending_edit and a final design exists
+
+  POST /app/orders/<id>/approve-final-design/  {version}
+    → owner only (other customers 403); staff 403 (@customer_required)
+    → reject if status ≠ pending_edit or version ≠ final_design_version
+       message: "The design was updated. Please review the new version."
+    → else approved_version / approved_at; status → production
+    → OrderPhaseChange + ActivityLog(DESIGN_APPROVED)
+```
+
+Sales Pipeline lead stages are unchanged.
+
+### 9.2c Staff overview charts (`/staff/`)
+
+```
+GET /staff/   [@staff_required — customers 403]
+  → json_script payloads (no public JSON endpoint required)
+  → bar: orders per phase (Job Request → Completed)
+  → line: new orders per day (last 30 days, by Order.created_at)
+  → tile: pending Payment count → /staff/jobs/?pending_review=1
+  → each chart: empty state "No data yet" + <details> data table fallback
+  → Chart.js + staff_charts.js; prefers-reduced-motion disables animation
+```
+
+Helpers: `apps.accounts.dashboard` (`orders_by_phase_chart`, `new_orders_per_day_chart`, `payments_awaiting_review_count`).
 
 ### 9.3 Staff: accounting
 
 ```
-GET list → sum total_paid, sum positive balances
+GET list → sum total_paid (accepted only), sum positive balances
+         → pending-payment marker per order
+         → charts (accepted payments only):
+              doughnut: collected vs outstanding
+              line: collections over time (30 days, Payment.created_at)
+              doughnut: payments by channel (GCash / Maya / Bank [+ Other])
+         → json_script + empty states + table fallbacks (same chart helper)
 
 POST detail action=set_total
   → agreed_total + accounting_edited_*
 
 POST detail action=add_payment
-  → Payment(is_manual_adjustment=True, recorded_by=user, …)
+  → Payment(is_manual_adjustment=True, status=accepted, reviewed_by=user, …)
 ```
 
-View-only staff see forms disabled / POST raises `PermissionDenied`.
+Helpers: `apps.accounting.charts`. View-only staff see forms disabled / POST raises `PermissionDenied`. Payment status is visible to all staff. No charts on Sales Pipeline yet.
 
 ### 9.4 Staff: sales
 
@@ -599,9 +729,15 @@ Lead detail → ActivityLog filter by customer
 
 Nav partials: `navbar_public.html`, `navbar_customer.html`, `navbar_staff.html`.
 
+- Customer/staff navs have no “Home” link; the logo links to `/app/` or `/staff/` respectively.
+- Staff navbar shows a role badge from `user.get_role_display()`: **Admin** = filled black (`bg-ink`) with white text (canvas ring for contrast on the dark bar); **Staff** = outlined. No user name in the navbar.
+- Logout still lands on `/` (public landing).
+
 ### 10.2 Design system components (`templates/components/`)
 
 Includes (non-exhaustive): `badge`, `breadcrumbs`, `button`, `card` (+ open/close), `drawer`, `empty_state`, `error_state`, `file_input`, `footer`, `input`, `loading_state`, `messages`, `modal`, `pipeline_card`, `select`, `stat_tile`, `stepper`, `table`, `tabs`.
+
+**Message banners** (`components/messages.html` + `static/js/ui.js`): shared across all bases/roles. Fixed below the navbar (`--blytz-nav-offset`, z-index 60 so clicks are not trapped under the sticky nav). Polite live region. Every banner has a close button (document-level click delegation). Success banners auto-dismiss after 2s (timer pauses on hover/focus); error and warning stay until closed. With `prefers-reduced-motion`, dismiss skips the fade. Order confirmation still shows `order_id` on the order detail page because the success banner fades.
 
 Gallery at `/dev/components/` when `DEBUG=True`.
 
@@ -631,12 +767,40 @@ Focus: `focus-visible:outline-ink`. Mobile-first.
 | `editor_canvas.js` | Fabric workspace + schema helpers |
 | `ai_chat.js` | Stage 2 mocked AI Assistant (§5.4 two-candidate preview/commit; no network) |
 | `vendor/fabric/fabric.min.js` | Fabric.js 6.6.1 (local) |
-| `editor_page.js` | Save, payment modal timer, submit validation, CSRF |
-| `nav.js` | Navigation behavior |
+| `editor_page.js` | Save, payment modal timer, submit + preview PNG upload, CSRF |
+| `editor_chrome.js` | Phone/tablet chrome: layout mode (`sheets` vs docked), contextual selection bar, undo/redo buttons, `visualViewport` keyboard inset |
+| `payment_details.js` | Channel account/QR + Copy buttons; shared proof size check |
+| `payment_upload.js` | Customer order-page additional proof upload (full-screen sheet on phones) |
+| `staff_preview_viewer.js` | Staff mock-up lightbox (pinch/scroll zoom) |
+| `staff_charts.js` | Chart.js helper (B&W/gray theme, empty states, reduced-motion) |
+| `nav.js` | Navigation behavior (incl. jobs pipeline mobile tabs) |
 | `ui.js` | Shared UI helpers |
 | `demo-widget.js` | Demo/helper widget |
 
+Vendored: `static/vendor/fabric/` (editor), `static/vendor/chartjs/` (Chart.js 4.4.6 UMD — staff charts only; no CDN).
+
 Additional CSS: `static/css/responsive.css`; compiled Tailwind → `static/css/tailwind.css` (gitignored; rebuild with `tailwind build`).
+
+### 10.5 Responsive layout (non-editor + editor)
+
+| Surface | Behavior |
+| --- | --- |
+| Staff Pending Edit / order detail | One column on phones & portrait tablets; two columns on landscape tablets (`md:landscape:grid-cols-2`) and laptops |
+| Jobs Pipeline | Tabs &lt;768px; horizontal snap-scroll on tablet **portrait**; 2×2 grid on tablet **landscape** (768–1279); four columns ≥1280 |
+| Data tables | `.table-responsive-cards` stacks to labeled cards ≤767px |
+| Charts | `w-full` + Chart.js `responsive: true`; table fallbacks in `<details>` |
+| Payment modal / order upload | Full-screen sheet on phones (`100dvh` + safe-area); large Copy targets; proof `accept` includes `image/*` + `capture="environment"` for camera/screenshots |
+| Touch targets | `@media (pointer: coarse)` enlarges buttons/inputs (≥2.75rem) — input **type**, not width alone |
+| Viewport units | Prefer `100dvh` (never `100vh`); safe-area insets on nav, sheets, editor toolbar |
+| Image viewers | Staff mock-up lightbox supports pinch-zoom |
+
+**Editor chrome**
+
+| Viewport | Chrome |
+| --- | --- |
+| Phone (&lt;768) | Top: title, Undo, Redo, Save, Submit. Bottom: Text, Image, Garment, AI, Layers (+ Front/Back). Tool panels as bottom sheets; AI as full-screen sheet. Contextual bar (color / duplicate / forward / back / delete) above the bottom toolbar. Text edited in Text sheet input (`visualViewport` raises the sheet). |
+| Landscape tablet + `(pointer: coarse)` + width ≥900 | Docked side panel ~300–340px (`data-editor-layout="docked"`), collapsible; not width-alone |
+| Touch canvas | Fabric `touchCornerSize` enlarged on coarse pointers; `touch-action: none`; one finger moves objects; two fingers pinch-zoom/pan viewport. Imported images downscale to ≤**2000** px longest edge. Orientation change reflows canvas size without clearing selection or unsaved edits. |
 
 ---
 
@@ -648,10 +812,11 @@ The Fabric.js canvas implementation honors this **stable public API** on `window
 | --- | --- |
 | `getCanvasJSON()` | Return current canvas object (Blytz schema envelope) |
 | `loadCanvasJSON(json\|string)` | Load state into editor |
-| `getPreviewPNG()` | Return PNG data-URL of the logical 800×800 workspace |
+| `getPreviewPNG(opts?)` | PNG data-URL of the logical 800×800 workspace. No opts: sync, active view, artwork only. `{ view, includeGarment }` may return a Promise; with `includeGarment: true` composites garment SVG + artwork |
 | `onCommittedChange(cb)` | Subscribe to commits; returns unsubscribe |
 | `validateCanvasJSON(json)` | Validate Blytz schema v1 envelope (no mutation) |
 | `applyCanvasJSON(json)` / `previewCanvasJSON(json)` | Safe validate → snapshot → load; restore on failure; loads do not fire commit listeners |
+| `undo()` / `redo()` / `canUndo()` / `canRedo()` | **Additive** history helpers for phone chrome (envelope snapshots; does not change saved JSON schema) |
 
 ### 11.1 Client modules
 
@@ -672,9 +837,11 @@ The Fabric.js canvas implementation honors this **stable public API** on `window
 `editor_page.js` wires:
 
 - Initial load from `data-canvas-json` on the editor root
-- Save POST with `canvas_json` (+ optional `garment_template` / `garment_color`) and CSRF cookie
-- Submit modal: channel, amount, proof, `window_started_at`, canvas snapshot, garment fields
-- Disables submit when window expired or design already submitted
+- Inline editable title (`data-editor-title`) for drafts only; included in Save POST; crumb + `document.title` update on success
+- Save POST with `canvas_json`, optional `title`, optional `garment_template` / `garment_color`, and CSRF cookie
+- Submit modal: channel, amount, proof, `window_started_at`, canvas snapshot, garment fields, front/back preview PNGs (required)
+- Disables submit when window expired or design already submitted; submitted designs show a read-only title
+- Submit generates front + back mock-ups via `getPreviewPNG({ view, includeGarment: true })`; failure blocks the request
 
 ### 11.2 Canvas JSON schema (`schema_version` 1) — storage B1
 
@@ -700,24 +867,24 @@ Logical working canvas: **800×800** units (provisional; not garment or print si
 
 **Shared safety rules** (`scanCanvasPayload` ↔ `canvas_safety.py`; must stay identical): depth ≤ 20; typeKey allowlist `rect|ellipse|circle|line|polygon|path|text|itext|textbox|image` (Groups/unknown rejected); `src|source|url|href|xlink:href` strings must be `data:image/(png|jpeg|webp);base64,`; pattern fills with `source` rejected; `backgroundImage` / `overlayImage` rejected; `views` keys only `back` (`views.front` rejected); `text` may contain `https://`.
 
-**Image pipeline:** input ≤ `IMAGE_INPUT_LIMIT_BYTES` (8 MiB); decode via `createImageBitmap` / Image; reject `IMAGE_MAX_PIXELS`; downscale/re-encode toward `IMAGE_TARGET_BYTES` (300 KB) using `IMAGE_EDGE_STEPS` / `IMAGE_QUALITY_STEPS`; keep original data URL when already small; 80% insert budget and 2 MiB hard cap measured on the **whole envelope** via `measureEnvelopeBytes`.
+**Image pipeline:** input ≤ `IMAGE_INPUT_LIMIT_BYTES` (8 MiB); decode via `createImageBitmap` / Image; reject `IMAGE_MAX_PIXELS`; longest edge ≤ `IMAGE_MAX_EDGE` (**2000** px); downscale/re-encode toward `IMAGE_TARGET_BYTES` (300 KB) using `IMAGE_EDGE_STEPS` / `IMAGE_QUALITY_STEPS`; keep original data URL when already small; 80% insert budget and 2 MiB hard cap measured on the **whole envelope** via `measureEnvelopeBytes`.
 
 **Commits:** `commitEdit(label, applyFn)` → one `notifyCommitted` per successful op; `runSilent` suppresses; first committed edit after AI preview discards the sibling candidate. `SERIALIZE_PROPS`: `selectable`, `evented`, `blytzId`, `blytzName` (`blytzLocked` reserved). Fabric object type `i-text` → `typeKey` strips non-letters → `itext` for comparisons.
 
 **Garment layer:** `#editor-garment-layer` SVG (first child of `#editor-canvas-wrap`, pointer-events none); Fabric canvas background forced transparent after every load/preview/apply/view switch so the mockup shows through. Print-area dashed rect is a placeholder estimate. Contrast defaults: new text/shapes/graphics/lines use `contrastColor(garment)` at insert time only.
 
-**UI breakpoints:** bottom toolbar + Edit pill ≤1023px; Properties sheet exclusive with tool panels when `!min-width:1280` (CSS `not all and (min-width: 1280px)`); coexist ≥1280px. Front/Back uses a **toolbar toggle button** (an overlay was measured to overlap `#editor-canvas-wrap` at standard viewports, so the prompt fallback applies).
+**UI breakpoints:** bottom toolbar + Edit pill ≤1023px; Properties sheet exclusive with tool panels when `!min-width:1280` (CSS `not all and (min-width: 1280px)`); coexist ≥1280px. Front/Back: always-visible overlay toggle group (`#editor-view-toggle`) plus toolbar toggle. Phone Text tool opens a Text sheet (no Fabric `enterEditing` on coarse/narrow viewports). Landscape coarse tablets use docked panels via `editor_chrome.js` (`data-editor-layout`).
 
 **Client persist guards:**
 
 - `loadCanvasJSON()` readiness via `getLoadState()` / `whenReady()` / `canPersist()`.
 - Save/Submit use `preparePersistPayload()` (2 MiB UTF-8 whole-envelope cap).
 - Unsafe saved loads use the failed-load pathway (persist blocked; stored data not overwritten).
-- Additive BlytzEditor methods: `getActiveView`, `setActiveView`, `onViewChange`, `getActiveCanvasJSON`, `getGarmentState`, `setGarmentState`, `onGarmentChange`.
+- Additive BlytzEditor methods: `getActiveView`, `setActiveView`, `onViewChange`, `getActiveCanvasJSON`, `getGarmentState`, `setGarmentState`, `onGarmentChange`, `undo`, `redo`, `canUndo`, `canRedo`.
 
 **Deployment note:** stale cached scripts caused false failures earlier — prefer hashed static filenames in production. B1 stale clients that omit `views` are additionally covered by the server guard (hashed filenames not implemented in this stage).
 
-**Known limitations:** front/back only (no sleeve views); `getPreviewPNG` is active-view only and excludes the garment; mobile keyboard/touch unverified on real devices; client deterrents do not stop screenshots; safety rules are duplicated in JS and Python; garment colors and print areas are placeholders.
+**Known limitations:** front/back only (no sleeve views); real-device keyboard/pinch still worth a manual pass (`qa/manual_device_checklist.md`); client deterrents do not stop screenshots; safety rules are duplicated in JS and Python; garment colors and print areas are placeholders.
 
 ### 11.3 Legacy compatibility
 
@@ -738,14 +905,18 @@ Logical working canvas: **800×800** units (provisional; not garment or print si
 
 ```
 services/
-  __init__.py   # empty — placeholders not yet added
+  __init__.py
+  proof_images.py    # payment proof verify / shrink / strip metadata
+  preview_images.py  # submit mock-up PNG validate (Pillow)
 ```
 
-**Intended wrappers (product brief)**
+**Wrappers**
 
-1. **remove.bg** — background removal for uploads  
-2. **AI helpers** — design cleanup / assist  
-3. **Email** — transactional mail beyond console (django-anymail + HTTPS provider)
+1. **proof_images** — live; used by submit + order-page uploads  
+2. **preview_images** — live; validates front/back mock-up PNGs at design submit  
+3. **remove.bg** — background removal for uploads (planned)  
+4. **AI helpers** — design cleanup / assist (planned)  
+5. **Email** — transactional mail beyond console (django-anymail + HTTPS provider) (planned)
 
 Rule: apps import from `services.*`, never vendor SDKs directly.
 
@@ -764,7 +935,7 @@ Rule: apps import from `services.*`, never vendor SDKs directly.
 | Static | `STATICFILES_DIRS=static/`; `STATIC_ROOT=staticfiles/`; WhiteNoise |
 | Media | `MEDIA_ROOT=media/`; served in DEBUG via urls |
 | Tailwind | `TAILWIND_CLI_SRC_CSS`, `TAILWIND_CLI_DIST_CSS` |
-| Business | `MESSENGER_PAGE_USERNAME`, `PAYMENT_WINDOW_MINUTES` |
+| Business | `MESSENGER_PAGE_USERNAME`, `PAYMENT_WINDOW_MINUTES`, `PROOF_MAX_UPLOAD_MB` |
 | Email | Console default; `ANYMAIL` dict reserved |
 | Sites | `SITE_ID=1` for allauth |
 
@@ -781,6 +952,7 @@ Rule: apps import from `services.*`, never vendor SDKs directly.
 | `DATABASE_URL` | unset → SQLite | MySQL later |
 | `MESSENGER_PAGE_USERNAME` | your_page_username | m.me deep-link |
 | `PAYMENT_WINDOW_MINUTES` | `10` | Submit deadline |
+| `PROOF_MAX_UPLOAD_MB` | `15` | Payment proof max upload size |
 | `EMAIL_BACKEND` | console | Swap to anymail later |
 | `DEFAULT_FROM_EMAIL` | noreply@blytz.local | From address |
 
@@ -794,7 +966,9 @@ static/js/*                                      browser
 static/img/*
 media/payment_channels/                          QR uploads
 media/payment_proofs/                            payment proofs
-media/design_previews/ · order_previews/         (fields ready)
+media/design_previews/ · order_previews/ · final_designs/
+static/vendor/chartjs/                           Chart.js 4.4.6 (staff charts)
+static/vendor/fabric/                            Fabric.js (editor)
 ```
 
 **Dev commands**
@@ -858,9 +1032,12 @@ Command: `python manage.py seed_demo` (idempotent, atomic).
 
 **Seed contents**
 
-- 2 active payment channels (GCash, Maya) with generated QR placeholders
+- 3 active payment channels (GCash, Maya, Bank) with generated QR placeholders
 - 12 designs (10 submitted with orders/leads/payments; 2 remain drafts)
 - Orders across all job statuses; mixed fully paid / outstanding / unset agreed total
+- Front/back placeholder preview PNGs on seeded orders
+- `Order.created_at`, payment `created_at`, and `OrderPhaseChange` timestamps spread over the last 60 days (charts look realistic)
+- Payments mix **accepted**, **pending**, and **rejected** (some orders show “Payment awaiting review”)
 - Leads covering all stages
 - Activity logs for created/submitted/confirmed
 
@@ -880,9 +1057,17 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 | `apps.designs.tests.test_canvas_safety` | Shared safety rules (BEHAVIOR) |
 | `apps.designs.tests.test_garment_views` | Garment fields + B1 views (BEHAVIOR/SOURCE-STRING) |
 | `apps.orders.tests.test_models` | Order ID, payment aggregates, phases |
-| `apps.accounting.tests.test_staff` | View vs edit accounting |
-| `apps.core.tests.test_landing_nav` | Landing / nav |
+| `apps.orders.tests.test_payment_review` | Accepted-only totals, gate, review perms, uploads, race constraint |
+| `apps.orders.tests.test_proof_processing` | 15/16 MB limits, shrink/orientation/metadata, corrupt/PDF |
+| `apps.orders.tests.test_staff_order_detail` | Staff fields/mock-ups, artwork download perms, phase history |
+| `apps.orders.tests.test_final_design` | Final design upload/replace/version, customer approve, stale version, perms, manual Production move |
+| `apps.accounting.tests.test_staff` | View vs edit accounting; manual adj. auto-accepted |
+| `apps.accounting.tests.test_charts` | Accounting charts perms, accepted-only aggregates, empty states |
+| `apps.accounts.tests.test_staff_charts` | Overview charts perms, phase/pending aggregates, empty states, jobs pending_review filter |
+| `apps.core.tests.test_landing_nav` | Landing redirects / nav / staff role badge |
 | `apps.core.tests.test_template_leaks` | Template leakage checks |
+| `apps.core.tests.test_responsive_chrome` | Responsive CSS/JS contracts, pipeline modes, editor phone chrome, payment sheet |
+| `apps.designs.tests.test_rename` | Draft rename, empty → Untitled, post-submit reject, ownership |
 
 **Browser QA:** paste scripts from `qa/` (`gate.js`, `regression_commits.js`, `garment_checks.js`) into DevTools on the editor with cache disabled. `qa/manual_device_checklist.md` covers real-phone items. Playwright is **not** approved/installed for this stage.
 
@@ -895,7 +1080,11 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 | 403 / 404 / 500 | Django defaults (`handler403/404/500` in `config/urls.py`); custom templates `403.html`, `404.html`, `500.html` |
 | CSRF | Middleware + editor JS reads `csrftoken` cookie |
 | Ownership | Customer queries always filter by owner/customer |
-| Phase advance | Server ignores client-supplied next status; only `PHASE_FLOW` next |
+| Phase advance | Server ignores client-supplied next status; only `PHASE_FLOW` next; accepted payment required before Pending Edit |
+| Final design upload | Staff/admin only; Pending Edit only; replace deletes prior file and bumps version |
+| Final design approve | Order owner only; Pending Edit only; posted version must match `final_design_version` |
+| Payment review | Staff/admin only; pending → accepted/rejected; customers 403 |
+| Additional proofs | One pending max; blocked when fully paid; race-safe lock + unique constraint |
 | Admin self-harm guards | No self-demote / self-deactivate; ≥1 active admin |
 | Media in prod | Not auto-served by Django when `DEBUG=False` — needs object storage or proxy config later |
 | Secrets | `.env` gitignored; never commit credentials |
@@ -915,8 +1104,8 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 | AI helpers | `services/` placeholder |
 | HTTPS transactional email (anymail) | Commented optional dep + `ANYMAIL` stub |
 | MySQL in production | Supported via `DATABASE_URL`; SQLite is default |
-| Design `preview_image` / order preview upload from editor | Fields exist; stub PNG not persisted server-side yet |
-| Activity kinds `design_revised` / `design_approved` | Enum present; not all write paths emit them yet |
+| Design `preview_image` (design draft thumb) | Optional field; order front/back mock-ups persisted at submit |
+| Activity kinds `design_revised` / `design_approved` | Emitted on final-design replace (v>1) and customer approval |
 | Dedicated media CDN / S3 | Filesystem `media/` today |
 
 ---
@@ -930,7 +1119,7 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 | accounts | User | Profile, staff home, users admin |
 | core | — | Landing, component gallery |
 | designs | Design, ActivityLog | Dashboard, list, editor, save, submit |
-| orders | Order, Payment, PaymentChannel | Customer orders, jobs, channels |
+| orders | Order, OrderPhaseChange, Payment, PaymentChannel | Customer orders, jobs, channels |
 | accounting | — | Accounting list/detail |
 | sales | Lead | Sales pipeline, lead detail |
 
@@ -960,6 +1149,7 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 - `MESSENGER_PAGE_USERNAME`
 - `messenger_url`
 - `PAYMENT_WINDOW_MINUTES`
+- `PROOF_MAX_UPLOAD_MB`
 - `DEBUG`
 
 ---

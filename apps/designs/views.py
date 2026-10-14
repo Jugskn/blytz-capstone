@@ -109,6 +109,13 @@ def design_editor(request, pk):
 @require_POST
 def design_save(request, pk):
     design = get_object_or_404(Design, pk=pk, owner=request.user)
+    if design.is_submitted:
+        msg = "This design already has an order and can no longer be saved or renamed."
+        if _wants_json(request):
+            return JsonResponse({"ok": False, "errors": {"design": [msg]}}, status=400)
+        messages.error(request, msg)
+        return redirect("design_editor", pk=pk)
+
     form = DesignSaveForm(request.POST, stored_canvas=design.canvas_json)
     if not form.is_valid():
         if _wants_json(request):
@@ -117,7 +124,7 @@ def design_save(request, pk):
         return redirect("design_editor", pk=pk)
 
     design.canvas_json = form.cleaned_data["canvas_json"]
-    if form.cleaned_data.get("title"):
+    if "title" in request.POST:
         design.title = form.cleaned_data["title"]
     if form.cleaned_data.get("garment_template") is not None:
         design.garment_template = form.cleaned_data["garment_template"]
@@ -126,7 +133,13 @@ def design_save(request, pk):
     design.save()
 
     if _wants_json(request):
-        return JsonResponse({"ok": True, "updated_at": design.updated_at.isoformat()})
+        return JsonResponse(
+            {
+                "ok": True,
+                "updated_at": design.updated_at.isoformat(),
+                "title": design.title,
+            }
+        )
     messages.success(request, "Design saved.")
     return redirect("design_editor", pk=pk)
 
@@ -165,6 +178,8 @@ def design_submit(request, pk):
     amount = form.cleaned_data["amount_claimed"]
     proof = form.cleaned_data["proof_file"]
     canvas = form.cleaned_data["canvas_json"]
+    preview_front = form.cleaned_data["preview_image"]
+    preview_back = form.cleaned_data["preview_back_image"]
 
     try:
         with transaction.atomic():
@@ -180,10 +195,13 @@ def design_submit(request, pk):
 
             # Staff read garment on order.design; both views live in
             # order.canvas_json_snapshot (and design.canvas_json) under B1.
+            # Front/back mock-up PNGs (garment + artwork) are required.
             order = Order.objects.create(
                 customer=request.user,
                 design=design,
                 canvas_json_snapshot=canvas,
+                preview_image=preview_front,
+                preview_back_image=preview_back,
                 status=Order.Status.JOB_REQUEST,
                 notes="Submitted from editor with payment claim.",
             )

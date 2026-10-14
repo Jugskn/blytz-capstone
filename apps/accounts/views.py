@@ -2,6 +2,11 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
+from apps.accounts.dashboard import (
+    new_orders_per_day_chart,
+    orders_by_phase_chart,
+    payments_awaiting_review_count,
+)
 from apps.designs.models import Design
 from apps.orders.models import Order
 from apps.sales.models import Lead
@@ -15,6 +20,8 @@ def staff_home(request):
     orders = Order.objects.all()
     incomplete = Design.objects.prefetch_related("orders")
     incomplete_count = sum(1 for d in incomplete if not d.is_submitted)
+    phase_chart = orders_by_phase_chart()
+    orders_per_day_chart = new_orders_per_day_chart(days=30)
     return render(
         request,
         "accounts/staff_home.html",
@@ -23,6 +30,9 @@ def staff_home(request):
             "stat_job_requests": orders.filter(status=Order.Status.JOB_REQUEST).count(),
             "stat_leads": Lead.objects.count(),
             "stat_incomplete": incomplete_count,
+            "stat_pending_review": payments_awaiting_review_count(),
+            "phase_chart": phase_chart,
+            "orders_per_day_chart": orders_per_day_chart,
         },
     )
 

@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Order, Payment, PaymentChannel
+from .models import Order, OrderPhaseChange, Payment, PaymentChannel
 
 
 @admin.register(PaymentChannel)
@@ -36,7 +36,14 @@ class OrderAdmin(admin.ModelAdmin):
     )
     list_filter = ("status",)
     search_fields = ("order_id", "customer__email", "notes")
-    readonly_fields = ("order_id", "created_at")
+    readonly_fields = (
+        "order_id",
+        "created_at",
+        "final_design_version",
+        "final_design_uploaded_at",
+        "approved_version",
+        "approved_at",
+    )
     inlines = [PaymentInline]
     autocomplete_fields = ("customer", "design")
 
@@ -51,8 +58,29 @@ class OrderAdmin(admin.ModelAdmin):
 
 @admin.register(Payment)
 class PaymentAdmin(admin.ModelAdmin):
-    list_display = ("order", "channel", "amount_claimed", "created_at")
-    list_filter = ("channel",)
+    list_display = (
+        "order",
+        "channel",
+        "amount_claimed",
+        "status",
+        "created_at",
+    )
+    list_filter = ("status", "channel")
     search_fields = ("order__order_id",)
-    autocomplete_fields = ("order", "channel")
-    readonly_fields = ("created_at",)
+    autocomplete_fields = ("order", "channel", "reviewed_by", "recorded_by")
+    readonly_fields = ("created_at", "reviewed_at")
+
+
+@admin.register(OrderPhaseChange)
+class OrderPhaseChangeAdmin(admin.ModelAdmin):
+    list_display = (
+        "order",
+        "from_status",
+        "to_status",
+        "changed_by",
+        "changed_at",
+    )
+    list_filter = ("from_status", "to_status")
+    search_fields = ("order__order_id",)
+    autocomplete_fields = ("order", "changed_by")
+    readonly_fields = ("changed_at",)

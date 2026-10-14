@@ -5,7 +5,7 @@ from django.test import TestCase
 from django.urls import reverse
 
 from apps.designs.models import ActivityLog, Design
-from apps.orders.models import Order
+from apps.orders.models import Order, Payment, PaymentChannel
 from apps.sales.models import Lead
 
 User = get_user_model()
@@ -48,6 +48,19 @@ class StaffPipelineTests(TestCase):
             design=self.design,
             status=Order.Status.JOB_REQUEST,
             agreed_total=Decimal("1000.00"),
+        )
+        self.channel = PaymentChannel.objects.create(
+            kind=PaymentChannel.Kind.GCASH,
+            display_name="Staff Test GCash",
+            account_name="Blytz",
+            account_number="09170009999",
+            is_active=True,
+        )
+        Payment.objects.create(
+            order=self.order,
+            channel=self.channel,
+            amount_claimed=Decimal("100.00"),
+            status=Payment.Status.ACCEPTED,
         )
         self.lead = Lead.objects.create(
             customer=self.customer,
@@ -92,8 +105,13 @@ class StaffPipelineTests(TestCase):
         )
         self.assertEqual(resp.status_code, 302)
         self.order.refresh_from_db()
-        self.assertEqual(self.order.total_paid, Decimal("250.00"))
+        # Existing accepted 100 + new manual 250 (auto-accepted)
+        self.assertEqual(self.order.total_paid, Decimal("350.00"))
         self.assertEqual(self.order.accounting_edited_by_id, self.staff_edit.pk)
+        manual = Payment.objects.filter(
+            order=self.order, is_manual_adjustment=True
+        ).get()
+        self.assertEqual(manual.status, Payment.Status.ACCEPTED)
 
     def test_staff_without_permission_gets_403_on_post(self):
         self.client.force_login(self.staff_view)

@@ -40,6 +40,7 @@ docs/            # this brief and future docs
 | --- | --- | --- |
 | `MESSENGER_PAGE_USERNAME` | *(from env)* | Facebook Messenger page username for customer deep-links |
 | `PAYMENT_WINDOW_MINUTES` | `10` | Minutes allowed to confirm payment after order creation |
+| `PROOF_MAX_UPLOAD_MB` | `15` | Max payment-proof upload size (client + server) |
 
 ## Brand / Tailwind theme
 
@@ -78,8 +79,9 @@ Typography:
 | `User` | accounts | Email login; `role`; `phone`; `can_edit_accounting`; helper `can_edit_accounting_page()` |
 | `PaymentChannel` | orders | `kind` (gcash/maya/bank), account fields, QR, `is_active` |
 | `Design` | designs | Owner, garment fields, `canvas_json`, preview; unsubmitted = no related order |
-| `Order` | orders | `order_id` `BLY-000001`; statuses job_request → completed; `agreed_total`; derived `total_paid` / `balance` / `payment_status` |
-| `Payment` | orders | P2P claim: `amount_claimed` + `proof_file` (many per order) |
+| `Order` | orders | `order_id` `BLY-000001`; statuses job_request → completed; front/back preview PNGs at submit; `final_design` (+ version / approval timestamps); `agreed_total`; derived totals count **accepted** payments only; `has_accepted_payment` / `pending_payment` |
+| `OrderPhaseChange` | orders | Phase audit: from/to status, changed_by, changed_at |
+| `Payment` | orders | P2P claim: `amount_claimed` + `proof_file`; `status` pending/accepted/rejected; staff review fields; many per order (one pending max) |
 | `Lead` | sales | Created on submission; stages new_lead → completed / lost |
 | `ActivityLog` | designs | design_created / submitted / revised / approved, order_confirmed |
 

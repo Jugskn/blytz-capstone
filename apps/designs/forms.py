@@ -13,14 +13,9 @@ from apps.designs.garment_choices import (
     apply_stale_client_views_guard,
 )
 from apps.orders.models import PaymentChannel
+from apps.orders.proof import validate_and_process_proof
+from services.preview_images import PreviewImageError, validate_preview_png
 
-ALLOWED_PROOF_EXTENSIONS = {".png", ".jpg", ".jpeg", ".pdf"}
-ALLOWED_PROOF_CONTENT_TYPES = {
-    "image/png",
-    "image/jpeg",
-    "application/pdf",
-}
-MAX_PROOF_BYTES = 5 * 1024 * 1024
 # Match client MAX_CANVAS_JSON_BYTES (2 MiB UTF-8).
 MAX_CANVAS_JSON_BYTES = 2 * 1024 * 1024
 
@@ -106,6 +101,16 @@ class DesignSaveForm(forms.Form):
             stored_canvas=self.stored_canvas,
         )
 
+    def clean_title(self):
+        # Only normalize when the client actually sent title (see design_save).
+        if self.data is not None and "title" not in self.data:
+            return None
+        raw = self.cleaned_data.get("title") or ""
+        title = raw.strip()
+        if not title:
+            return "Untitled design"
+        return title[:200]
+
     def clean_garment_template(self):
         return _clean_optional_garment_template(
             self.cleaned_data.get("garment_template")
@@ -121,6 +126,8 @@ class DesignSubmitForm(forms.Form):
     )
     amount_claimed = forms.DecimalField(min_value=Decimal("0.01"), max_digits=10, decimal_places=2)
     proof_file = forms.FileField()
+    preview_image = forms.FileField()
+    preview_back_image = forms.FileField()
     canvas_json = forms.CharField(required=False)
     window_started_at = forms.CharField()
     garment_template = forms.CharField(max_length=100, required=False)
@@ -157,23 +164,25 @@ class DesignSubmitForm(forms.Form):
         return started
 
     def clean_proof_file(self):
-        proof = self.cleaned_data["proof_file"]
-        name = (proof.name or "").lower()
-        ext = "." + name.rsplit(".", 1)[-1] if "." in name else ""
-        if ext not in ALLOWED_PROOF_EXTENSIONS:
-            raise forms.ValidationError(
-                "Proof must be a PNG, JPG, JPEG, or PDF file."
+        return validate_and_process_proof(self.cleaned_data["proof_file"])
+
+    def clean_preview_image(self):
+        try:
+            return validate_preview_png(
+                self.cleaned_data["preview_image"],
+                field_label="Front preview",
             )
-        if proof.size > MAX_PROOF_BYTES:
-            raise forms.ValidationError("Proof file must be 5 MB or smaller.")
-        content_type = getattr(proof, "content_type", "") or ""
-        if content_type and content_type not in ALLOWED_PROOF_CONTENT_TYPES:
-            # Some browsers send empty/octet-stream; extension check is primary
-            if content_type not in {"application/octet-stream", ""}:
-                raise forms.ValidationError(
-                    "Proof must be a PNG, JPG, JPEG, or PDF file."
-                )
-        return proof
+        except PreviewImageError as exc:
+            raise forms.ValidationError(str(exc)) from exc
+
+    def clean_preview_back_image(self):
+        try:
+            return validate_preview_png(
+                self.cleaned_data["preview_back_image"],
+                field_label="Back preview",
+            )
+        except PreviewImageError as exc:
+            raise forms.ValidationError(str(exc)) from exc
 
     def clean_amount_claimed(self):
         amount = self.cleaned_data["amount_claimed"]

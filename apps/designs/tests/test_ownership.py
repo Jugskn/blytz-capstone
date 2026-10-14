@@ -75,9 +75,19 @@ class CustomerOwnershipTests(TestCase):
 
 
 class LandingPageTests(TestCase):
-    def test_landing_renders(self):
+    def test_landing_renders_for_anonymous(self):
         response = self.client.get(reverse("home"))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Start designing")
         self.assertContains(response, "Strictly no refunds")
         self.assertContains(response, "demo-widget")
+
+    def test_landing_redirects_authenticated_customer(self):
+        customer = User.objects.create_user(
+            email="landing-auth@example.com",
+            password="test-pass-123",
+            role=User.Role.CUSTOMER,
+        )
+        self.client.force_login(customer)
+        response = self.client.get(reverse("home"))
+        self.assertRedirects(response, reverse("app_home"))

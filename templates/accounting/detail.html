@@ -46,7 +46,17 @@
                 {{ payment.created_at|date:"Y-m-d H:i" }}
                 {% if payment.recorded_by %} · by {{ payment.recorded_by.get_short_name }}{% endif %}
               </p>
+              <div class="mt-1">
+                {% if payment.status == "accepted" %}
+                  {% include "components/badge.html" with label="Accepted" variant="success" %}
+                {% elif payment.status == "rejected" %}
+                  {% include "components/badge.html" with label="Rejected" variant="danger" %}
+                {% else %}
+                  {% include "components/badge.html" with label="Pending" variant="warning" %}
+                {% endif %}
+              </div>
               {% if payment.note %}<p class="mt-1 text-ink-muted">{{ payment.note }}</p>{% endif %}
+              {% if payment.rejection_reason %}<p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>{% endif %}
             </div>
             <p class="font-mono">₱{{ payment.amount_claimed }}</p>
           </div>

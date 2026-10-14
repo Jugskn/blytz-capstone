@@ -9,6 +9,8 @@ from django.urls import reverse
 from django.utils import timezone
 from PIL import Image
 
+from django.conf import settings
+
 from apps.designs.models import ActivityLog, Design
 from apps.orders.models import Order, Payment, PaymentChannel
 from apps.sales.models import Lead
@@ -16,9 +18,9 @@ from apps.sales.models import Lead
 User = get_user_model()
 
 
-def _png_file(name="proof.png", size=(32, 32)):
+def _png_file(name="proof.png", size=(32, 32), color=(200, 162, 39)):
     buffer = BytesIO()
-    Image.new("RGB", size, color=(200, 162, 39)).save(buffer, format="PNG")
+    Image.new("RGB", size, color=color).save(buffer, format="PNG")
     return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
 
 
@@ -54,22 +56,37 @@ class DesignSubmitTests(TestCase):
         *,
         window_started_at=None,
         proof=None,
+        preview_image=None,
+        preview_back_image=None,
         amount="500.00",
         channel=None,
+        omit_previews=False,
     ):
         user = user or self.customer
         design = design or self.design
         self.client.force_login(user)
         started = window_started_at or timezone.now().isoformat()
+        data = {
+            "channel": (channel or self.channel).pk,
+            "amount_claimed": amount,
+            "canvas_json": '{"version":1,"objects":[{"type":"rect"}]}',
+            "window_started_at": started,
+            "proof_file": proof if proof is not None else _png_file(),
+        }
+        if not omit_previews:
+            data["preview_image"] = (
+                preview_image
+                if preview_image is not None
+                else _png_file("preview_front.png", (48, 48), (40, 40, 40))
+            )
+            data["preview_back_image"] = (
+                preview_back_image
+                if preview_back_image is not None
+                else _png_file("preview_back.png", (48, 48), (60, 60, 80))
+            )
         return self.client.post(
             reverse("design_submit", args=[design.pk]),
-            {
-                "channel": (channel or self.channel).pk,
-                "amount_claimed": amount,
-                "canvas_json": '{"version":1,"objects":[{"type":"rect"}]}',
-                "window_started_at": started,
-                "proof_file": proof if proof is not None else _png_file(),
-            },
+            data,
         )
 
     def test_submission_creates_order_payment_lead_and_activity_logs(self):
@@ -94,9 +111,13 @@ class DesignSubmitTests(TestCase):
         lead = Lead.objects.get(order=order)
         self.assertEqual(payment.amount_claimed, Decimal("500.00"))
         self.assertEqual(payment.channel_id, self.channel.pk)
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+        self.assertEqual(order.total_paid, Decimal("0.00"))
         self.assertTrue(payment.proof_file)
         self.assertEqual(lead.stage, Lead.Stage.NEW_LEAD)
         self.assertEqual(order.canvas_json_snapshot.get("objects")[0]["type"], "rect")
+        self.assertTrue(order.preview_image)
+        self.assertTrue(order.preview_back_image)
         kinds = set(
             ActivityLog.objects.filter(order=order).values_list("kind", flat=True)
         )
@@ -107,6 +128,40 @@ class DesignSubmitTests(TestCase):
                 ActivityLog.Kind.ORDER_CONFIRMED,
             },
         )
+
+    def test_submission_stores_both_previews(self):
+        front = _png_file("front.png", (64, 64), (10, 20, 30))
+        back = _png_file("back.png", (64, 64), (30, 20, 10))
+        response = self._submit(preview_image=front, preview_back_image=back)
+        order = Order.objects.get(design=self.design)
+        self.assertRedirects(
+            response,
+            reverse("order_detail", kwargs={"order_id": order.order_id}),
+        )
+        self.assertTrue(order.preview_image.name.endswith(".png"))
+        self.assertTrue(order.preview_back_image.name.endswith(".png"))
+        with order.preview_image.open("rb") as fh:
+            img = Image.open(fh)
+            img.load()
+            self.assertEqual(img.format, "PNG")
+        with order.preview_back_image.open("rb") as fh:
+            img = Image.open(fh)
+            img.load()
+            self.assertEqual(img.format, "PNG")
+
+    def test_bad_preview_rejected(self):
+        bad = SimpleUploadedFile(
+            "fake.png",
+            b"not-a-real-png",
+            content_type="image/png",
+        )
+        response = self._submit(preview_image=bad)
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Order.objects.filter(design=self.design).exists())
+
+        response = self._submit(omit_previews=True)
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Order.objects.filter(design=self.design).exists())
 
     def test_expired_window_records_nothing(self):
         expired = (timezone.now() - timedelta(minutes=30)).isoformat()
@@ -139,11 +194,10 @@ class DesignSubmitTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertFalse(Order.objects.filter(design=self.design).exists())
 
-        oversized = _png_file("big.png")
-        oversized.size = 6 * 1024 * 1024  # hint only; force via custom file
+        max_bytes = int(settings.PROOF_MAX_UPLOAD_MB) * 1024 * 1024
         big = SimpleUploadedFile(
             "big.png",
-            b"0" * (5 * 1024 * 1024 + 1),
+            b"0" * (max_bytes + 1),
             content_type="image/png",
         )
         response = self._submit(proof=big)

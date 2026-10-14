@@ -7,6 +7,11 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
+from apps.accounting.charts import (
+    collections_over_time_chart,
+    collected_vs_outstanding_chart,
+    payments_by_channel_chart,
+)
 from apps.accounts.decorators import staff_required
 from apps.orders.models import Order, Payment, PaymentChannel
 
@@ -49,6 +54,9 @@ def accounting_list(request):
         (o.balance for o in orders if o.balance is not None and o.balance > 0),
         Decimal("0.00"),
     )
+    collected_chart = collected_vs_outstanding_chart(orders)
+    collections_chart = collections_over_time_chart(days=30)
+    channel_chart = payments_by_channel_chart()
     return render(
         request,
         "accounting/list.html",
@@ -57,6 +65,9 @@ def accounting_list(request):
             "total_collected": total_collected,
             "total_outstanding": total_outstanding,
             "can_edit": request.user.can_edit_accounting_page(),
+            "collected_chart": collected_chart,
+            "collections_chart": collections_chart,
+            "channel_chart": channel_chart,
         },
     )
 
@@ -97,6 +108,7 @@ def accounting_detail(request, order_id):
         elif action == "add_payment":
             payment_form = ManualPaymentForm(request.POST, request.FILES)
             if payment_form.is_valid():
+                now = timezone.now()
                 Payment.objects.create(
                     order=order,
                     channel=payment_form.cleaned_data.get("channel"),
@@ -105,6 +117,9 @@ def accounting_detail(request, order_id):
                     is_manual_adjustment=True,
                     note=payment_form.cleaned_data.get("note") or "Manual adjustment",
                     recorded_by=request.user,
+                    status=Payment.Status.ACCEPTED,
+                    reviewed_by=request.user,
+                    reviewed_at=now,
                 )
                 order.accounting_edited_by = request.user
                 order.accounting_edited_at = timezone.now()

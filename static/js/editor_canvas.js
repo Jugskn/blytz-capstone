@@ -26,12 +26,12 @@
   var IMAGE_INSERT_BUDGET_RATIO = 0.8;
   /** Input file size limit before decode (bytes). Replaces former MAX_IMAGE_BYTES. */
   var IMAGE_INPUT_LIMIT_BYTES = 8 * 1024 * 1024;
-  /** Longest edge after downscale (px). */
-  var IMAGE_MAX_EDGE = 1200;
+  /** Longest edge after downscale (px). Keep older phones smooth (≤2000). */
+  var IMAGE_MAX_EDGE = 2000;
   /** Target encoded size after downscale (bytes). */
   var IMAGE_TARGET_BYTES = 300 * 1024;
   var IMAGE_QUALITY_STEPS = [0.85, 0.75, 0.6, 0.5];
-  var IMAGE_EDGE_STEPS = [1200, 1000, 800];
+  var IMAGE_EDGE_STEPS = [2000, 1600, 1200, 1000, 800];
   /** Reject decoded images with more pixels than this. */
   var IMAGE_MAX_PIXELS = 40000000;
   var ALLOWED_IMAGE_TYPES = {
@@ -138,9 +138,24 @@
   var garmentState = { template: "tee", color: "black" };
   var garmentChangeListeners = [];
 
-  /** Internal hooks for a future history system — unused in Stage 3a. */
+  /** Internal hooks for history / chrome listeners. */
   var beforeCommitHooks = [];
   var afterCommitHooks = [];
+
+  /** Undo / redo stack (full envelope snapshots). Additive; does not change JSON schema. */
+  var HISTORY_MAX = 40;
+  var historyStack = [];
+  var historyIndex = -1;
+  var historyApplying = false;
+  var historySeeded = false;
+  var historyUiListeners = [];
+
+  /** Two-finger pinch-zoom / pan of the Fabric viewport. */
+  var gesturePointers = new Map();
+  var gestureLastDist = 0;
+  var gestureLastCenter = null;
+  var gestureActive = false;
+  var gesturesWired = false;
 
   function fabricNS() {
     return global.fabric;
@@ -453,6 +468,112 @@
     }
   }
 
+  function syncHistoryUi() {
+    historyUiListeners.forEach(function (cb) {
+      try {
+        cb({ canUndo: canUndo(), canRedo: canRedo() });
+      } catch (err) {
+        /* ignore */
+      }
+    });
+    document.querySelectorAll("[data-editor-undo]").forEach(function (btn) {
+      btn.disabled = !canUndo();
+    });
+    document.querySelectorAll("[data-editor-redo]").forEach(function (btn) {
+      btn.disabled = !canRedo();
+    });
+  }
+
+  function canUndo() {
+    return historyIndex > 0;
+  }
+
+  function canRedo() {
+    return historyIndex >= 0 && historyIndex < historyStack.length - 1;
+  }
+
+  function pushHistorySnapshot(snapshot) {
+    if (historyApplying || !snapshot) return;
+    var serialized;
+    try {
+      serialized = JSON.stringify(snapshot);
+    } catch (err) {
+      return;
+    }
+    if (
+      historyIndex >= 0 &&
+      historyStack[historyIndex] === serialized
+    ) {
+      return;
+    }
+    historyStack = historyStack.slice(0, historyIndex + 1);
+    historyStack.push(serialized);
+    if (historyStack.length > HISTORY_MAX) {
+      historyStack.shift();
+    }
+    historyIndex = historyStack.length - 1;
+    historySeeded = true;
+    syncHistoryUi();
+  }
+
+  function seedHistory(snapshot) {
+    if (historySeeded || !snapshot) return;
+    historyStack = [JSON.stringify(snapshot)];
+    historyIndex = 0;
+    historySeeded = true;
+    syncHistoryUi();
+  }
+
+  function restoreHistoryAt(index) {
+    if (index < 0 || index >= historyStack.length) return Promise.resolve(false);
+    var envelope;
+    try {
+      envelope = JSON.parse(historyStack[index]);
+    } catch (err) {
+      return Promise.resolve(false);
+    }
+    historyApplying = true;
+    historyIndex = index;
+    syncHistoryUi();
+    var prevSuppress = suppressCommit;
+    suppressCommit = true;
+    ensureCanvas(getJSONRef);
+    var loadPromise =
+      typeof loadAllViewsFromEnvelope === "function"
+        ? loadAllViewsFromEnvelope(envelope, getJSONRef)
+        : loadFabricPayload(envelope && envelope.canvas, getJSONRef);
+    return Promise.resolve(loadPromise)
+      .catch(function () {
+        return null;
+      })
+      .then(function () {
+        suppressCommit = prevSuppress;
+        historyApplying = false;
+        syncHistoryUi();
+        setToolFeedback(index < historyStack.length - 1 ? "Undone." : "Redone.");
+        return true;
+      });
+  }
+
+  function undo() {
+    if (!canUndo()) return Promise.resolve(false);
+    return restoreHistoryAt(historyIndex - 1);
+  }
+
+  function redo() {
+    if (!canRedo()) return Promise.resolve(false);
+    return restoreHistoryAt(historyIndex + 1);
+  }
+
+  function onHistoryChange(cb) {
+    if (typeof cb === "function") historyUiListeners.push(cb);
+    return function () {
+      historyUiListeners = historyUiListeners.filter(function (fn) {
+        return fn !== cb;
+      });
+    };
+  }
+
   function notifyCommitted(getJSON, label) {
     if (suppressCommit) return;
     var listeners = global.BlytzEditor && global.BlytzEditor._commitListeners;
@@ -466,6 +587,10 @@
           console.error("BlytzEditor onCommittedChange error", err);
         }
       });
+    }
+    if (!historyApplying && snapshot) {
+      if (!historySeeded) seedHistory(snapshot);
+      else pushHistorySnapshot(snapshot);
     }
     runHooks(afterCommitHooks, label || "commit", snapshot);
   }
@@ -1118,9 +1243,127 @@
       global.matchMedia("(pointer: coarse)").matches;
     if (!coarse) return;
     touchHandlesApplied = true;
-    fabric.FabricObject.ownDefaults.cornerSize = 14;
-    fabric.FabricObject.ownDefaults.touchCornerSize = 28;
+    fabric.FabricObject.ownDefaults.cornerSize = 16;
+    fabric.FabricObject.ownDefaults.touchCornerSize = 36;
     fabric.FabricObject.ownDefaults.cornerStyle = "circle";
+  }
+
+  function prefersSheetTextEdit() {
+    return (
+      typeof global.matchMedia === "function" &&
+      (global.matchMedia("(max-width: 767px)").matches ||
+        global.matchMedia("(pointer: coarse)").matches)
+    );
+  }
+
+  function wireCanvasGestures() {
+    if (gesturesWired) return;
+    var wrap = document.getElementById("editor-canvas-wrap");
+    if (!wrap) return;
+    gesturesWired = true;
+    wrap.style.touchAction = "none";
+
+    function pointerCount() {
+      return gesturePointers.size;
+    }
+
+    function centerOfPointers() {
+      var sx = 0;
+      var sy = 0;
+      var n = 0;
+      gesturePointers.forEach(function (p) {
+        sx += p.x;
+        sy += p.y;
+        n += 1;
+      });
+      if (!n) return null;
+      return { x: sx / n, y: sy / n };
+    }
+
+    function distOfPointers() {
+      if (gesturePointers.size < 2) return 0;
+      var pts = [];
+      gesturePointers.forEach(function (p) {
+        pts.push(p);
+      });
+      var dx = pts[0].x - pts[1].x;
+      var dy = pts[0].y - pts[1].y;
+      return Math.sqrt(dx * dx + dy * dy) || 1;
+    }
+
+    wrap.addEventListener(
+      "pointerdown",
+      function (e) {
+        if (!fabricCanvas) return;
+        gesturePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointerCount() >= 2) {
+          gestureActive = true;
+          gestureLastDist = distOfPointers();
+          gestureLastCenter = centerOfPointers();
+          fabricCanvas.selection = false;
+          fabricCanvas.discardActiveObject();
+          fabricCanvas.requestRenderAll();
+          try {
+            wrap.setPointerCapture(e.pointerId);
+          } catch (err) {
+            /* ignore */
+          }
+        }
+      },
+      { passive: true }
+    );
+
+    wrap.addEventListener(
+      "pointermove",
+      function (e) {
+        if (!gesturePointers.has(e.pointerId)) return;
+        gesturePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (!gestureActive || pointerCount() < 2 || !fabricCanvas) return;
+        e.preventDefault();
+        var dist = distOfPointers();
+        var center = centerOfPointers();
+        if (!center || !gestureLastDist) {
+          gestureLastDist = dist;
+          gestureLastCenter = center;
+          return;
+        }
+        var vpt = fabricCanvas.viewportTransform
+          ? fabricCanvas.viewportTransform.slice()
+          : [1, 0, 0, 1, 0, 0];
+        var zoom = fabricCanvas.getZoom() || 1;
+        var factor = dist / gestureLastDist;
+        var nextZoom = Math.min(4, Math.max(0.35, zoom * factor));
+        var rect = wrap.getBoundingClientRect();
+        var cx = center.x - rect.left;
+        var cy = center.y - rect.top;
+        fabricCanvas.zoomToPoint({ x: cx, y: cy }, nextZoom);
+        if (gestureLastCenter) {
+          vpt = fabricCanvas.viewportTransform.slice();
+          vpt[4] += center.x - gestureLastCenter.x;
+          vpt[5] += center.y - gestureLastCenter.y;
+          fabricCanvas.setViewportTransform(vpt);
+        }
+        gestureLastDist = dist;
+        gestureLastCenter = center;
+        fabricCanvas.requestRenderAll();
+      },
+      { passive: false }
+    );
+
+    function endPointer(e) {
+      gesturePointers.delete(e.pointerId);
+      if (pointerCount() < 2) {
+        gestureActive = false;
+        gestureLastDist = 0;
+        gestureLastCenter = null;
+        if (fabricCanvas) {
+          fabricCanvas.selection = true;
+        }
+      }
+    }
+    wrap.addEventListener("pointerup", endPointer);
+    wrap.addEventListener("pointercancel", endPointer);
+    wrap.addEventListener("pointerleave", endPointer);
   }
 
   function syncMultiSelectUi() {
@@ -1248,6 +1491,7 @@
       selection: true,
       backgroundColor: "",
       selectionKey: "shiftKey",
+      allowTouchScrolling: false,
     });
     fabricCanvas.setDimensions({ width: LOGICAL_SIZE, height: LOGICAL_SIZE });
     sanitizeCanvasDom();
@@ -1256,6 +1500,7 @@
     applyResponsiveSize();
     wireMultiSelectPointer();
     wireContextMenuSuppression();
+    wireCanvasGestures();
     syncMultiSelectUi();
     initGarmentFromPage();
     if (typeof ResizeObserver !== "undefined" && !resizeObserver) {
@@ -1269,6 +1514,11 @@
       }
     }
     global.addEventListener("resize", scheduleResponsiveSize);
+    global.addEventListener("orientationchange", function () {
+      // Keep selection + unsaved edits; only reflow display size.
+      scheduleResponsiveSize();
+      applyTouchFriendlyHandles();
+    });
     var root = document.getElementById("editor-root");
     if (root) root.dataset.loaded = "1";
     return fabricCanvas;
@@ -1314,7 +1564,14 @@
     return !!(editor && typeof editor.canPersist === "function" && editor.canPersist());
   }
 
-  function addText(getJSON) {
+  /**
+   * Insert text. On phones / coarse pointers, skip Fabric enterEditing so the
+   * on-screen keyboard does not cover the canvas — text is edited in the Text sheet.
+   * @param {Function} getJSON
+   * @param {{text?: string, skipEditing?: boolean}|undefined} opts
+   */
+  function addText(getJSON, opts) {
+    opts = opts || {};
     if (!persistAllowed()) {
       setToolFeedback(
         (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
@@ -1326,11 +1583,15 @@
     var canvas = ensureCanvas(getJSON);
     if (!canvas || !fabric) return;
     var entered = false;
+    var skipEditing =
+      opts.skipEditing === true ||
+      (opts.skipEditing !== false && prefersSheetTextEdit());
+    var initialText =
+      typeof opts.text === "string" && opts.text.length ? opts.text : "Your text";
     commitEdit(
       "add-text",
       function () {
-        var placeholder = "Your text";
-        var text = new fabric.IText(placeholder, {
+        var text = new fabric.IText(initialText, {
           fontSize: 48,
           fill: defaultContrastFill(),
           fontFamily: ALLOWED_FONTS[0],
@@ -1356,6 +1617,7 @@
       },
       getJSON
     );
+    if (skipEditing) return false;
     // Enter editing after the insert commit so typing can produce a second commit.
     var active = canvas.getActiveObject();
     if (active && typeof active.enterEditing === "function") {
@@ -1365,6 +1627,45 @@
       entered = true;
     }
     return entered;
+  }
+
+  function duplicateActive(getJSON) {
+    if (!persistAllowed()) return Promise.resolve(false);
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return Promise.resolve(false);
+    var active = canvas.getActiveObject();
+    if (!active || isActiveSelection(active)) {
+      setToolFeedback("Select one object to duplicate.");
+      return Promise.resolve(false);
+    }
+    var jsonFn = getJSON || getJSONRef;
+    var clonedResult =
+      typeof active.clone === "function" ? active.clone() : null;
+    return Promise.resolve(clonedResult).then(function (cloned) {
+      if (!cloned) {
+        setToolFeedback("Could not duplicate.");
+        return false;
+      }
+      return commitEdit(
+        "duplicate",
+        function () {
+          assignBlytzId(cloned);
+          if (!cloned.blytzName && active.blytzName) {
+            assignBlytzName(cloned, active.blytzName);
+          }
+          cloned.set({
+            left: (active.left || 0) + 24,
+            top: (active.top || 0) + 24,
+          });
+          canvas.add(cloned);
+          canvas.setActiveObject(cloned);
+          canvas.requestRenderAll();
+          setToolFeedback("Duplicated.");
+          return true;
+        },
+        jsonFn
+      );
+    });
   }
 
   function deleteSelection(getJSON) {
@@ -1855,6 +2156,8 @@
       }
       var action = btn.getAttribute("data-editor-action");
       if (action === "add-text") {
+        // Phone Text sheet is opened by editor_tools; desktop inserts immediately.
+        if (prefersSheetTextEdit()) return;
         e.preventDefault();
         addText(getJSON);
       } else if (action === "delete") {
@@ -1966,8 +2269,16 @@
     addImageFromFile: addImageFromFile,
     insertElement: insertElement,
     deleteSelection: deleteSelection,
+    duplicateActive: duplicateActive,
     reorderActive: reorderActive,
     canReorderActive: canReorderActive,
+    prefersSheetTextEdit: prefersSheetTextEdit,
+    undo: undo,
+    redo: redo,
+    canUndo: canUndo,
+    canRedo: canRedo,
+    seedHistory: seedHistory,
+    onHistoryChange: onHistoryChange,
     assignBlytzName: assignBlytzName,
     typeKey: typeKey,
     isActiveSelection: isActiveSelection,
@@ -1984,7 +2295,137 @@
       return multiSelectMode;
     },
     setMultiSelectMode: setMultiSelectMode,
+    /**
+     * Capture a PNG data-URL of a view.
+     * @param {{view?: string, includeGarment?: boolean}|undefined} opts
+     * @returns {string|Promise<string>}
+     */
+    getPreviewPNG: getPreviewPNG,
   };
+
+  function artworkDataURL() {
+    if (!fabricCanvas) {
+      return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+    }
+    fabricCanvas.discardActiveObject();
+    fabricCanvas.requestRenderAll();
+    return fabricCanvas.toDataURL({
+      format: "png",
+      multiplier: 1,
+      enableRetinaScaling: false,
+    });
+  }
+
+  function compositeGarmentAndArtwork(artworkUrl) {
+    return new Promise(function (resolve, reject) {
+      var size = LOGICAL_SIZE;
+      var out = document.createElement("canvas");
+      out.width = size;
+      out.height = size;
+      var ctx = out.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Could not create preview canvas."));
+        return;
+      }
+      ctx.fillStyle = "#FFFFFF";
+      ctx.fillRect(0, 0, size, size);
+
+      var svg = document.getElementById("editor-garment-layer");
+      if (!svg) {
+        // No garment layer — fall back to artwork alone.
+        var artOnly = new Image();
+        artOnly.onload = function () {
+          ctx.drawImage(artOnly, 0, 0, size, size);
+          resolve(out.toDataURL("image/png"));
+        };
+        artOnly.onerror = function () {
+          reject(new Error("Could not load artwork for preview."));
+        };
+        artOnly.src = artworkUrl;
+        return;
+      }
+
+      var clone = svg.cloneNode(true);
+      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      clone.setAttribute("width", String(size));
+      clone.setAttribute("height", String(size));
+      var printArea = clone.querySelector('[data-blytz-layer="print-area"]');
+      if (printArea) {
+        printArea.setAttribute("opacity", "0");
+        printArea.setAttribute("stroke", "none");
+      }
+      var svgData = new XMLSerializer().serializeToString(clone);
+      var svgUrl =
+        "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgData);
+
+      var garmentImg = new Image();
+      garmentImg.onload = function () {
+        ctx.drawImage(garmentImg, 0, 0, size, size);
+        var art = new Image();
+        art.onload = function () {
+          ctx.drawImage(art, 0, 0, size, size);
+          resolve(out.toDataURL("image/png"));
+        };
+        art.onerror = function () {
+          reject(new Error("Could not load artwork for preview."));
+        };
+        art.src = artworkUrl;
+      };
+      garmentImg.onerror = function () {
+        reject(new Error("Could not load garment for preview."));
+      };
+      garmentImg.src = svgUrl;
+    });
+  }
+
+  function getPreviewPNG(opts) {
+    opts = opts || {};
+    var includeGarment = !!opts.includeGarment;
+    var targetView = opts.view;
+    if (targetView != null && targetView !== "") {
+      targetView = String(targetView).toLowerCase();
+      if (targetView !== "front" && targetView !== "back") {
+        return Promise.reject(new Error("Unknown preview view."));
+      }
+    }
+
+    // Legacy sync path: active view, artwork only.
+    if (!includeGarment && (targetView == null || targetView === "" || targetView === activeView)) {
+      return artworkDataURL();
+    }
+
+    if (!fabricCanvas) {
+      return Promise.reject(new Error("Editor is not ready."));
+    }
+
+    var prevView = activeView;
+    var needSwitch = targetView && targetView !== activeView;
+    var switchP = needSwitch
+      ? setActiveView(targetView)
+      : Promise.resolve({ ok: true });
+
+    return switchP
+      .then(function (result) {
+        if (result && result.ok === false) {
+          throw new Error(result.reason || "Could not switch view for preview.");
+        }
+        // Ensure garment layer matches the active view before capture.
+        refreshGarmentLayer();
+        var art = artworkDataURL();
+        if (!includeGarment) {
+          return art;
+        }
+        return compositeGarmentAndArtwork(art);
+      })
+      .then(function (url) {
+        if (!needSwitch) {
+          return url;
+        }
+        return setActiveView(prevView).then(function () {
+          return url;
+        });
+      });
+  }
 
   global.BlytzCanvas = api;
 })(window);

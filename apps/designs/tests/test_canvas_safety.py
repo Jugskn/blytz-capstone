@@ -224,7 +224,13 @@ class CanvasSafetyFormTests(TestCase):
             files={
                 "proof_file": SimpleUploadedFile(
                     "proof.png", TINY_PNG, content_type="image/png"
-                )
+                ),
+                "preview_image": SimpleUploadedFile(
+                    "preview_front.png", TINY_PNG, content_type="image/png"
+                ),
+                "preview_back_image": SimpleUploadedFile(
+                    "preview_back.png", TINY_PNG, content_type="image/png"
+                ),
             },
         )
         self.assertFalse(form.is_valid())

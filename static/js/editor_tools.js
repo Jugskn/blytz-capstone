@@ -256,27 +256,75 @@
   }
 
   function refreshViewToggle() {
-    // Toolbar toggle fallback (overlay overlapped #editor-canvas-wrap at standard VPs).
-    var btn = document.getElementById("editor-view-toggle-btn");
-    if (!btn) return;
+    // Toolbar toggle + always-visible Front/Back overlay group.
     var active =
       global.BlytzEditor && global.BlytzEditor.getActiveView
         ? global.BlytzEditor.getActiveView()
         : "front";
     var blocked = viewSwitchBlocked();
     var label = active === "back" ? "Back" : "Front";
-    var icon = btn.querySelector("[data-view-toggle-icon]");
-    var text = btn.querySelector("[data-view-toggle-label]");
-    if (icon) icon.textContent = active === "back" ? "B" : "F";
-    if (text) text.textContent = label;
-    btn.setAttribute("aria-label", "Garment view: " + label);
-    btn.setAttribute("aria-pressed", "true");
-    if (blocked) {
-      btn.setAttribute("aria-disabled", "true");
-      btn.title = GARMENT_VIEW_BLOCK_TITLE;
-    } else {
-      btn.removeAttribute("aria-disabled");
-      btn.title = "Switch to " + (active === "back" ? "Front" : "Back") + " view";
+    var btn = document.getElementById("editor-view-toggle-btn");
+    if (btn) {
+      var icon = btn.querySelector("[data-view-toggle-icon]");
+      var text = btn.querySelector("[data-view-toggle-label]");
+      if (icon) icon.textContent = active === "back" ? "B" : "F";
+      if (text) text.textContent = label;
+      btn.setAttribute("aria-label", "Garment view: " + label);
+      btn.setAttribute("aria-pressed", "true");
+      if (blocked) {
+        btn.setAttribute("aria-disabled", "true");
+        btn.removeAttribute("title");
+        btn.setAttribute("aria-description", GARMENT_VIEW_BLOCK_TITLE);
+      } else {
+        btn.removeAttribute("aria-disabled");
+        btn.removeAttribute("title");
+        btn.removeAttribute("aria-description");
+      }
+    }
+    document.querySelectorAll("[data-editor-view]").forEach(function (el) {
+      var on = el.getAttribute("data-editor-view") === active;
+      el.setAttribute("aria-pressed", on ? "true" : "false");
+      if (blocked) {
+        el.setAttribute("aria-disabled", "true");
+        el.disabled = true;
+      } else {
+        el.removeAttribute("aria-disabled");
+        el.disabled = false;
+      }
+    });
+  }
+
+  function renderTextBody(body) {
+    var api = global.BlytzCanvas;
+    var canvas = api && api.getFabricCanvas && api.getFabricCanvas();
+    var active = canvas && canvas.getActiveObject && canvas.getActiveObject();
+    var isText =
+      active &&
+      api.typeKey &&
+      (api.typeKey(active) === "itext" ||
+        api.typeKey(active) === "text" ||
+        api.typeKey(active) === "textbox");
+    var value = isText ? active.text || "" : "";
+    body.innerHTML =
+      '<p class="editor-panel-lead">Edit text here so the on-screen keyboard does not cover the canvas.</p>' +
+      '<label class="editor-props-label" for="editor-text-sheet-input">Text</label>' +
+      '<textarea id="editor-text-sheet-input" class="editor-props-textarea" data-text-sheet-input rows="3" maxlength="200">' +
+      String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;") +
+      "</textarea>" +
+      '<button type="button" class="editor-panel-primary" data-text-sheet-apply style="margin-top:0.75rem">' +
+      (isText ? "Update text" : "Add text") +
+      "</button>";
+    var input = body.querySelector("[data-text-sheet-input]");
+    if (input) {
+      setTimeout(function () {
+        input.focus();
+        if (global.BlytzEditorChrome && BlytzEditorChrome.applyVisualViewportOffset) {
+          BlytzEditorChrome.applyVisualViewportOffset();
+        }
+      }, 50);
     }
   }
 
@@ -731,11 +779,14 @@
           ? "Layers"
           : id === "garment"
             ? "Garment"
-            : "Elements";
+            : id === "text"
+              ? "Text"
+              : "Elements";
     panel.setAttribute("aria-labelledby", "editor-tool-panel-title");
     if (id === "upload") renderUploadBody(body);
     else if (id === "layers") renderLayersBody(body);
     else if (id === "garment") renderGarmentBody(body);
+    else if (id === "text") renderTextBody(body);
     else renderElementsBody(body);
     panel.hidden = false;
     panel.classList.add("is-open");
@@ -940,6 +991,16 @@
         e.preventDefault();
         e.stopPropagation();
         togglePanel("upload", actionBtn);
+      } else if (action === "add-text") {
+        var sheetText =
+          global.BlytzCanvas &&
+          typeof global.BlytzCanvas.prefersSheetTextEdit === "function" &&
+          global.BlytzCanvas.prefersSheetTextEdit();
+        if (sheetText) {
+          e.preventDefault();
+          e.stopPropagation();
+          togglePanel("text", actionBtn);
+        }
       } else if (action === "elements") {
         e.preventDefault();
         e.stopPropagation();
@@ -950,6 +1011,49 @@
         togglePanel("layers", actionBtn);
       }
     }, true);
+
+    document.addEventListener("click", function (e) {
+      var applyText = e.target.closest("[data-text-sheet-apply]");
+      if (!applyText || !panelEl() || !panelEl().contains(applyText)) return;
+      e.preventDefault();
+      var input = panelEl().querySelector("[data-text-sheet-input]");
+      var next = input ? String(input.value || "") : "";
+      var a = api();
+      var getJSON =
+        global.BlytzEditor && global.BlytzEditor.getCanvasJSON
+          ? function () {
+              return global.BlytzEditor.getCanvasJSON();
+            }
+          : null;
+      if (!a) return;
+      var canvas = a.getFabricCanvas();
+      var active = canvas && canvas.getActiveObject();
+      var isText =
+        active &&
+        a.typeKey &&
+        (a.typeKey(active) === "itext" ||
+          a.typeKey(active) === "text" ||
+          a.typeKey(active) === "textbox");
+      if (isText) {
+        a.commitEdit(
+          "text-sheet",
+          function () {
+            active.set("text", next || "Your text");
+            if (typeof active.initDimensions === "function") active.initDimensions();
+            active.setCoords();
+            canvas.requestRenderAll();
+            return true;
+          },
+          getJSON
+        );
+      } else {
+        a.addText(getJSON, { text: next || "Your text", skipEditing: true });
+      }
+      closePanel();
+      if (global.BlytzEditorChrome && BlytzEditorChrome.syncContextBar) {
+        BlytzEditorChrome.syncContextBar();
+      }
+    });
 
     document.addEventListener("click", function (e) {
       var row = e.target.closest("[data-layer-id]");

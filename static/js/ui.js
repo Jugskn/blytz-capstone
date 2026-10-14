@@ -90,4 +90,128 @@
     if (!root) return;
     activateTab(root, tab.getAttribute("data-tab"));
   });
+
+  var SUCCESS_AUTO_DISMISS_MS = 2000;
+
+  function prefersReducedMotion() {
+    return (
+      window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  }
+
+  function dismissMessage(el, animate) {
+    if (!el || el.getAttribute("data-dismissing") === "1") return;
+    el.setAttribute("data-dismissing", "1");
+    var finish = function () {
+      var root = el.closest("[data-messages-root]");
+      el.remove();
+      if (root && !root.querySelector("[data-message]")) {
+        root.remove();
+      }
+    };
+    if (!animate || prefersReducedMotion()) {
+      finish();
+      return;
+    }
+    el.style.transition = "opacity 300ms ease";
+    el.style.opacity = "0";
+    window.setTimeout(finish, 300);
+  }
+
+  // Delegation so close works even if banners are re-rendered or init is late.
+  document.addEventListener("click", function (e) {
+    var closeBtn = e.target.closest("[data-message-close]");
+    if (!closeBtn) return;
+    var banner = closeBtn.closest("[data-message]");
+    if (!banner) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var level = banner.getAttribute("data-message-level") || "info";
+    dismissMessage(banner, level === "success");
+  });
+
+  function initMessageBanners() {
+    var root = document.querySelector("[data-messages-root]");
+    if (!root) return;
+
+    root.querySelectorAll("[data-message]").forEach(function (banner) {
+      if (banner.getAttribute("data-message-bound") === "1") return;
+      banner.setAttribute("data-message-bound", "1");
+
+      var level = (banner.getAttribute("data-message-level") || "info").trim();
+      if (level !== "success") return;
+
+      var remaining = SUCCESS_AUTO_DISMISS_MS;
+      var timerId = null;
+      var lastStarted = 0;
+      var paused = false;
+
+      function clearTimer() {
+        if (timerId) {
+          window.clearTimeout(timerId);
+          timerId = null;
+        }
+      }
+
+      function startTimer() {
+        if (paused || banner.getAttribute("data-dismissing") === "1") return;
+        clearTimer();
+        lastStarted = Date.now();
+        timerId = window.setTimeout(function () {
+          dismissMessage(banner, true);
+        }, remaining);
+      }
+
+      function pauseTimer() {
+        if (paused || !timerId) return;
+        paused = true;
+        remaining = Math.max(0, remaining - (Date.now() - lastStarted));
+        clearTimer();
+      }
+
+      function resumeTimer() {
+        if (!paused) return;
+        paused = false;
+        if (remaining <= 0) {
+          dismissMessage(banner, true);
+          return;
+        }
+        startTimer();
+      }
+
+      banner.addEventListener("mouseenter", pauseTimer);
+      banner.addEventListener("mouseleave", resumeTimer);
+      banner.addEventListener("focusin", pauseTimer);
+      banner.addEventListener("focusout", function (e) {
+        if (!banner.contains(e.relatedTarget)) {
+          resumeTimer();
+        }
+      });
+
+      startTimer();
+    });
+  }
+
+  function syncNavOffset() {
+    var nav = document.querySelector("header.sticky") || document.querySelector("header");
+    if (!nav) return;
+    var height = Math.ceil(nav.getBoundingClientRect().height);
+    document.documentElement.style.setProperty(
+      "--blytz-nav-offset",
+      height + "px"
+    );
+  }
+
+  function bootUi() {
+    syncNavOffset();
+    initMessageBanners();
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", bootUi);
+  } else {
+    bootUi();
+  }
+  window.addEventListener("resize", syncNavOffset);
 })();

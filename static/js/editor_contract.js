@@ -1,8 +1,10 @@
 /**
  * BlytzEditor public contract — Fabric.js-backed (Stage 1).
  *
- * Stable public methods (unchanged signatures):
- *   getCanvasJSON(), loadCanvasJSON(json|string), getPreviewPNG(), onCommittedChange(cb)
+ * Stable public methods:
+ *   getCanvasJSON(), loadCanvasJSON(json|string),
+ *   getPreviewPNG(opts?), onCommittedChange(cb)
+ *   getPreviewPNG: no opts → sync artwork-only; {view, includeGarment} may return a Promise
  *
  * Additive readiness / safety helpers (used by editor_page.js):
  *   getLoadState(), isReady(), canPersist(), getPersistBlockReason(),
@@ -73,6 +75,14 @@
     persistBlocked = false;
     persistBlockReason = "";
     finishReadyCycle();
+    var api = canvasApi();
+    if (api && typeof api.seedHistory === "function") {
+      try {
+        api.seedHistory(getJSON());
+      } catch (err) {
+        /* ignore */
+      }
+    }
   }
 
   function setError(message) {
@@ -313,20 +323,33 @@
       return api.onGarmentChange(cb);
     },
 
-    getPreviewPNG: function () {
+    /**
+     * PNG data-URL of the workspace.
+     * @param {{view?: 'front'|'back', includeGarment?: boolean}|undefined} opts
+     *   With no opts: sync, active view, artwork only (legacy).
+     *   With view / includeGarment: may return a Promise<data-URL>.
+     */
+    getPreviewPNG: function (opts) {
+      var fallback =
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
       var api = canvasApi();
       if (!api) {
-        return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        return opts ? Promise.resolve(fallback) : fallback;
       }
-      var canvas = api.ensureCanvas(getJSON);
+      api.ensureCanvas(getJSON);
+      if (typeof api.getPreviewPNG === "function") {
+        return api.getPreviewPNG(opts);
+      }
+      var canvas = api.getFabricCanvas && api.getFabricCanvas();
       if (!canvas) {
-        return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+        return opts ? Promise.resolve(fallback) : fallback;
       }
-      return canvas.toDataURL({
+      var url = canvas.toDataURL({
         format: "png",
         multiplier: 1,
         enableRetinaScaling: false,
       });
+      return opts ? Promise.resolve(url) : url;
     },
 
     onCommittedChange: function (cb) {
@@ -484,6 +507,30 @@
         dualFailMessage:
           "Preview failed and the previous design could not be restored. Reload the page.",
       });
+    },
+
+    /** Additive: undo last committed edit (phone chrome). */
+    undo: function () {
+      var api = canvasApi();
+      if (!api || typeof api.undo !== "function") return Promise.resolve(false);
+      return api.undo();
+    },
+
+    /** Additive: redo previously undone edit. */
+    redo: function () {
+      var api = canvasApi();
+      if (!api || typeof api.redo !== "function") return Promise.resolve(false);
+      return api.redo();
+    },
+
+    canUndo: function () {
+      var api = canvasApi();
+      return !!(api && api.canUndo && api.canUndo());
+    },
+
+    canRedo: function () {
+      var api = canvasApi();
+      return !!(api && api.canRedo && api.canRedo());
     },
 
     get _commitListeners() {

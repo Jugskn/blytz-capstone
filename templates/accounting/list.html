@@ -1,4 +1,5 @@
 {% extends "base_staff.html" %}
+{% load static %}
 
 {% block title %}Accounting — Blytz{% endblock %}
 
@@ -12,6 +13,18 @@
   <div class="mt-8 grid gap-4 sm:grid-cols-2">
     {% include "components/stat_tile.html" with label="Total collected" value=total_collected %}
     {% include "components/stat_tile.html" with label="Total outstanding" value=total_outstanding accent=True %}
+  </div>
+
+  {{ collected_chart|json_script:"chart-collected-vs-outstanding" }}
+  {{ collections_chart|json_script:"chart-collections-over-time" }}
+  {{ channel_chart|json_script:"chart-payments-by-channel" }}
+
+  <div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
+    {% include "components/chart_panel.html" with title="Collected vs outstanding" script_id="chart-collected-vs-outstanding" chart_type="doughnut" rows=collected_chart.rows empty=collected_chart.empty %}
+    {% include "components/chart_panel.html" with title="Payments by channel" script_id="chart-payments-by-channel" chart_type="doughnut" rows=channel_chart.rows empty=channel_chart.empty %}
+  </div>
+  <div class="mt-6">
+    {% include "components/chart_panel.html" with title="Collections over time (30 days)" script_id="chart-collections-over-time" chart_type="line" rows=collections_chart.rows empty=collections_chart.empty %}
   </div>
 
   <div class="mt-8 rounded-lg border border-border md:overflow-x-auto">
@@ -37,11 +50,16 @@
           <td class="px-4 py-3 font-mono" data-label="Paid">₱{{ order.total_paid }}</td>
           <td class="px-4 py-3 font-mono" data-label="Balance">{% if order.balance is not None %}₱{{ order.balance }}{% else %}—{% endif %}</td>
           <td class="px-4 py-3" data-label="Status">
-            {% if order.payment_status == "Fully Paid" %}
-              {% include "components/badge.html" with label=order.payment_status variant="success" %}
-            {% else %}
-              {% include "components/badge.html" with label=order.payment_status variant="warning" %}
-            {% endif %}
+            <div class="flex flex-col items-start gap-1">
+              {% if order.payment_status == "Fully Paid" %}
+                {% include "components/badge.html" with label=order.payment_status variant="success" %}
+              {% else %}
+                {% include "components/badge.html" with label=order.payment_status variant="warning" %}
+              {% endif %}
+              {% if order.pending_payment %}
+                {% include "components/badge.html" with label="Payment awaiting review" variant="warning" %}
+              {% endif %}
+            </div>
           </td>
         </tr>
         {% empty %}
@@ -56,3 +74,9 @@
   </div>
 </section>
 {% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'vendor/chartjs/chart.umd.min.js' %}" defer></script>
+<script src="{% static 'js/staff_charts.js' %}" defer></script>
+{% endblock %}
+

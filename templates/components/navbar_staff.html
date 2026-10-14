@@ -1,7 +1,12 @@
-<header class="border-b border-border-strong bg-ink text-canvas" style="padding-top:env(safe-area-inset-top)">
+<header class="sticky top-0 z-50 border-b border-border-strong bg-ink text-canvas" style="padding-top:env(safe-area-inset-top)">
   <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
-    <a href="{% url 'staff_home' %}" class="font-display text-xl text-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-canvas">
-      Blytz <span class="text-sm font-sans font-normal text-canvas/60">Staff</span>
+    <a href="{% url 'staff_home' %}" class="inline-flex items-center gap-2 font-display text-xl text-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-canvas">
+      Blytz
+      {% if user.is_admin_role %}
+      <span class="inline-flex items-center rounded-full bg-ink px-2 py-0.5 text-xs font-sans font-medium text-canvas ring-1 ring-canvas">{{ user.get_role_display }}</span>
+      {% else %}
+      <span class="inline-flex items-center rounded-full border border-canvas px-2 py-0.5 text-xs font-sans font-medium text-canvas">{{ user.get_role_display }}</span>
+      {% endif %}
     </a>
     <button type="button" class="nav-hamburger inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-canvas/30 text-canvas" data-nav-open="staff-nav-drawer" aria-label="Open menu">☰</button>
     <nav class="nav-desktop flex-wrap items-center justify-end gap-1 text-sm sm:gap-3" aria-label="Staff">
@@ -21,8 +26,15 @@
 <div id="staff-nav-drawer" class="nav-drawer">
   <div class="nav-drawer-backdrop" data-nav-close></div>
   <div class="nav-drawer-panel staff" role="dialog" aria-label="Staff menu">
-    <div class="mb-4 flex items-center justify-between">
-      <span class="font-display text-lg text-canvas">Blytz Staff</span>
+    <div class="mb-4 flex items-center justify-between gap-2">
+      <a href="{% url 'staff_home' %}" class="inline-flex items-center gap-2 font-display text-lg text-canvas" data-nav-close>
+        Blytz
+        {% if user.is_admin_role %}
+        <span class="inline-flex items-center rounded-full bg-ink px-2 py-0.5 text-xs font-sans font-medium text-canvas ring-1 ring-canvas">{{ user.get_role_display }}</span>
+        {% else %}
+        <span class="inline-flex items-center rounded-full border border-canvas px-2 py-0.5 text-xs font-sans font-medium text-canvas">{{ user.get_role_display }}</span>
+        {% endif %}
+      </a>
       <button type="button" class="inline-flex min-h-11 min-w-11 items-center justify-center text-canvas" data-nav-close aria-label="Close">×</button>
     </div>
     <nav class="flex flex-col gap-1 text-sm text-canvas">

@@ -1,10 +1,14 @@
 from django.conf import settings
 from django.http import Http404
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.urls import reverse
 
 
 def home(request):
+    if request.user.is_authenticated:
+        if getattr(request.user, "is_staff_role", False):
+            return redirect("staff_home")
+        return redirect("app_home")
     return render(
         request,
         "core/landing.html",

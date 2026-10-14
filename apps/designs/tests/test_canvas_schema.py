@@ -162,6 +162,12 @@ class CanvasSchemaSaveTests(TestCase):
             "version": "6.6.1",
             "objects": [{"type": "IText", "text": "Submit me", "left": 40, "top": 40}],
         }
+        front = SimpleUploadedFile(
+            "preview_front.png", buffer.getvalue(), content_type="image/png"
+        )
+        back = SimpleUploadedFile(
+            "preview_back.png", buffer.getvalue(), content_type="image/png"
+        )
         response = self.client.post(
             reverse("design_submit", args=[self.design.pk]),
             {
@@ -170,6 +176,8 @@ class CanvasSchemaSaveTests(TestCase):
                 "canvas_json": json.dumps(payload),
                 "window_started_at": timezone.now().isoformat(),
                 "proof_file": proof,
+                "preview_image": front,
+                "preview_back_image": back,
             },
         )
         order = Order.objects.get(design=self.design)

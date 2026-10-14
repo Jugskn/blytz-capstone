@@ -46,19 +46,35 @@ img, svg, video {
   }
 }
 
-/* Jobs pipeline modes */
+/* Jobs pipeline modes:
+ * phones: tabs
+ * tablet portrait: horizontal snap
+ * tablet landscape (~768–1279): 2×2 grid
+ * laptop (≥1280): four columns
+ */
 .pipeline-desktop { display: none; }
-.pipeline-tablet { display: none; }
+.pipeline-tablet-snap { display: none; }
+.pipeline-tablet-grid { display: none; }
 .pipeline-mobile { display: block; }
 
-@media (min-width: 768px) {
+@media (min-width: 768px) and (orientation: portrait) {
   .pipeline-mobile { display: none; }
-  .pipeline-tablet { display: block; }
+  .pipeline-tablet-snap { display: block; }
+  .pipeline-tablet-grid { display: none; }
   .pipeline-desktop { display: none; }
 }
 
-@media (min-width: 1024px) {
-  .pipeline-tablet { display: none; }
+@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) {
+  .pipeline-mobile { display: none; }
+  .pipeline-tablet-snap { display: none; }
+  .pipeline-tablet-grid { display: block; }
+  .pipeline-desktop { display: none; }
+}
+
+@media (min-width: 1280px) {
+  .pipeline-mobile { display: none; }
+  .pipeline-tablet-snap { display: none; }
+  .pipeline-tablet-grid { display: none; }
   .pipeline-desktop { display: grid; }
 }
 
@@ -83,11 +99,70 @@ img, svg, video {
     height: 100dvh;
     margin: 0;
     border-radius: 0 !important;
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
   #payment-modal {
     padding: 0 !important;
     align-items: stretch !important;
   }
+}
+
+/* Order-page payment upload sheet */
+.payment-upload-sheet {
+  display: none;
+  align-items: stretch;
+  justify-content: stretch;
+}
+.payment-upload-sheet.is-open {
+  display: flex;
+}
+.payment-upload-sheet-panel {
+  margin-top: auto;
+  height: 100dvh;
+  max-height: 100dvh;
+}
+@media (min-width: 640px) {
+  .payment-upload-sheet.is-open {
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+  .payment-upload-sheet-panel {
+    margin-top: 0;
+    height: auto;
+    max-height: 90dvh;
+  }
+}
+
+/* Larger tap targets by input type (not width alone) */
+@media (pointer: coarse) {
+  button:not([data-lightbox-close]):not(.editor-props-swatch):not(.editor-garment-swatch),
+  [role="button"],
+  .editor-toolbar-btn,
+  .editor-panel-tile,
+  .editor-layers-action,
+  .editor-layer-row,
+  a.inline-flex {
+    min-height: 2.75rem;
+  }
+  input[type="text"],
+  input[type="search"],
+  input[type="email"],
+  input[type="number"],
+  input[type="password"],
+  input[type="file"],
+  select,
+  textarea {
+    min-height: 2.75rem;
+    font-size: 1rem;
+  }
+}
+
+/* Charts / fallbacks never overflow the viewport */
+[data-chart-canvas],
+.chart-panel,
+.chart-panel canvas {
+  max-width: 100%;
 }
 
 /* Editor tools: bottom sheet on phones */
@@ -301,6 +376,8 @@ img, svg, video {
     border-left: 0;
     border-right: 0;
     border-bottom: 0;
+    /* Raised above the keyboard when visualViewport reports an inset */
+    margin-bottom: var(--blytz-keyboard-inset, 0px);
   }
 }
 
@@ -781,19 +858,83 @@ img, svg, video {
   white-space: nowrap;
 }
 
+/* Canvas: prevent page scroll while dragging; enable pinch gestures */
+#editor-canvas-wrap,
+#blytz-fabric-canvas,
+#editor-canvas-wrap .canvas-container,
+#editor-canvas-wrap canvas {
+  touch-action: none;
+}
+
+/* Contextual selection toolbar (phones / bottom-bar layouts) */
+.editor-context-bar {
+  display: none;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 3.75rem;
+  z-index: 28;
+  gap: 0.25rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 0.35rem 0.5rem;
+  padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0));
+  background: rgba(255, 255, 255, 0.96);
+  border-top: 1px solid #E5E5E5;
+  box-shadow: 0 -2px 10px rgba(10, 10, 10, 0.06);
+}
+.editor-context-bar.is-visible {
+  display: flex;
+}
+.editor-context-bar button {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #0a0a0a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.editor-context-bar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Phone top chrome: title + undo/redo + Save/Submit */
+.editor-top-actions-secondary {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+.editor-undo-redo {
+  display: none;
+  gap: 0.25rem;
+  align-items: center;
+}
+@media (pointer: coarse) {
+  .editor-undo-redo {
+    display: inline-flex;
+  }
+}
+
 /* Mobile / tablet: fixed bottom toolbar inside the locked shell (no document growth). */
 @media (max-width: 1023px) {
   .editor-workspace {
     flex-direction: column !important;
-    padding-bottom: 3.75rem; /* room for bottom toolbar */
+    padding-bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
   }
   .editor-toolbar {
     position: absolute;
     left: 0;
     right: 0;
     bottom: 0;
-    height: 3.75rem;
-    max-height: 3.75rem;
+    height: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+    max-height: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0);
     border-top: 1px solid #E5E5E5;
     box-shadow: 0 -4px 12px rgba(10, 10, 10, 0.06);
     display: flex;
@@ -821,9 +962,69 @@ img, svg, video {
     flex: 1 1 auto;
     min-height: 0;
   }
+  .editor-view-toggle {
+    display: flex !important;
+  }
   .editor-view-toggle button {
     min-width: 2.75rem;
     min-height: 2.75rem;
+  }
+  /* Phone: keep primary tools only in the bottom bar */
+  .editor-toolbar-btn[data-editor-phone-hide] {
+    display: none;
+  }
+  .editor-undo-redo {
+    display: inline-flex;
+  }
+  .editor-top-actions-secondary {
+    display: none;
+  }
+}
+
+/*
+ * Landscape tablets with coarse pointer: docked side panel (~300–340px)
+ * instead of bottom sheets. Decision uses pointer + width, not width alone.
+ */
+@media (pointer: coarse) and (min-width: 900px) and (orientation: landscape) {
+  .editor-shell[data-editor-layout="docked"] .editor-workspace {
+    flex-direction: row !important;
+    padding-bottom: 0;
+  }
+  .editor-shell[data-editor-layout="docked"] .editor-toolbar {
+    position: static;
+    width: 4.5rem;
+    max-width: 4.5rem;
+    height: auto;
+    max-height: none;
+    padding-bottom: 0;
+    border-top: 0;
+    border-right: 1px solid #E5E5E5;
+    box-shadow: none;
+  }
+  .editor-shell[data-editor-layout="docked"] .editor-toolbar-inner {
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .editor-shell[data-editor-layout="docked"] .editor-toolbar-btn[data-editor-phone-hide] {
+    display: inline-flex;
+  }
+  .editor-shell[data-editor-layout="docked"] .editor-tool-panel,
+  .editor-shell[data-editor-layout="docked"] .editor-properties-panel {
+    left: auto !important;
+    right: 0 !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    width: clamp(18.75rem, 22vw, 21.25rem) !important; /* 300–340px */
+    max-height: 100% !important;
+    border-radius: 0 !important;
+    border-left: 1px solid #E5E5E5 !important;
+    border-top: 0 !important;
+  }
+  .editor-shell[data-editor-layout="docked"] .editor-context-bar {
+    display: none !important;
+  }
+  .editor-shell[data-editor-layout="docked"] .editor-props-pill {
+    display: none !important;
   }
 }
 
@@ -888,7 +1089,7 @@ img, svg, video {
   }
 }
 
-/* AI Assistant: side panel on desktop, bottom sheet on smaller screens */
+/* AI Assistant: full-screen sheet on phones; side panel on desktop */
 .ai-assistant-panel {
   display: none;
 }
@@ -896,22 +1097,28 @@ img, svg, video {
   display: flex;
   position: fixed;
   z-index: 50;
-  inset: auto 0 0 0;
-  max-height: 85dvh;
+  inset: 0;
+  max-height: 100dvh;
   max-width: 100%;
-  border-top: 1px solid #E5E5E5;
-  border-radius: 1rem 1rem 0 0;
-  box-shadow: 0 -8px 24px rgba(10, 10, 10, 0.08);
+  border-top: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding-top: env(safe-area-inset-top, 0);
+  padding-bottom: env(safe-area-inset-bottom, 0);
 }
-/* Tablet: slightly taller sheet so candidates + input stay reachable */
+/* Tablet portrait: large bottom sheet (not full-bleed) */
 @media (min-width: 768px) and (max-width: 1023px) {
   .ai-assistant-panel.is-open {
-    max-height: 70dvh;
+    inset: auto 0 0 0;
+    max-height: 85dvh;
     max-width: min(28rem, 100%);
     left: 50%;
     right: auto;
     transform: translateX(-50%);
     border-radius: 1rem 1rem 0 0;
+    border-top: 1px solid #E5E5E5;
+    box-shadow: 0 -8px 24px rgba(10, 10, 10, 0.08);
+    padding-top: 0;
   }
 }
 @media (min-width: 1024px) {

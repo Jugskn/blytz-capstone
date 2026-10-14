@@ -12,6 +12,11 @@
       {% include "components/badge.html" with label="Outstanding" variant="warning" %}
     {% endif %}
   </div>
+  {% if order.pending_payment %}
+  <div class="mt-2">
+    {% include "components/badge.html" with label="Payment awaiting review" variant="warning" %}
+  </div>
+  {% endif %}
   <p class="mt-2 truncate text-sm text-ink">{{ order.customer.get_full_name }}</p>
   <p class="mt-1 text-xs text-ink-muted">{{ order.created_at|date:"Y-m-d H:i" }}</p>
 </a>
