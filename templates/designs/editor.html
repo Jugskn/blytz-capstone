@@ -26,6 +26,7 @@
      data-already-submitted="{% if already_submitted %}1{% else %}0{% endif %}"
      data-garment-template="{{ design.garment_template|default:'tee'|escape }}"
      data-garment-color="{{ design.garment_color|default:''|escape }}"
+     data-garments-base="{% static 'garments/' %}"
      data-canvas-json="{{ canvas_json_initial|escape }}">
 
   <div class="border-b border-border bg-canvas" style="padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right)">

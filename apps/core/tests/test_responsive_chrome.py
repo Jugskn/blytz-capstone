@@ -29,8 +29,7 @@ class ResponsiveChromeTests(TestCase):
         self.assertNotIn("100vh", source)
         self.assertIn("100dvh", source)
         self.assertIn("(pointer: coarse)", source)
-        self.assertIn("pipeline-tablet-grid", source)
-        self.assertIn("pipeline-tablet-snap", source)
+        self.assertIn("[data-pipeline-panel].is-inactive", source)
         self.assertIn("editor-context-bar", source)
         self.assertIn("touch-action: none", source)
         self.assertIn("payment-upload-sheet", source)
@@ -58,16 +57,51 @@ class ResponsiveChromeTests(TestCase):
         self.assertIn("canUndo:", source)
         self.assertIn("canRedo:", source)
 
-    def test_jobs_pipeline_has_mobile_tablet_desktop_modes(self):
+    def test_jobs_pipeline_renders_phases_once(self):
         self.client.force_login(self.staff)
         resp = self.client.get(reverse("jobs_pipeline"))
         self.assertEqual(resp.status_code, 200)
         html = resp.content.decode()
-        self.assertIn("pipeline-mobile", html)
-        self.assertIn("pipeline-tablet-snap", html)
-        self.assertIn("pipeline-tablet-grid", html)
-        self.assertIn("pipeline-desktop", html)
+        self.assertIn("pipeline-tabs", html)
+        self.assertIn("pipeline-board", html)
+        self.assertIn("md:grid-cols-2", html)
+        self.assertIn("xl:grid-cols-4", html)
+        self.assertIn("md:hidden", html)
+        self.assertNotIn("pipeline-mobile", html)
+        self.assertNotIn("pipeline-tablet-snap", html)
+        self.assertNotIn("pipeline-tablet-grid", html)
+        self.assertNotIn("pipeline-desktop", html)
         self.assertNotIn("{#", html)
+
+        for status, label in (
+            ("job_request", "Job Request"),
+            ("pending_edit", "Pending Edit"),
+            ("production", "Production"),
+            ("completed", "Completed"),
+        ):
+            self.assertEqual(
+                html.count(f'data-pipeline-panel="{status}"'),
+                1,
+                msg=f"phase {status} should appear once",
+            )
+            self.assertEqual(
+                html.count(f">{label}</h2>"),
+                1,
+                msg=f"phase heading {label!r} should appear once",
+            )
+
+        for order in Order.objects.all():
+            # One card: order_id in the detail href and once as visible mono text.
+            self.assertEqual(
+                html.count(f"/staff/orders/{order.order_id}/"),
+                1,
+                msg=f"{order.order_id} card link should appear exactly once",
+            )
+            self.assertEqual(
+                html.count(f">{order.order_id}</p>"),
+                1,
+                msg=f"{order.order_id} label should appear exactly once",
+            )
 
     def test_staff_order_detail_landscape_two_column_classes(self):
         self.client.force_login(self.staff)

@@ -247,11 +247,20 @@
     var g = global.BlytzGarments;
     if (g && typeof g.renderGarmentLayer === "function") {
       try {
-        g.renderGarmentLayer(garmentState.template, garmentState.color, activeView);
+        var result = g.renderGarmentLayer(
+          garmentState.template,
+          garmentState.color,
+          activeView
+        );
+        return result && typeof result.then === "function"
+          ? result
+          : Promise.resolve(result);
       } catch (err) {
         console.warn("BlytzCanvas: garment layer render failed", err);
+        return Promise.resolve(null);
       }
     }
+    return Promise.resolve(null);
   }
 
   function aiCandidatesPending() {
@@ -1018,28 +1027,29 @@
         if (lastLoadError) throw new Error(lastLoadError);
         forceTransparentBackground();
         activeView = id;
-        refreshGarmentLayer();
-        if (
-          global.BlytzEditorTools &&
-          typeof global.BlytzEditorTools.refreshLayers === "function"
-        ) {
-          global.BlytzEditorTools.refreshLayers();
-        }
-        if (global.BlytzEditorProps) {
-          if (typeof global.BlytzEditorProps.closeSheet === "function") {
-            global.BlytzEditorProps.closeSheet();
+        return refreshGarmentLayer().then(function () {
+          if (
+            global.BlytzEditorTools &&
+            typeof global.BlytzEditorTools.refreshLayers === "function"
+          ) {
+            global.BlytzEditorTools.refreshLayers();
           }
-          if (typeof global.BlytzEditorProps.syncFromSelection === "function") {
-            global.BlytzEditorProps.syncFromSelection();
+          if (global.BlytzEditorProps) {
+            if (typeof global.BlytzEditorProps.closeSheet === "function") {
+              global.BlytzEditorProps.closeSheet();
+            }
+            if (typeof global.BlytzEditorProps.syncFromSelection === "function") {
+              global.BlytzEditorProps.syncFromSelection();
+            }
           }
-        }
-        var pill = document.getElementById("editor-props-pill");
-        if (pill) {
-          pill.hidden = true;
-          pill.setAttribute("aria-expanded", "false");
-        }
-        fireViewChange();
-        return { ok: true };
+          var pill = document.getElementById("editor-props-pill");
+          if (pill) {
+            pill.hidden = true;
+            pill.setAttribute("aria-expanded", "false");
+          }
+          fireViewChange();
+          return { ok: true };
+        });
       })
       .catch(function (err) {
         viewStore = savedInactive;
@@ -1070,6 +1080,9 @@
     var template = next.template;
     var color = next.color;
     if (template != null) {
+      if (g && typeof g.normalizeGarmentId === "function") {
+        template = g.normalizeGarmentId(template);
+      }
       if (!g || !g.garmentById || !g.garmentById(template)) {
         return { ok: false, reason: "Unknown garment template." };
       }
@@ -1120,7 +1133,10 @@
     var g = global.BlytzGarments;
     var t = page.getAttribute("data-garment-template") || "tee";
     var c = page.getAttribute("data-garment-color") || "white";
-    // Unknown legacy values → tee / white in the editor ONLY (do not rewrite stored until save).
+    // Aliases + unknown legacy values → canonical / tee (editor only until save).
+    if (g && typeof g.normalizeGarmentId === "function") {
+      t = g.normalizeGarmentId(t);
+    }
     if (!g || !g.garmentById || !g.garmentById(t)) t = "tee";
     if (g && g.colorById) {
       var col = g.colorById(c);
@@ -2303,6 +2319,8 @@
     getPreviewPNG: getPreviewPNG,
   };
 
+  var PREVIEW_MAX_BYTES = 5 * 1024 * 1024;
+
   function artworkDataURL() {
     if (!fabricCanvas) {
       return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
@@ -2316,68 +2334,186 @@
     });
   }
 
-  function compositeGarmentAndArtwork(artworkUrl) {
+  /** Fabric payload for a view without switching the live canvas. */
+  function fabricPayloadForView(viewId) {
+    var id = viewId === "back" ? "back" : "front";
+    if (id === activeView) {
+      return snapshotLiveCanvas();
+    }
+    if (id === "front") {
+      return viewStore.front
+        ? cloneFabricPayload(viewStore.front)
+        : emptyFabricCanvasObject();
+    }
+    return viewStore.back
+      ? cloneFabricPayload(viewStore.back)
+      : emptyFabricCanvasObject();
+  }
+
+  /**
+   * Render a Fabric payload to a PNG data-URL on an offscreen StaticCanvas.
+   * Does not mutate the live editor canvas or fire commits.
+   */
+  function artworkDataURLFromPayload(payload) {
     return new Promise(function (resolve, reject) {
-      var size = LOGICAL_SIZE;
-      var out = document.createElement("canvas");
-      out.width = size;
-      out.height = size;
-      var ctx = out.getContext("2d");
-      if (!ctx) {
-        reject(new Error("Could not create preview canvas."));
+      var fabric = fabricNS();
+      if (!fabric || typeof fabric.StaticCanvas !== "function") {
+        reject(new Error("Fabric StaticCanvas is not available."));
         return;
       }
-      ctx.fillStyle = "#FFFFFF";
-      ctx.fillRect(0, 0, size, size);
-
-      var svg = document.getElementById("editor-garment-layer");
-      if (!svg) {
-        // No garment layer — fall back to artwork alone.
-        var artOnly = new Image();
-        artOnly.onload = function () {
-          ctx.drawImage(artOnly, 0, 0, size, size);
-          resolve(out.toDataURL("image/png"));
-        };
-        artOnly.onerror = function () {
-          reject(new Error("Could not load artwork for preview."));
-        };
-        artOnly.src = artworkUrl;
-        return;
-      }
-
-      var clone = svg.cloneNode(true);
-      clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-      clone.setAttribute("width", String(size));
-      clone.setAttribute("height", String(size));
-      var printArea = clone.querySelector('[data-blytz-layer="print-area"]');
-      if (printArea) {
-        printArea.setAttribute("opacity", "0");
-        printArea.setAttribute("stroke", "none");
-      }
-      var svgData = new XMLSerializer().serializeToString(clone);
-      var svgUrl =
-        "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgData);
-
-      var garmentImg = new Image();
-      garmentImg.onload = function () {
-        ctx.drawImage(garmentImg, 0, 0, size, size);
-        var art = new Image();
-        art.onload = function () {
-          ctx.drawImage(art, 0, 0, size, size);
-          resolve(out.toDataURL("image/png"));
-        };
-        art.onerror = function () {
-          reject(new Error("Could not load artwork for preview."));
-        };
-        art.src = artworkUrl;
-      };
-      garmentImg.onerror = function () {
-        reject(new Error("Could not load garment for preview."));
-      };
-      garmentImg.src = svgUrl;
+      var el = document.createElement("canvas");
+      el.width = LOGICAL_SIZE;
+      el.height = LOGICAL_SIZE;
+      var sc = new fabric.StaticCanvas(el, {
+        width: LOGICAL_SIZE,
+        height: LOGICAL_SIZE,
+        enableRetinaScaling: false,
+        renderOnAddRemove: false,
+      });
+      sc.loadFromJSON(payload || emptyFabricCanvasObject())
+        .then(function () {
+          sc.backgroundColor = "";
+          if (typeof sc.setBackgroundColor === "function") {
+            try {
+              sc.setBackgroundColor("");
+            } catch (err) {
+              sc.backgroundColor = "";
+            }
+          }
+          sc.requestRenderAll();
+          var url = sc.toDataURL({
+            format: "png",
+            multiplier: 1,
+            enableRetinaScaling: false,
+          });
+          try {
+            sc.dispose();
+          } catch (disposeErr) {
+            /* ignore */
+          }
+          resolve(url);
+        })
+        .catch(function (err) {
+          try {
+            sc.dispose();
+          } catch (disposeErr2) {
+            /* ignore */
+          }
+          reject(err || new Error("Could not render artwork for preview."));
+        });
     });
   }
 
+  function artworkDataURLForView(viewId) {
+    var id = viewId === "back" ? "back" : "front";
+    if (id === activeView && fabricCanvas) {
+      return Promise.resolve(artworkDataURL());
+    }
+    return artworkDataURLFromPayload(fabricPayloadForView(id));
+  }
+
+  function dataUrlByteLength(dataUrl) {
+    if (!dataUrl || typeof dataUrl !== "string") return 0;
+    var comma = dataUrl.indexOf(",");
+    var b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+    return Math.floor((b64.length * 3) / 4);
+  }
+
+  function loadImageFromUrl(url, errorMessage) {
+    return new Promise(function (resolve, reject) {
+      if (!url) {
+        resolve(null);
+        return;
+      }
+      var img = new Image();
+      img.onload = function () {
+        var finish = function () {
+          resolve(img);
+        };
+        if (typeof img.decode === "function") {
+          img.decode().then(finish).catch(finish);
+        } else {
+          finish();
+        }
+      };
+      img.onerror = function () {
+        reject(new Error(errorMessage || "Could not load image for preview."));
+      };
+      img.src = url;
+    });
+  }
+
+  function svgMarkupToImage(markup, size) {
+    if (!markup) return Promise.resolve(null);
+    var svgUrl =
+      "data:image/svg+xml;charset=utf-8," + encodeURIComponent(markup);
+    return loadImageFromUrl(svgUrl, "Could not load garment for preview.").then(
+      function (img) {
+        if (img && size) {
+          /* natural size comes from SVG width/height; draw uses size */
+        }
+        return img;
+      }
+    );
+  }
+
+  /**
+   * Composite UNDER garment + artwork + OVER garment into an 800×800 PNG.
+   * Print-area guides are never included (export markups omit them).
+   */
+  function compositeUnderArtOver(underMarkup, artworkUrl, overMarkup) {
+    var size = LOGICAL_SIZE;
+    var out = document.createElement("canvas");
+    out.width = size;
+    out.height = size;
+    var ctx = out.getContext("2d");
+    if (!ctx) {
+      return Promise.reject(new Error("Could not create preview canvas."));
+    }
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, size, size);
+
+    return Promise.all([
+      svgMarkupToImage(underMarkup, size),
+      loadImageFromUrl(artworkUrl, "Could not load artwork for preview."),
+      svgMarkupToImage(overMarkup, size),
+    ]).then(function (imgs) {
+      var underImg = imgs[0];
+      var artImg = imgs[1];
+      var overImg = imgs[2];
+      if (underImg) ctx.drawImage(underImg, 0, 0, size, size);
+      if (artImg) ctx.drawImage(artImg, 0, 0, size, size);
+      if (overImg) ctx.drawImage(overImg, 0, 0, size, size);
+      return out.toDataURL("image/png");
+    });
+  }
+
+  function compositeGarmentPreview(viewId, exportOpts) {
+    var gApi = global.BlytzGarments;
+    if (!gApi || typeof gApi.getExportLayerMarkups !== "function") {
+      return Promise.reject(new Error("Garment export helpers are not available."));
+    }
+    var state = garmentState || { template: "tee", color: "white" };
+    return Promise.all([
+      gApi.getExportLayerMarkups(
+        state.template,
+        state.color,
+        viewId,
+        exportOpts || {}
+      ),
+      artworkDataURLForView(viewId),
+    ]).then(function (parts) {
+      var layers = parts[0];
+      var art = parts[1];
+      return compositeUnderArtOver(layers.under, art, layers.over);
+    });
+  }
+
+  /**
+   * Capture a PNG data-URL of a view.
+   * @param {{view?: string, includeGarment?: boolean}|undefined} opts
+   * @returns {string|Promise<string>}
+   */
   function getPreviewPNG(opts) {
     opts = opts || {};
     var includeGarment = !!opts.includeGarment;
@@ -2387,44 +2523,39 @@
       if (targetView !== "front" && targetView !== "back") {
         return Promise.reject(new Error("Unknown preview view."));
       }
+    } else {
+      targetView = activeView;
     }
 
     // Legacy sync path: active view, artwork only.
-    if (!includeGarment && (targetView == null || targetView === "" || targetView === activeView)) {
+    if (!includeGarment && targetView === activeView) {
       return artworkDataURL();
     }
 
-    if (!fabricCanvas) {
+    if (!fabricCanvas && includeGarment) {
       return Promise.reject(new Error("Editor is not ready."));
     }
 
-    var prevView = activeView;
-    var needSwitch = targetView && targetView !== activeView;
-    var switchP = needSwitch
-      ? setActiveView(targetView)
-      : Promise.resolve({ ok: true });
+    if (!includeGarment) {
+      // Inactive view, artwork only — offscreen render, no live switch / commits.
+      return artworkDataURLForView(targetView);
+    }
 
-    return switchP
-      .then(function (result) {
-        if (result && result.ok === false) {
-          throw new Error(result.reason || "Could not switch view for preview.");
+    // Garment composite: UNDER → artwork → OVER. Never switches live view.
+    return compositeGarmentPreview(targetView, {}).then(function (url) {
+      if (dataUrlByteLength(url) <= PREVIEW_MAX_BYTES) {
+        return url;
+      }
+      // Grain noise can inflate PNG size — strip grain and retry once (export only).
+      return compositeGarmentPreview(targetView, { stripGrain: true }).then(
+        function (retryUrl) {
+          if (dataUrlByteLength(retryUrl) > PREVIEW_MAX_BYTES) {
+            throw new Error("Preview PNG exceeds the 5 MB upload limit.");
+          }
+          return retryUrl;
         }
-        // Ensure garment layer matches the active view before capture.
-        refreshGarmentLayer();
-        var art = artworkDataURL();
-        if (!includeGarment) {
-          return art;
-        }
-        return compositeGarmentAndArtwork(art);
-      })
-      .then(function (url) {
-        if (!needSwitch) {
-          return url;
-        }
-        return setActiveView(prevView).then(function () {
-          return url;
-        });
-      });
+      );
+    });
   }
 
   global.BlytzCanvas = api;

@@ -32,7 +32,7 @@
     if (e.key === "Escape") closeAll();
   });
 
-  // Jobs pipeline mobile tabs
+  // Jobs pipeline mobile tabs (<768px; desktop CSS shows all phases)
   document.addEventListener("click", function (e) {
     var tab = e.target.closest("[data-pipeline-tab]");
     if (!tab) return;
@@ -41,13 +41,18 @@
     var key = tab.getAttribute("data-pipeline-tab");
     root.querySelectorAll("[data-pipeline-tab]").forEach(function (t) {
       var on = t.getAttribute("data-pipeline-tab") === key;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.classList.toggle("is-active", on);
       t.classList.toggle("border-ink", on);
       t.classList.toggle("text-ink", on);
       t.classList.toggle("border-transparent", !on);
       t.classList.toggle("text-ink-muted", !on);
     });
     root.querySelectorAll("[data-pipeline-panel]").forEach(function (p) {
-      p.classList.toggle("hidden", p.getAttribute("data-pipeline-panel") !== key);
+      p.classList.toggle(
+        "is-inactive",
+        p.getAttribute("data-pipeline-panel") !== key
+      );
     });
   });
 })();

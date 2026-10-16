@@ -5,8 +5,20 @@ Must stay aligned with static/js/editor_garments.js GARMENT_TYPES / GARMENT_COLO
 (ids only; grey is a client alias for gray and is not accepted on the server).
 """
 
-# Cross-ref: static/js/editor_garments.js GARMENT_TYPES ids
-GARMENT_TEMPLATE_IDS = ("tee", "polo", "jersey", "hoodie")
+# Cross-ref: static/js/editor_garments.js GARMENT_TYPES ids (order must match)
+GARMENT_TEMPLATE_IDS = ("tee", "polo", "hoodie", "jersey")
+
+# Load-time aliases → canonical ids. Applied by data migration and JS normalizeGarmentId.
+# Unknown keys remain rejected by forms (aliases are not accepted on save).
+GARMENT_TEMPLATE_ALIASES = {
+    "t-shirt": "tee",
+    "tshirt": "tee",
+    "t shirt": "tee",
+    "polo-shirt": "polo",
+    "poloshirt": "polo",
+    "sweatshirt": "hoodie",
+    "hooded": "hoodie",
+}
 
 # Cross-ref: static/js/editor_garments.js GARMENT_COLORS ids (canonical)
 GARMENT_COLOR_IDS = (
@@ -24,6 +36,19 @@ GARMENT_COLOR_IDS = (
 
 GARMENT_TEMPLATE_CHOICES = [(x, x) for x in GARMENT_TEMPLATE_IDS]
 GARMENT_COLOR_CHOICES = [(x, x) for x in GARMENT_COLOR_IDS]
+
+
+def normalize_garment_template(value):
+    """Map a stored/legacy key to a canonical template id, or None if unknown."""
+    if value in (None, ""):
+        return None
+    key = str(value).strip().lower()
+    if key in GARMENT_TEMPLATE_IDS:
+        return key
+    aliased = GARMENT_TEMPLATE_ALIASES.get(key)
+    if aliased in GARMENT_TEMPLATE_IDS:
+        return aliased
+    return None
 
 
 def views_have_objects(views) -> bool:

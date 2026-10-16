@@ -337,6 +337,12 @@ class GarmentViewsSourceStringTests(TestCase):
             "onGarmentChange",
             "views.back",
             "loadAllViewsFromEnvelope",
+            "getExportLayerMarkups",
+            "artworkDataURLFromPayload",
+            "compositeUnderArtOver",
+            "includeGarment",
+            "StaticCanvas",
+            "PREVIEW_MAX_BYTES",
         ):
             self.assertIn(token, canvas_src)
 
@@ -347,14 +353,25 @@ class GarmentViewsSourceStringTests(TestCase):
         for token in (
             "GARMENT_TYPES",
             "GARMENT_COLORS",
+            "GARMENT_TEMPLATE_ALIASES",
             "VIEW_IDS",
             "contrastColor",
             "renderGarmentLayer",
-            "static/js/editor_garments.js",
+            "splitGarmentSvg",
+            "editor-garment-overlay",
+            "--garment",
+            "--trim",
+            "--string",
+            "data-blytz-lite-garment",
+            "resolveSvgCssVars",
+            "getExportLayerMarkups",
+            "SVG_VAR_TRIM",
+            "var(--trim, var(--garment, #f2f2ef))",
+            "var(--garment, #f2f2ef)",
+            "var(--string, #e9e5da)",
+            "EXPORT_GRAIN_OPACITY",
+            "lowerExportGrainOpacity",
         ):
-            # last token may not be in file — check core exports
-            if token.startswith("static/"):
-                continue
             self.assertIn(token, g_src)
 
         from pathlib import Path
@@ -363,5 +380,198 @@ class GarmentViewsSourceStringTests(TestCase):
         text = choices.read_text(encoding="utf-8")
         self.assertIn("editor_garments.js", text)
         self.assertIn("apply_stale_client_views_guard", text)
+        self.assertIn("GARMENT_TEMPLATE_ALIASES", text)
         self.assertIn("tee", text)
         self.assertIn("hoodie", text)
+        self.assertIn("polo", text)
+        self.assertIn("jersey", text)
+
+
+class GarmentAssetAndAllowListTests(TestCase):
+    """BEHAVIOR/SOURCE: new garment assets, allow-lists, aliases."""
+
+    def test_python_and_js_template_ids_identical(self):
+        """SOURCE-STRING: Python allow-list matches JS GARMENT_TYPES ids + order."""
+        from apps.designs.garment_choices import GARMENT_TEMPLATE_IDS
+
+        garments_path = finders.find("js/editor_garments.js")
+        self.assertIsNotNone(garments_path)
+        with open(garments_path, encoding="utf-8") as fh:
+            g_src = fh.read()
+        # Top-level garment entries: six-space indent before id: (print-area ids nest deeper).
+        start = g_src.index("var GARMENT_TYPES = [")
+        end = g_src.index("];", start)
+        block = g_src[start:end]
+        import re
+
+        ids = re.findall(r'^ {6}id:\s*"([a-z]+)"', block, flags=re.M)
+        self.assertEqual(tuple(ids), GARMENT_TEMPLATE_IDS)
+        self.assertEqual(GARMENT_TEMPLATE_IDS, ("tee", "polo", "hoodie", "jersey"))
+
+    def test_all_eight_garment_svg_assets_exist(self):
+        """BEHAVIOR: tee/polo/hoodie/jersey × front/back SVG files are served."""
+        from pathlib import Path
+
+        for garment in ("tee", "polo", "hoodie", "jersey"):
+            for view in ("front", "back"):
+                path = finders.find(f"garments/{garment}-{view}.svg")
+                self.assertIsNotNone(path, f"missing {garment}-{view}.svg")
+                text = Path(path).read_text(encoding="utf-8")
+                prefix = f"{garment}-{view}-"
+                for suffix in ("ground", "base", "art", "details", "shade"):
+                    self.assertIn(f'id="{prefix}{suffix}"', text)
+
+    def test_garments_json_print_areas_match_js(self):
+        """SOURCE-STRING: garments.json exists and lists print areas for each view."""
+        import json
+        from pathlib import Path
+
+        path = finders.find("garments/garments.json")
+        self.assertIsNotNone(path)
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        for key in ("tee", "polo", "hoodie", "jersey"):
+            self.assertIn(key, data)
+            self.assertIn("label", data[key])
+            for view in ("front", "back"):
+                areas = data[key]["views"][view]["printAreas"]
+                self.assertIsInstance(areas, list)
+                self.assertGreater(len(areas), 0)
+
+    def test_normalize_garment_template_aliases(self):
+        """BEHAVIOR: aliases map to canonical keys; unknown rejected."""
+        from apps.designs.garment_choices import normalize_garment_template
+
+        self.assertEqual(normalize_garment_template("tee"), "tee")
+        self.assertEqual(normalize_garment_template("t-shirt"), "tee")
+        self.assertEqual(normalize_garment_template("Tshirt"), "tee")
+        self.assertEqual(normalize_garment_template("sweatshirt"), "hoodie")
+        self.assertIsNone(normalize_garment_template("evil"))
+        self.assertIsNone(normalize_garment_template(""))
+
+    def test_alias_rejected_on_save(self):
+        """BEHAVIOR: server accepts only canonical ids, not aliases."""
+        user = User.objects.create_user(
+            email="alias-garment@example.com",
+            password="test-pass-123",
+            role=User.Role.CUSTOMER,
+        )
+        design = Design.objects.create(
+            owner=user,
+            title="Alias design",
+            garment_template="tee",
+            garment_color="black",
+            canvas_json=_v1_envelope(),
+        )
+        form = DesignSaveForm(
+            data={
+                "canvas_json": json.dumps(_v1_envelope()),
+                "garment_template": "t-shirt",
+            },
+            stored_canvas=design.canvas_json,
+        )
+        self.assertFalse(form.is_valid())
+
+    def test_data_migration_normalizes_stored_aliases(self):
+        """BEHAVIOR: migration 0005 rewrites legacy alias keys."""
+        import importlib
+
+        from django.apps import apps
+
+        mig = importlib.import_module(
+            "apps.designs.migrations.0005_normalize_garment_templates"
+        )
+
+        user = User.objects.create_user(
+            email="migrate-garment@example.com",
+            password="test-pass-123",
+            role=User.Role.CUSTOMER,
+        )
+        design = Design.objects.create(
+            owner=user,
+            title="Legacy alias",
+            garment_template="tee",
+            garment_color="white",
+            canvas_json={},
+        )
+        # Bypass choices validation to simulate pre-migration row.
+        Design.objects.filter(pk=design.pk).update(garment_template="tshirt")
+        design.refresh_from_db()
+        self.assertEqual(design.garment_template, "tshirt")
+
+        mig.forwards(apps, None)
+        design.refresh_from_db()
+        self.assertEqual(design.garment_template, "tee")
+
+    def test_editor_exposes_garments_base(self):
+        """BEHAVIOR: editor page includes static garments base for SVG fetch."""
+        user = User.objects.create_user(
+            email="garment-base@example.com",
+            password="test-pass-123",
+            role=User.Role.CUSTOMER,
+        )
+        design = Design.objects.create(
+            owner=user,
+            title="Base path",
+            garment_template="polo",
+            garment_color="navy",
+            canvas_json=_v1_envelope(),
+        )
+        self.client.force_login(user)
+        resp = self.client.get(reverse("design_editor", args=[design.pk]))
+        self.assertEqual(resp.status_code, 200)
+        html = resp.content.decode("utf-8")
+        self.assertIn("data-garments-base=", html)
+        self.assertIn("garments/", html)
+        # Leak guard: multi-line {# #} comments must not appear in rendered HTML.
+        self.assertNotIn("Wrap size is set in JS", html)
+        self.assertNotIn("max-w-[800px] may be absent", html)
+
+    def test_svg_assets_use_expected_css_var_strings(self):
+        """SOURCE-STRING: garment SVGs use the exact var(...) forms export bakes."""
+        from pathlib import Path
+
+        trim = "var(--trim, var(--garment, #f2f2ef))"
+        garment = "var(--garment, #f2f2ef)"
+        string = "var(--string, #e9e5da)"
+        found_garment = False
+        found_trim = False
+        found_string = False
+        for garment_id in ("tee", "polo", "hoodie", "jersey"):
+            for view in ("front", "back"):
+                path = finders.find(f"garments/{garment_id}-{view}.svg")
+                self.assertIsNotNone(path)
+                text = Path(path).read_text(encoding="utf-8")
+                if garment in text:
+                    found_garment = True
+                if trim in text:
+                    found_trim = True
+                if string in text:
+                    found_string = True
+                # Bake with the same order as resolveSvgCssVars; no var( may remain.
+                baked = (
+                    text.replace(trim, "#ffffff")
+                    .replace(garment, "#111111")
+                    .replace(string, "#e9e5da")
+                )
+                self.assertNotIn(
+                    "var(",
+                    baked,
+                    msg=f"unresolved var( in {garment_id}-{view} after bake",
+                )
+        self.assertTrue(found_garment)
+        self.assertTrue(found_trim)
+        self.assertTrue(found_string)
+
+    def test_seed_demo_runs_with_canonical_garments(self):
+        """BEHAVIOR: seed_demo completes and uses allow-listed garment keys."""
+        from django.core.management import call_command
+
+        from apps.designs.garment_choices import (
+            GARMENT_COLOR_IDS,
+            GARMENT_TEMPLATE_IDS,
+        )
+
+        call_command("seed_demo")
+        for design in Design.objects.all():
+            self.assertIn(design.garment_template, GARMENT_TEMPLATE_IDS)
+            self.assertIn(design.garment_color, GARMENT_COLOR_IDS)

@@ -46,49 +46,20 @@ img, svg, video {
   }
 }
 
-/* Jobs pipeline modes:
- * phones: tabs
- * tablet portrait: horizontal snap
- * tablet landscape (~768–1279): 2×2 grid
- * laptop (≥1280): four columns
+/* Jobs pipeline: one markup; layout via Tailwind + this visibility rule
+ * <768px: tabs + one phase (JS toggles .is-inactive / aria-selected)
+ * 768–1279: 2×2 grid (md:grid-cols-2); all phases visible
+ * ≥1280: four columns (xl:grid-cols-4); all phases visible
  */
-.pipeline-desktop { display: none; }
-.pipeline-tablet-snap { display: none; }
-.pipeline-tablet-grid { display: none; }
-.pipeline-mobile { display: block; }
-
-@media (min-width: 768px) and (orientation: portrait) {
-  .pipeline-mobile { display: none; }
-  .pipeline-tablet-snap { display: block; }
-  .pipeline-tablet-grid { display: none; }
-  .pipeline-desktop { display: none; }
+@media (max-width: 767px) {
+  [data-pipeline] [data-pipeline-panel].is-inactive {
+    display: none;
+  }
 }
-
-@media (min-width: 768px) and (max-width: 1279px) and (orientation: landscape) {
-  .pipeline-mobile { display: none; }
-  .pipeline-tablet-snap { display: none; }
-  .pipeline-tablet-grid { display: block; }
-  .pipeline-desktop { display: none; }
-}
-
-@media (min-width: 1280px) {
-  .pipeline-mobile { display: none; }
-  .pipeline-tablet-snap { display: none; }
-  .pipeline-tablet-grid { display: none; }
-  .pipeline-desktop { display: grid; }
-}
-
-.pipeline-snap {
-  display: flex;
-  gap: 1rem;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 0.5rem;
-}
-.pipeline-snap > * {
-  flex: 0 0 min(85vw, 22rem);
-  scroll-snap-align: start;
+@media (min-width: 768px) {
+  [data-pipeline] [data-pipeline-panel].is-inactive {
+    display: block;
+  }
 }
 
 /* Payment modal: full-screen sheet on phones */
@@ -773,6 +744,9 @@ img, svg, video {
   width: 4rem;
   height: 4rem;
   flex-shrink: 0;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
 }
 .editor-garment-swatches {
   display: grid;

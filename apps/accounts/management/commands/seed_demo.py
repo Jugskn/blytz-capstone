@@ -112,7 +112,9 @@ class Command(BaseCommand):
                 owner=owner,
                 title=f"Demo Design {i:02d}",
                 defaults={
-                    "garment_template": "tee" if i % 2 else "hoodie",
+                    "garment_template": ("tee", "polo", "hoodie", "jersey")[
+                        (i - 1) % 4
+                    ],
                     "garment_color": ["black", "white", "navy"][i % 3],
                     "canvas_json": {"version": 1, "objects": [], "demo": i},
                 },

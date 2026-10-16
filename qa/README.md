@@ -45,7 +45,7 @@ for n in ['editor_canvas.js','editor_tools.js','editor_properties.js']:
 | `regression_commits.js` | Stage 3c/3d commit-count regression (Task 6) |
 | `regression_viewports.md` | How to run before/after layout pairs |
 | `manual_device_checklist.md` | Real-phone checklist |
-| `garment_checks.js` | Garment / Front-Back checks (Task 16) |
+| `garment_checks.js` | Garment / Front-Back / preview PNG checks (layers, CSS-var bake, 800×800 mock-ups) |
 | `blytz_stage3a_*` | Copied from Desktop (Stage 3a) |
 | `blytz_stage3b_*` | Copied from Desktop (Stage 3b) |
 | `blytz_stage3c_rerun_notes.txt` | Copied notes |

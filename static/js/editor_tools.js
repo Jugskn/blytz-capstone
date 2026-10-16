@@ -181,8 +181,6 @@
   var GARMENT_VIEW_BLOCK_TITLE =
     "Choose an AI suggestion or edit the design first";
 
-  var SVG_NS = "http://www.w3.org/2000/svg";
-
   function garmentsApi() {
     return global.BlytzGarments;
   }
@@ -328,75 +326,18 @@
     }
   }
 
-  function svgTagForPartKind(kind) {
-    if (kind === "path") return "path";
-    if (kind === "polygon") return "polygon";
-    if (kind === "rect") return "rect";
-    if (kind === "circle") return "circle";
-    if (kind === "line") return "line";
-    return "path";
-  }
-
-  function applyThumbPartShape(el, def) {
-    var kind = def.kind;
-    if (kind === "path" && def.d) {
-      el.setAttribute("d", def.d);
-    } else if (kind === "polygon" && def.points) {
-      el.setAttribute("points", def.points);
-    } else if (kind === "rect") {
-      if (def.x != null) el.setAttribute("x", String(def.x));
-      if (def.y != null) el.setAttribute("y", String(def.y));
-      if (def.w != null) el.setAttribute("width", String(def.w));
-      if (def.h != null) el.setAttribute("height", String(def.h));
-    } else if (kind === "circle") {
-      if (def.x != null) el.setAttribute("cx", String(def.x));
-      if (def.y != null) el.setAttribute("cy", String(def.y));
-      if (def.r != null) el.setAttribute("r", String(def.r));
-    } else if (kind === "line") {
-      if (def.x1 != null) el.setAttribute("x1", String(def.x1));
-      if (def.y1 != null) el.setAttribute("y1", String(def.y1));
-      if (def.x2 != null) el.setAttribute("x2", String(def.x2));
-      if (def.y2 != null) el.setAttribute("y2", String(def.y2));
-    }
-  }
-
-  function styleThumbPart(el, def, fillHex, trimHex) {
-    var role = def.role || "fill";
-    if (role === "fill") {
-      el.setAttribute("fill", fillHex);
-      el.setAttribute("stroke", "none");
-    } else if (role === "stroke") {
-      el.setAttribute("fill", "none");
-      el.setAttribute("stroke", trimHex);
-      el.setAttribute("stroke-width", "2");
-    } else if (role === "outline") {
-      el.setAttribute("fill", "none");
-      el.setAttribute("stroke", "rgba(0,0,0,0.2)");
-      el.setAttribute("stroke-width", "2");
-    }
-  }
-
   function buildGarmentTypeThumb(garmentId) {
     var g = garmentsApi();
-    if (!g || typeof g.buildPartsForTest !== "function") return null;
-    var parts = g.buildPartsForTest(garmentId, "front");
-    var fillHex = "#d4d4d8";
-    var trimHex =
-      typeof g.shadeColor === "function" ? g.shadeColor(fillHex, -0.25) : "#a1a1aa";
-    var svg = document.createElementNS(SVG_NS, "svg");
-    svg.setAttribute("viewBox", "0 0 800 800");
-    svg.setAttribute("class", "editor-garment-thumb");
-    svg.setAttribute("aria-hidden", "true");
-    svg.setAttribute("focusable", "false");
-    for (var i = 0; i < parts.length; i++) {
-      var def = parts[i];
-      if (!def || !def.kind) continue;
-      var node = document.createElementNS(SVG_NS, svgTagForPartKind(def.kind));
-      applyThumbPartShape(node, def);
-      styleThumbPart(node, def, fillHex, trimHex);
-      svg.appendChild(node);
-    }
-    return svg;
+    var url =
+      g && typeof g.thumbUrl === "function" ? g.thumbUrl(garmentId) : null;
+    if (!url) return null;
+    var img = document.createElement("img");
+    img.className = "editor-garment-thumb";
+    img.src = url;
+    img.alt = "";
+    img.setAttribute("aria-hidden", "true");
+    img.draggable = false;
+    return img;
   }
 
   function renderGarmentBody(body) {

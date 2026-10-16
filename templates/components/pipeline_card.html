@@ -18,5 +18,12 @@
   </div>
   {% endif %}
   <p class="mt-2 truncate text-sm text-ink">{{ order.customer.get_full_name }}</p>
-  <p class="mt-1 text-xs text-ink-muted">{{ order.created_at|date:"Y-m-d H:i" }}</p>
+  <p class="mt-1 truncate text-xs text-ink-muted">
+    {{ order.design.title }}
+    {% if order.design.garment_template %} · {{ order.design.garment_template }}{% endif %}
+  </p>
+  {% if order.agreed_total %}
+  <p class="mt-1 font-mono text-xs text-ink">₱{{ order.total_paid }} of ₱{{ order.agreed_total }}</p>
+  {% endif %}
+  <p class="mt-1 text-xs text-ink-muted">{{ order.created_at|date:"M j, g:i A" }}</p>
 </a>

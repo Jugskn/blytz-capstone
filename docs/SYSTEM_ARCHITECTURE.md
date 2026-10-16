@@ -94,7 +94,7 @@ apps/
   sales/                  # Lead pipeline
 services/                 # proof_images (+ future remove.bg / AI / email wrappers)
 templates/                # Root templates + components + per-app pages
-static/                   # css/, js/, img/
+static/                   # css/, js/, img/, garments/ (SVG mockups + garments.json)
 src/styles/main.css       # Tailwind source + @theme tokens
 media/                    # Uploads (gitignored): payment_channels, payment_proofs, …
 docs/                     # PROJECT_BRIEF.md, this file
@@ -280,7 +280,7 @@ User (accounts)
 | --- | --- | --- |
 | owner | FK → User | CASCADE |
 | title | CharField | Default “Untitled design” on create |
-| garment_template | CharField | e.g. `tee`, `hoodie` |
+| garment_template | CharField | Allow-list: `tee`, `polo`, `hoodie`, `jersey` (aliases normalized by migration / editor load) |
 | garment_color | CharField | e.g. `black` |
 | canvas_json | JSONField | Editor state (`version`, `objects`, …) |
 | preview_image | ImageField | `design_previews/` (optional) |
@@ -581,9 +581,10 @@ POST /app/designs/<id>/submit/   [atomic]
 **Submit previews (client)**
 
 1. On payment-form submit, `editor_page.js` blocks the native POST.
-2. Calls `BlytzEditor.getPreviewPNG({ view: "front"|"back", includeGarment: true })` for both views (garment SVG + artwork composite).
-3. Appends `preview_image` / `preview_back_image` file fields and POSTs via `fetch`.
-4. If preview generation fails, shows an error and does **not** create an order.
+2. Calls `BlytzEditor.getPreviewPNG({ view: "front"|"back", includeGarment: true })` for both views.
+3. Each call composites an **800×800** PNG in order: UNDER garment → Fabric artwork → OVER garment (print-area guides omitted). CSS `var(--…)` references in SVG text are replaced with hex before `<img>` rasterization (trim form first, then garment, then string). The non-active view is rendered offscreen (`fabric.StaticCanvas` + cached/fetched SVG) without switching the live canvas or firing commits. Export lowers grain opacity (and strips grain on retry) so files stay ≤ **5 MB** / max edge **2400** (`services/preview_images.py`).
+4. Appends `preview_image` / `preview_back_image` file fields and POSTs via `fetch`.
+5. If preview generation fails, shows an error and does **not** create an order.
 
 **Payment window** (initial submit only)
 
@@ -812,7 +813,7 @@ The Fabric.js canvas implementation honors this **stable public API** on `window
 | --- | --- |
 | `getCanvasJSON()` | Return current canvas object (Blytz schema envelope) |
 | `loadCanvasJSON(json\|string)` | Load state into editor |
-| `getPreviewPNG(opts?)` | PNG data-URL of the logical 800×800 workspace. No opts: sync, active view, artwork only. `{ view, includeGarment }` may return a Promise; with `includeGarment: true` composites garment SVG + artwork |
+| `getPreviewPNG(opts?)` | PNG data-URL of the logical 800×800 workspace. No opts: sync, active view, artwork only. `{ view, includeGarment }` returns a Promise; with `includeGarment: true` composites UNDER + artwork + OVER (CSS vars baked to hex; print guides omitted; inactive view offscreen — no live switch / commits) |
 | `onCommittedChange(cb)` | Subscribe to commits; returns unsubscribe |
 | `validateCanvasJSON(json)` | Validate Blytz schema v1 envelope (no mutation) |
 | `applyCanvasJSON(json)` / `previewCanvasJSON(json)` | Safe validate → snapshot → load; restore on failure; loads do not fire commit listeners |
@@ -824,14 +825,15 @@ The Fabric.js canvas implementation honors this **stable public API** on `window
 | --- | --- |
 | `static/vendor/fabric/fabric.min.js` | Fabric.js **6.6.1** UMD browser build (MIT; see `LICENSE`) |
 | `static/js/editor_canvas.js` | Fabric workspace, B1 views, safety scan, image pipeline, commits |
-| `static/js/editor_garments.js` | Garment silhouettes, colors, `renderGarmentLayer`, contrast helpers |
+| `static/js/editor_garments.js` | Inline SVG garments (under/over split), colors, print areas, `renderGarmentLayer`, `resolveSvgCssVars` / `getExportLayerMarkups` (PNG export), contrast helpers |
+| `static/garments/` | `tee` / `polo` / `hoodie` / `jersey` × front/back SVGs + `garments.json` (labels, print areas) |
 | `static/js/editor_tools.js` | Upload / Elements / Layers / Garment panels, shape factories |
 | `static/js/editor_properties.js` | Properties sheet, clamps, Edit pill, ≤1279 exclusivity |
 | `static/js/editor_contract.js` | `window.BlytzEditor` public API |
 | `static/js/ai_chat.js` | Local two-candidate mock (no network) |
 | `static/js/editor_page.js` | Save, payment modal timer, submit validation, CSRF |
 | `apps/designs/canvas_safety.py` | Server twin of `scanCanvasPayload` (v1 only) |
-| `apps/designs/garment_choices.py` | Template/color allow-lists + stale-client views guard |
+| `apps/designs/garment_choices.py` | Template/color allow-lists, template aliases, stale-client views guard |
 | `qa/` | Console-paste GATE / regression / garment scripts + device checklist |
 
 `editor_page.js` wires:
@@ -871,7 +873,9 @@ Logical working canvas: **800×800** units (provisional; not garment or print si
 
 **Commits:** `commitEdit(label, applyFn)` → one `notifyCommitted` per successful op; `runSilent` suppresses; first committed edit after AI preview discards the sibling candidate. `SERIALIZE_PROPS`: `selectable`, `evented`, `blytzId`, `blytzName` (`blytzLocked` reserved). Fabric object type `i-text` → `typeKey` strips non-letters → `itext` for comparisons.
 
-**Garment layer:** `#editor-garment-layer` SVG (first child of `#editor-canvas-wrap`, pointer-events none); Fabric canvas background forced transparent after every load/preview/apply/view switch so the mockup shows through. Print-area dashed rect is a placeholder estimate. Contrast defaults: new text/shapes/graphics/lines use `contrastColor(garment)` at insert time only.
+**Garment layers:** Assets in `static/garments/` (`tee`, `polo`, `hoodie`, `jersey` × front/back, 800×800). Client fetches SVG text (in-memory cache + `?v=` bust), splits into two inline SVGs sharing full `<defs>`: **under** (`#editor-garment-layer` = ground+base, first child of `#editor-canvas-wrap`) and **over** (`#editor-garment-overlay` = details+shade, last child, `pointer-events: none`). The SVG `art` group is omitted (Fabric is the art layer). OVER ids are rewritten (`…-` → `…-o-`) so defs do not collide. CSS variables `--garment`, `--trim` (`contrastColor(garment)`), `--string` (`#e9e5da` for hoodie drawcords) are set on the wrap and both SVGs for live display. Print areas come from `garments.json` (dashed guides on the over layer only; never drawn into export markups). Optional `data-blytz-lite-garment="1"` strips grain/weave rects from the over layer. Fabric background stays transparent. Template allow-list (`tee|polo|hoodie|jersey`) is identical in `garment_choices.py` and `editor_garments.js`; load-time aliases (e.g. `t-shirt`→`tee`) plus data migration `0005_normalize_garment_templates`; unknown keys rejected on save. Contrast defaults: new text/shapes/graphics/lines use `contrastColor(garment)` at insert time only.
+
+**Preview PNG export (`includeGarment: true`):** `BlytzGarments.getExportLayerMarkups` loads the target view’s SVG (cache/fetch), bakes exact strings `var(--trim, var(--garment, #f2f2ef))` → trim hex, then `var(--garment, #f2f2ef)` → garment hex, then `var(--string, #e9e5da)` → string hex, asserts no `var(` remains, lowers grain opacity for file size, splits under/over, and composites with Fabric artwork (active view via live `toDataURL`; other view via offscreen `StaticCanvas`). Result must pass `services/preview_images.py` (real PNG, ≤5 MB, max edge 2400). Failures block submit (no order).
 
 **UI breakpoints:** bottom toolbar + Edit pill ≤1023px; Properties sheet exclusive with tool panels when `!min-width:1280` (CSS `not all and (min-width: 1280px)`); coexist ≥1280px. Front/Back: always-visible overlay toggle group (`#editor-view-toggle`) plus toolbar toggle. Phone Text tool opens a Text sheet (no Fabric `enterEditing` on coarse/narrow viewports). Landscape coarse tablets use docked panels via `editor_chrome.js` (`data-editor-layout`).
 
@@ -884,7 +888,7 @@ Logical working canvas: **800×800** units (provisional; not garment or print si
 
 **Deployment note:** stale cached scripts caused false failures earlier — prefer hashed static filenames in production. B1 stale clients that omit `views` are additionally covered by the server guard (hashed filenames not implemented in this stage).
 
-**Known limitations:** front/back only (no sleeve views); real-device keyboard/pinch still worth a manual pass (`qa/manual_device_checklist.md`); client deterrents do not stop screenshots; safety rules are duplicated in JS and Python; garment colors and print areas are placeholders.
+**Known limitations:** front/back only (no sleeve views); real-device keyboard/pinch still worth a manual pass (`qa/manual_device_checklist.md`); client deterrents do not stop screenshots; safety rules are duplicated in JS and Python; preview PNG compositing / SVG-as-`<img>` CSS-var baking is verified in desktop browsers via `qa/garment_checks.js` — **iOS Safari and real phones are not automated** (manual check recommended for submit mock-ups and grain file size).
 
 ### 11.3 Legacy compatibility
 
@@ -969,6 +973,7 @@ media/payment_proofs/                            payment proofs
 media/design_previews/ · order_previews/ · final_designs/
 static/vendor/chartjs/                           Chart.js 4.4.6 (staff charts)
 static/vendor/fabric/                            Fabric.js (editor)
+static/garments/                                 Apparel SVGs + garments.json
 ```
 
 **Dev commands**
