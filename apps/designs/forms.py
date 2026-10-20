@@ -40,6 +40,31 @@ def _apply_v1_safety(data: dict) -> dict:
     return data
 
 
+def _is_unsupported_legacy(data: dict) -> bool:
+    """
+    Match client isUnsupportedLegacy in editor_canvas.js.
+
+    Genuinely supported (not rejected here):
+      - Blytz schema_version 1 envelopes
+      - Empty legacy stubs: {version: 1, objects: []}
+      - Raw Fabric canvases: {version: "<string>", objects: [...]}
+      - Unknown schema_version ≠ 1 (opaque forward-compat; client blocks UI overwrite)
+
+    Unsupported (reject on save/submit — editor cannot load these):
+      - Non-empty pre-Fabric stubs, e.g. {version: 1, objects: [{type: "text"}]}
+    """
+    if not isinstance(data, dict):
+        return False
+    if "schema_version" in data:
+        return False
+    version = data.get("version")
+    objects = data.get("objects")
+    # Raw Fabric: version is a string + objects array (client wraps into v1 on load).
+    if isinstance(version, str) and isinstance(objects, list):
+        return False
+    return isinstance(objects, list) and len(objects) > 0
+
+
 def _parse_canvas_json(raw, *, stored_canvas=None):
     if isinstance(raw, dict):
         data = raw
@@ -59,6 +84,13 @@ def _parse_canvas_json(raw, *, stored_canvas=None):
 
     # Stale-client guard before size re-encode / safety (v1 only; non-v1 opaque).
     data = apply_stale_client_views_guard(data, stored_canvas)
+
+    # Align with editor load rules: do not persist formats the client cannot open.
+    # Do not broaden acceptance — only reject what the editor already blocks.
+    if _is_unsupported_legacy(data):
+        raise forms.ValidationError(
+            "This design uses an unsupported legacy canvas format."
+        )
 
     encoded = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     if _utf8_byte_length(encoded) > MAX_CANVAS_JSON_BYTES:

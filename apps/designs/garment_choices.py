@@ -37,6 +37,37 @@ GARMENT_COLOR_IDS = (
 GARMENT_TEMPLATE_CHOICES = [(x, x) for x in GARMENT_TEMPLATE_IDS]
 GARMENT_COLOR_CHOICES = [(x, x) for x in GARMENT_COLOR_IDS]
 
+# Display labels aligned with static/js/editor_garments.js (not stored values).
+GARMENT_TEMPLATE_LABELS = {
+    "tee": "T-shirt",
+    "polo": "Polo shirt",
+    "hoodie": "Hoodie",
+    "jersey": "Jersey",
+}
+GARMENT_COLOR_LABELS = {
+    "white": "White",
+    "black": "Black",
+    "gray": "Gray",
+    "navy": "Navy",
+    "red": "Red",
+    "royal": "Royal",
+    "green": "Green",
+    "yellow": "Yellow",
+    "orange": "Orange",
+    "maroon": "Maroon",
+}
+
+
+def format_garment_display(template: str | None, color: str | None) -> str:
+    """Human-readable garment line for customer lists. Unknown ids stay visible."""
+    t_raw = (template or "").strip()
+    c_raw = (color or "").strip()
+    if not t_raw and not c_raw:
+        return "—"
+    t = GARMENT_TEMPLATE_LABELS.get(t_raw, t_raw or "—")
+    c = GARMENT_COLOR_LABELS.get(c_raw, c_raw or "—")
+    return f"{t} · {c}"
+
 
 def normalize_garment_template(value):
     """Map a stored/legacy key to a canonical template id, or None if unknown."""

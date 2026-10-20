@@ -78,8 +78,20 @@
     "data:image/webp;base64,",
   ];
 
-  /** Extra Fabric props to serialize. Reserved for later: blytzLocked. */
-  var SERIALIZE_PROPS = ["selectable", "evented", "blytzId", "blytzName"];
+  /** Extra Fabric props to serialize (visible is a Fabric built-in). */
+  var SERIALIZE_PROPS = [
+    "selectable",
+    "evented",
+    "blytzId",
+    "blytzName",
+    "blytzCurve",
+    "blytzLocked",
+  ];
+  /** Stage B: curved-text metadata + geometry clamps (see apps/designs/text_curve.py). */
+  var CURVE_AMOUNT_MIN = 0;
+  var CURVE_AMOUNT_MAX = 1;
+  var CURVE_BULGE_FACTOR = 0.45;
+  var CURVE_META_VERSION = 1;
   /** Color swatches for the properties panel (native picker + presets). */
   var COLOR_PRESETS = [
     "#000000",
@@ -107,7 +119,17 @@
     posMax: 1200,
     textMin: 1,
     textMax: 200,
+    /** Layer rename (blytzName) max length after trim. */
+    layerNameMax: 60,
+    /** Fabric charSpacing is 1/1000 em of fontSize. */
+    charSpacingMin: -200,
+    charSpacingMax: 800,
+    /** Fabric lineHeight is a line-box multiplier (default ~1.16). */
+    lineHeightMin: 0.8,
+    lineHeightMax: 2.5,
   };
+
+  var TEXT_ALIGN_VALUES = ["left", "center", "right"];
 
   var fabricCanvas = null;
   var getJSONRef = null;
@@ -142,9 +164,22 @@
   var beforeCommitHooks = [];
   var afterCommitHooks = [];
 
+  /** Stage 1: non-blocking print-area overflow warning (DOM only; never Fabric). */
+  var PRINT_OVERFLOW_EPS = 1e-6;
+  var printOverflowRaf = 0;
+  var printOverflowWired = false;
+  var lastPrintOverflowState = {
+    overflow: false,
+    defined: false,
+    reason: "uninitialized",
+    count: 0,
+  };
+
   /** Undo / redo stack (full envelope snapshots). Additive; does not change JSON schema. */
   var HISTORY_MAX = 40;
   var historyStack = [];
+  /** Parallel to historyStack: active garment view at each snapshot ("front"|"back"). */
+  var historyActiveViews = [];
   var historyIndex = -1;
   var historyApplying = false;
   var historySeeded = false;
@@ -245,6 +280,10 @@
 
   function refreshGarmentLayer() {
     var g = global.BlytzGarments;
+    var done = function (value) {
+      schedulePrintOverflowCheck();
+      return value;
+    };
     if (g && typeof g.renderGarmentLayer === "function") {
       try {
         var result = g.renderGarmentLayer(
@@ -253,14 +292,225 @@
           activeView
         );
         return result && typeof result.then === "function"
-          ? result
-          : Promise.resolve(result);
+          ? result.then(done, function (err) {
+              schedulePrintOverflowCheck();
+              throw err;
+            })
+          : Promise.resolve(done(result));
       } catch (err) {
         console.warn("BlytzCanvas: garment layer render failed", err);
+        schedulePrintOverflowCheck();
         return Promise.resolve(null);
       }
     }
+    schedulePrintOverflowCheck();
     return Promise.resolve(null);
+  }
+
+  /**
+   * Axis-aligned containment. Callers must pass transformed bounds
+   * (Fabric getBoundingRect) for rotated/scaled objects.
+   * Edges may touch (boundary = inside). Must match print_area_check.py.
+   */
+  function printAreaContainsRect(area, rect, eps) {
+    if (eps == null) eps = PRINT_OVERFLOW_EPS;
+    if (!area || !rect) return false;
+    var ax = Number(area.x);
+    var ay = Number(area.y);
+    var aw = Number(area.w != null ? area.w : area.width);
+    var ah = Number(area.h != null ? area.h : area.height);
+    var left = Number(rect.left != null ? rect.left : rect.x);
+    var top = Number(rect.top != null ? rect.top : rect.y);
+    var width = Number(rect.width != null ? rect.width : rect.w);
+    var height = Number(rect.height != null ? rect.height : rect.h);
+    if (!(aw > 0) || !(ah > 0) || !(width > 0) || !(height > 0)) return false;
+    if (isNaN(ax) || isNaN(ay) || isNaN(left) || isNaN(top)) return false;
+    return (
+      left >= ax - eps &&
+      top >= ay - eps &&
+      left + width <= ax + aw + eps &&
+      top + height <= ay + ah + eps
+    );
+  }
+
+  /**
+   * True when any artwork rect is not fully inside at least one print area.
+   * Multiple areas are OR'd. Empty areas → false (caller treats as undefined).
+   */
+  function artworkOverflowsPrintAreas(areas, rects, eps) {
+    if (!areas || !areas.length) return false;
+    var list = rects || [];
+    var i;
+    var j;
+    for (i = 0; i < list.length; i++) {
+      var rect = list[i];
+      if (!rect) continue;
+      var contained = false;
+      for (j = 0; j < areas.length; j++) {
+        if (printAreaContainsRect(areas[j], rect, eps)) {
+          contained = true;
+          break;
+        }
+      }
+      if (!contained) return true;
+    }
+    return false;
+  }
+
+  function evaluatePrintOverflow(areasResult, rects) {
+    areasResult = areasResult || {};
+    if (!areasResult.ok) {
+      return {
+        overflow: false,
+        defined: false,
+        reason: areasResult.reason || "no_print_areas",
+        count: 0,
+      };
+    }
+    var areas = areasResult.areas || [];
+    var list = rects || [];
+    var overflow = artworkOverflowsPrintAreas(areas, list);
+    return {
+      overflow: overflow,
+      defined: true,
+      reason: overflow ? "overflow" : "ok",
+      count: list.length,
+    };
+  }
+
+  /**
+   * Transformed AABB for each canvas object in logical 800×800 space.
+   * Fabric 6 getBoundingRect() uses getCoords() (object transform included).
+   * Does not mutate objects. ActiveSelection is not on getObjects().
+   */
+  function collectArtworkBounds(canvas) {
+    if (!canvas || typeof canvas.getObjects !== "function") return [];
+    var objects = canvas.getObjects();
+    var rects = [];
+    var i;
+    for (i = 0; i < objects.length; i++) {
+      var obj = objects[i];
+      if (!obj || typeof obj.getBoundingRect !== "function") continue;
+      var br;
+      try {
+        // Fabric 6: no absolute flag; extra args are ignored if present.
+        br = obj.getBoundingRect();
+      } catch (err) {
+        continue;
+      }
+      if (!br) continue;
+      var width = Number(br.width);
+      var height = Number(br.height);
+      if (!(width > 0) || !(height > 0)) continue;
+      rects.push({
+        left: Number(br.left),
+        top: Number(br.top),
+        width: width,
+        height: height,
+      });
+    }
+    return rects;
+  }
+
+  function evaluateCurrentPrintOverflow() {
+    var g = global.BlytzGarments;
+    if (!g || typeof g.getPrintAreas !== "function") {
+      return {
+        overflow: false,
+        defined: false,
+        reason: "no_print_api",
+        count: 0,
+      };
+    }
+    var areasResult = g.getPrintAreas(garmentState.template, activeView);
+    var rects = collectArtworkBounds(fabricCanvas);
+    return evaluatePrintOverflow(areasResult, rects);
+  }
+
+  var PRINT_OVERFLOW_MSG =
+    "Artwork extends outside the printable area. Nothing was moved — you can still edit and save, but parts outside the guide may not print.";
+
+  function updatePrintOverflowDom(state) {
+    var next = state || {
+      overflow: false,
+      defined: false,
+      reason: "undefined",
+      count: 0,
+    };
+    var el = document.getElementById("editor-print-overflow-warning");
+    // Skip no-op DOM writes so show/hide churn cannot poke layout mid-drag.
+    if (
+      lastPrintOverflowState &&
+      lastPrintOverflowState.overflow === next.overflow &&
+      lastPrintOverflowState.defined === next.defined &&
+      lastPrintOverflowState.reason === next.reason
+    ) {
+      lastPrintOverflowState = next;
+      return;
+    }
+    lastPrintOverflowState = next;
+    if (!el) return;
+    if (!next.defined) {
+      el.hidden = true;
+      el.setAttribute("aria-hidden", "true");
+      el.textContent = "";
+      el.dataset.reason = next.reason || "undefined";
+      el.dataset.overflow = "0";
+      return;
+    }
+    if (next.overflow) {
+      el.hidden = false;
+      el.setAttribute("aria-hidden", "false");
+      el.dataset.reason = "overflow";
+      el.dataset.overflow = "1";
+      if (el.textContent !== PRINT_OVERFLOW_MSG) {
+        el.textContent = PRINT_OVERFLOW_MSG;
+      }
+      return;
+    }
+    el.hidden = true;
+    el.setAttribute("aria-hidden", "true");
+    el.textContent = "";
+    el.dataset.reason = "ok";
+    el.dataset.overflow = "0";
+  }
+
+  function applyPrintOverflowWarning() {
+    updatePrintOverflowDom(evaluateCurrentPrintOverflow());
+  }
+
+  function schedulePrintOverflowCheck() {
+    if (typeof global.requestAnimationFrame !== "function") {
+      applyPrintOverflowWarning();
+      return;
+    }
+    if (printOverflowRaf) return;
+    printOverflowRaf = global.requestAnimationFrame(function () {
+      printOverflowRaf = 0;
+      applyPrintOverflowWarning();
+    });
+  }
+
+  function wirePrintOverflowChecks() {
+    if (printOverflowWired || !fabricCanvas) return;
+    printOverflowWired = true;
+    fabricCanvas.on("object:moving", schedulePrintOverflowCheck);
+    fabricCanvas.on("object:scaling", schedulePrintOverflowCheck);
+    fabricCanvas.on("object:rotating", schedulePrintOverflowCheck);
+    fabricCanvas.on("object:skewing", schedulePrintOverflowCheck);
+    afterCommitHooks.push(function () {
+      schedulePrintOverflowCheck();
+    });
+    schedulePrintOverflowCheck();
+  }
+
+  function getPrintOverflowState() {
+    return {
+      overflow: !!lastPrintOverflowState.overflow,
+      defined: !!lastPrintOverflowState.defined,
+      reason: lastPrintOverflowState.reason || "",
+      count: lastPrintOverflowState.count || 0,
+    };
   }
 
   function aiCandidatesPending() {
@@ -501,6 +751,10 @@
     return historyIndex >= 0 && historyIndex < historyStack.length - 1;
   }
 
+  function currentHistoryView() {
+    return activeView === "back" ? "back" : "front";
+  }
+
   function pushHistorySnapshot(snapshot) {
     if (historyApplying || !snapshot) return;
     var serialized;
@@ -516,9 +770,12 @@
       return;
     }
     historyStack = historyStack.slice(0, historyIndex + 1);
+    historyActiveViews = historyActiveViews.slice(0, historyIndex + 1);
     historyStack.push(serialized);
+    historyActiveViews.push(currentHistoryView());
     if (historyStack.length > HISTORY_MAX) {
       historyStack.shift();
+      historyActiveViews.shift();
     }
     historyIndex = historyStack.length - 1;
     historySeeded = true;
@@ -528,6 +785,7 @@
   function seedHistory(snapshot) {
     if (historySeeded || !snapshot) return;
     historyStack = [JSON.stringify(snapshot)];
+    historyActiveViews = [currentHistoryView()];
     historyIndex = 0;
     historySeeded = true;
     syncHistoryUi();
@@ -541,6 +799,8 @@
     } catch (err) {
       return Promise.resolve(false);
     }
+    var preferredView =
+      historyActiveViews[index] === "back" ? "back" : "front";
     historyApplying = true;
     historyIndex = index;
     syncHistoryUi();
@@ -549,7 +809,7 @@
     ensureCanvas(getJSONRef);
     var loadPromise =
       typeof loadAllViewsFromEnvelope === "function"
-        ? loadAllViewsFromEnvelope(envelope, getJSONRef)
+        ? loadAllViewsFromEnvelope(envelope, getJSONRef, preferredView)
         : loadFabricPayload(envelope && envelope.canvas, getJSONRef);
     return Promise.resolve(loadPromise)
       .catch(function () {
@@ -661,11 +921,233 @@
     }
   }
 
+  /** Always mint a new id (duplicates must not keep the source id). */
+  function forceBlytzId(obj) {
+    if (!obj) return;
+    obj.blytzId = newBlytzId();
+  }
+
   function assignBlytzName(obj, name) {
     if (!obj || typeof name !== "string" || !name) return;
     if (typeof obj.blytzName !== "string" || !obj.blytzName) {
       obj.blytzName = name;
     }
+  }
+
+  /**
+   * Layer label for a duplicated object. Keeps names distinct without renaming the source.
+   */
+  function duplicateLayerName(source) {
+    var base = "";
+    if (source && typeof source.blytzName === "string" && source.blytzName) {
+      base = source.blytzName;
+    } else {
+      var tk = typeKey(source);
+      if (tk === "itext" || tk === "text" || tk === "textbox") {
+        var text = source && typeof source.text === "string" ? source.text : "";
+        base = text ? text.slice(0, 20) : "Text";
+      } else if (tk === "image") base = "Image";
+      else if (tk === "rect") base = "Rectangle";
+      else if (tk === "ellipse" || tk === "circle") base = "Ellipse";
+      else if (tk === "line") base = "Line";
+      else if (tk === "path") base = "Path";
+      else if (tk === "polygon") base = "Polygon";
+      else base = "Object";
+    }
+    if (/\scopy(?:\s+\d+)?$/i.test(base)) return base;
+    return base + " copy";
+  }
+
+  function isObjectLocked(obj) {
+    return !!(obj && obj.blytzLocked);
+  }
+
+  /** Normalize + validate a layer rename. Returns trimmed name or null if rejected. */
+  function normalizeLayerName(raw) {
+    if (typeof raw !== "string") return null;
+    var trimmed = raw.trim();
+    if (!trimmed) return null;
+    var max =
+      PROP_LIMITS.layerNameMax != null ? PROP_LIMITS.layerNameMax : 60;
+    if (trimmed.length > max) trimmed = trimmed.slice(0, max);
+    return trimmed;
+  }
+
+  /**
+   * Canvas interaction flags derived from blytzLocked.
+   * Locked objects stay visible in JSON + layer list; layer panel may still
+   * setActiveObject for management (rename / unlock / duplicate) even when
+   * selectable/evented are false — canvas pointer hits will not select them.
+   */
+  function applyLockInteraction(obj) {
+    if (!obj) return;
+    if (obj.blytzLocked) {
+      obj.set({
+        selectable: false,
+        evented: false,
+        lockMovementX: true,
+        lockMovementY: true,
+        lockScalingX: true,
+        lockScalingY: true,
+        lockRotation: true,
+        hasControls: false,
+      });
+    } else {
+      obj.set({
+        selectable: true,
+        evented: true,
+        lockMovementX: false,
+        lockMovementY: false,
+        lockScalingX: false,
+        lockScalingY: false,
+        lockRotation: false,
+        hasControls: true,
+      });
+    }
+    if (typeof obj.setCoords === "function") obj.setCoords();
+  }
+
+  function applyLockStateToCanvas(canvas) {
+    if (!canvas) return;
+    var objects = canvas.getObjects();
+    for (var i = 0; i < objects.length; i++) {
+      if (objects[i] && objects[i].blytzLocked) {
+        applyLockInteraction(objects[i]);
+      }
+    }
+  }
+
+  function findObjectByBlytzId(id) {
+    var canvas = fabricCanvas;
+    if (!canvas || typeof id !== "string" || !id) return null;
+    var objects = canvas.getObjects();
+    for (var i = 0; i < objects.length; i++) {
+      if (objects[i] && objects[i].blytzId === id) return objects[i];
+    }
+    return null;
+  }
+
+  /**
+   * Rename via blytzName only (id / geometry / visibility / lock unchanged).
+   * Rejects empty/whitespace. No-op (no history) when unchanged.
+   */
+  function renameObjectById(id, rawName, getJSON) {
+    if (!persistAllowed()) return false;
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var obj = findObjectByBlytzId(id);
+    if (!obj) {
+      setToolFeedback("Select a layer to rename.");
+      return false;
+    }
+    var next = normalizeLayerName(rawName);
+    if (next == null) {
+      setToolFeedback("Name cannot be empty.");
+      return false;
+    }
+    if (obj.blytzName === next) return false;
+    return commitEdit(
+      "rename",
+      function () {
+        obj.blytzName = next;
+        setToolFeedback("Renamed.");
+        return true;
+      },
+      getJSON
+    );
+  }
+
+  /**
+   * Hide/show via Fabric visible. Hidden objects remain in JSON + layer list;
+   * canvas hit-testing skips them. Layer panel can still select/show.
+   * Hiding a selected object clears canvas selection (no stale Properties).
+   */
+  function setObjectVisibleById(id, visible, getJSON) {
+    if (!persistAllowed()) return false;
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var obj = findObjectByBlytzId(id);
+    if (!obj) return false;
+    var next = !!visible;
+    if (!!obj.visible === next) return false;
+    return commitEdit(
+      next ? "show" : "hide",
+      function () {
+        obj.visible = next;
+        if (!next) {
+          var active = canvas.getActiveObject();
+          if (active === obj) {
+            canvas.discardActiveObject();
+          } else if (active && isActiveSelection(active)) {
+            var members = active.getObjects ? active.getObjects() : [];
+            for (var i = 0; i < members.length; i++) {
+              if (members[i] === obj) {
+                canvas.discardActiveObject();
+                break;
+              }
+            }
+          }
+        }
+        if (typeof obj.setCoords === "function") obj.setCoords();
+        canvas.requestRenderAll();
+        setToolFeedback(next ? "Layer shown." : "Layer hidden.");
+        return true;
+      },
+      getJSON
+    );
+  }
+
+  function setObjectLockedById(id, locked, getJSON) {
+    if (!persistAllowed()) return false;
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var obj = findObjectByBlytzId(id);
+    if (!obj) return false;
+    var next = !!locked;
+    if (!!obj.blytzLocked === next) return false;
+    return commitEdit(
+      next ? "lock" : "unlock",
+      function () {
+        obj.blytzLocked = next;
+        applyLockInteraction(obj);
+        if (next) {
+          var active = canvas.getActiveObject();
+          // Keep management selection from the layer panel; clear only if the
+          // object was canvas-selected and we want to drop transform handles.
+          // Layer panel re-selects after toggle when needed.
+          if (active === obj) {
+            // Re-apply so hasControls stays false while still active for rename.
+            applyLockInteraction(obj);
+          } else if (active && isActiveSelection(active)) {
+            var members = active.getObjects ? active.getObjects() : [];
+            for (var i = 0; i < members.length; i++) {
+              if (members[i] === obj) {
+                canvas.discardActiveObject();
+                break;
+              }
+            }
+          }
+        }
+        canvas.requestRenderAll();
+        setToolFeedback(next ? "Layer locked." : "Layer unlocked.");
+        return true;
+      },
+      getJSON
+    );
+  }
+
+  /**
+   * Layer-panel selection: works for locked (selectable false) and hidden objects.
+   * This is management selection — canvas pointer hits still respect lock/hide.
+   */
+  function selectObjectById(id) {
+    var canvas = fabricCanvas;
+    if (!canvas) return false;
+    var obj = findObjectByBlytzId(id);
+    if (!obj) return false;
+    canvas.setActiveObject(obj);
+    canvas.requestRenderAll();
+    return true;
   }
 
   /** Run applyFn without firing commit notifications (live property preview). */
@@ -696,6 +1178,199 @@
   function isActiveSelection(obj) {
     if (!obj) return false;
     return typeKey(obj) === "activeselection";
+  }
+
+  function isTextObject(obj) {
+    var k = typeKey(obj);
+    return k === "itext" || k === "text" || k === "textbox";
+  }
+
+  function clampCurveAmount(value) {
+    var n = Number(value);
+    if (typeof n !== "number" || isNaN(n)) return null;
+    return Math.min(CURVE_AMOUNT_MAX, Math.max(CURVE_AMOUNT_MIN, n));
+  }
+
+  function normalizeCurveDirection(value) {
+    return String(value || "up").toLowerCase() === "down" ? "down" : "up";
+  }
+
+  function textHasMultipleLines(obj) {
+    var t = obj && obj.text != null ? String(obj.text) : "";
+    return t.indexOf("\n") >= 0 || t.indexOf("\r") >= 0;
+  }
+
+  /**
+   * Quadratic arc path `d` for Fabric.Path from measured text width + amount.
+   * Returns null when amount is effectively straight.
+   */
+  function buildArcPathD(width, amount, direction) {
+    var w = Number(width);
+    var a = clampCurveAmount(amount);
+    if (!(w > 0) || a == null || a < 0.001) return null;
+    var bulge = a * w * CURVE_BULGE_FACTOR;
+    var cy = normalizeCurveDirection(direction) === "down" ? bulge : -bulge;
+    return "M 0 0 Q " + w / 2 + " " + cy + " " + w + " 0";
+  }
+
+  function measureTextPathWidth(obj) {
+    if (!obj) return 0;
+    var w = Number(obj.width);
+    if (w > 0) return w;
+    try {
+      if (typeof obj.calcTextWidth === "function") {
+        w = Number(obj.calcTextWidth());
+        if (w > 0) return w;
+      }
+    } catch (err) {
+      /* ignore */
+    }
+    var sx = Number(obj.scaleX) || 1;
+    var sw =
+      typeof obj.getScaledWidth === "function" ? Number(obj.getScaledWidth()) : 0;
+    if (sw > 0 && sx > 0) return sw / sx;
+    return Math.max(
+      String(obj.text || "").length * (Number(obj.fontSize) || 16) * 0.5,
+      1
+    );
+  }
+
+  function clearCurveOnObject(obj) {
+    if (!obj) return false;
+    obj.set({
+      path: null,
+      pathSide: undefined,
+      pathStartOffset: undefined,
+      pathAlign: undefined,
+    });
+    try {
+      delete obj.blytzCurve;
+    } catch (err) {
+      obj.blytzCurve = undefined;
+    }
+    if (typeof obj.initDimensions === "function") obj.initDimensions();
+    obj.setCoords();
+    return true;
+  }
+
+  /**
+   * Shared mutator used by commit (applyTextCurve) and silent preview.
+   * amount ~0 clears the curve. Does not notify history.
+   */
+  function setCurveOnObject(obj, amount, direction) {
+    var fabric = fabricNS();
+    if (!obj || !fabric || !fabric.Path) return false;
+    var a = clampCurveAmount(amount);
+    if (a == null) return false;
+    var dir = normalizeCurveDirection(direction);
+    if (a < 0.001) {
+      return clearCurveOnObject(obj);
+    }
+    if (obj.path) {
+      obj.set("path", null);
+      if (typeof obj.initDimensions === "function") obj.initDimensions();
+    }
+    var width = measureTextPathWidth(obj);
+    var d = buildArcPathD(width, a, dir);
+    if (!d) {
+      clearCurveOnObject(obj);
+      return true;
+    }
+    var path = new fabric.Path(d, {
+      visible: false,
+      fill: "",
+      stroke: "",
+      strokeWidth: 1,
+    });
+    obj.set({
+      path: path,
+      pathSide: "left",
+      pathStartOffset: 0,
+      pathAlign: "center",
+    });
+    obj.blytzCurve = {
+      amount: a,
+      direction: dir,
+      version: CURVE_META_VERSION,
+    };
+    if (typeof obj.initDimensions === "function") obj.initDimensions();
+    obj.setCoords();
+    return true;
+  }
+
+  /**
+   * Silent preview helper for Properties UI. No history entry.
+   * opts: { amount: 0..1, direction: "up"|"down", enabled?: boolean }
+   */
+  function previewTextCurveOnObject(obj, opts) {
+    opts = opts || {};
+    if (!obj || !isTextObject(obj) || textHasMultipleLines(obj)) return false;
+    var canvas = fabricCanvas;
+    if (!canvas) return false;
+    var enabled = opts.enabled !== false;
+    var amount = enabled ? clampCurveAmount(opts.amount) : 0;
+    if (amount == null) amount = 0;
+    var direction = normalizeCurveDirection(opts.direction);
+    return runSilent(function () {
+      setCurveOnObject(obj, amount, direction);
+      canvas.requestRenderAll();
+      return true;
+    });
+  }
+
+  /**
+   * Stage B/C API: curve the active single-line text object (one history entry).
+   * opts: { amount: 0..1, direction: "up"|"down" }. amount ~0 clears the curve.
+   */
+  function applyTextCurve(opts, getJSON) {
+    opts = opts || {};
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var obj = canvas.getActiveObject && canvas.getActiveObject();
+    if (!obj || isActiveSelection(obj) || !isTextObject(obj)) {
+      setToolFeedback("Select a single text object to curve.");
+      return false;
+    }
+    if (isObjectLocked(obj)) {
+      setToolFeedback("Unlock the layer to edit curve.");
+      return false;
+    }
+    if (textHasMultipleLines(obj)) {
+      setToolFeedback("Curved text supports single-line text only.");
+      return false;
+    }
+    var amount = clampCurveAmount(opts.amount);
+    if (amount == null) {
+      setToolFeedback("Invalid curve amount.");
+      return false;
+    }
+    var direction = normalizeCurveDirection(opts.direction);
+    var jsonFn = getJSON || getJSONRef;
+    return commitEdit(
+      amount < 0.001 ? "text-curve-clear" : "text-curve",
+      function () {
+        setCurveOnObject(obj, amount, direction);
+        canvas.requestRenderAll();
+        setToolFeedback(
+          amount < 0.001
+            ? "Curve cleared."
+            : "Curve " + direction + " (" + Math.round(amount * 100) + "%)."
+        );
+        return true;
+      },
+      jsonFn
+    );
+  }
+
+  function clearTextCurve(getJSON) {
+    return applyTextCurve({ amount: 0, direction: "up" }, getJSON);
   }
 
   /**
@@ -810,6 +1485,26 @@
       if (obj.clipPath != null) {
         var rc = scanFabricObject(obj.clipPath, path + ".clipPath", depth + 1);
         if (!rc.ok) return rc;
+      }
+      // Text-on-path: typed Path nested under "path". Geometry arrays on Path stay unscanned here.
+      var nestedPath = obj.path;
+      if (nestedPath && typeof nestedPath === "object" && !Array.isArray(nestedPath)) {
+        if (typeKey(nestedPath) !== "path") {
+          return fail(
+            "Unsupported nested path object (“" +
+              String(nestedPath.type || "unknown") +
+              "”).",
+            path + ".path.type"
+          );
+        }
+        if (nestedPath.objects != null) {
+          return fail(
+            "Nested path objects cannot contain objects.",
+            path + ".path.objects"
+          );
+        }
+        var rp = scanFabricObject(nestedPath, path + ".path", depth + 1);
+        if (!rp.ok) return rp;
       }
       return scanUrlKeys(obj, path, depth);
     }
@@ -929,6 +1624,29 @@
     return activeView;
   }
 
+  /**
+   * Stage O.1: write the inactive view's Fabric payload into viewStore
+   * (does not switch the live view). Used when AI dual-side commits the other side.
+   */
+  function setStoredViewPayload(viewId, fabricPayload) {
+    if (viewId !== "front" && viewId !== "back") {
+      return { ok: false, reason: "Unknown view." };
+    }
+    if (viewId === activeView) {
+      return { ok: false, reason: "Refuse to overwrite the live view via store." };
+    }
+    var payload =
+      fabricPayload && typeof fabricPayload === "object"
+        ? cloneFabricPayload(fabricPayload)
+        : emptyFabricCanvasObject();
+    if (viewId === "front") {
+      viewStore.front = payload;
+    } else {
+      viewStore.back = payload;
+    }
+    return { ok: true };
+  }
+
   function onViewChange(cb) {
     if (typeof cb === "function") viewChangeListeners.push(cb);
     return function unsubscribe() {
@@ -950,9 +1668,11 @@
 
   /**
    * Replace ALL views from a saved envelope (page load / restore).
-   * Front → live canvas; views.back → viewStore; activeView = front.
+   * Envelope canvas is always FRONT; views.back is BACK.
+   * preferredView ("front"|"back") selects which side is live after load.
+   * Page load omits preferredView → front. Undo/redo may restore Back.
    */
-  function loadAllViewsFromEnvelope(envelope, getJSON) {
+  function loadAllViewsFromEnvelope(envelope, getJSON, preferredView) {
     if (getJSON) getJSONRef = getJSON;
     var front =
       envelope && envelope.canvas
@@ -965,9 +1685,12 @@
       typeof envelope.views.back === "object"
         ? cloneFabricPayload(envelope.views.back)
         : emptyFabricCanvasObject();
-    viewStore = { back: back };
-    activeView = "front";
-    return loadFabricPayload(front, getJSONRef).then(function () {
+    var target = preferredView === "back" ? "back" : "front";
+    var livePayload = target === "back" ? back : front;
+    viewStore =
+      target === "back" ? { front: front } : { back: back };
+    activeView = target;
+    return loadFabricPayload(livePayload, getJSONRef).then(function () {
       forceTransparentBackground();
       refreshGarmentLayer();
       fireViewChange();
@@ -983,6 +1706,13 @@
     }
     if (!fabricCanvas) {
       return Promise.resolve({ ok: false, reason: "Canvas is not ready." });
+    }
+    // Discard in-progress curve preview so live snapshot is never a leaked preview.
+    if (
+      global.BlytzEditorProps &&
+      typeof global.BlytzEditorProps.discardCurvePreview === "function"
+    ) {
+      global.BlytzEditorProps.discardCurvePreview();
     }
     if (suppressCommit) {
       return Promise.resolve({ ok: false, reason: "Canvas is loading." });
@@ -1109,6 +1839,7 @@
     }
     if (!changed) return { ok: true, reason: "same" };
     refreshGarmentLayer();
+    schedulePrintOverflowCheck();
     garmentChangeListeners.slice().forEach(function (cb) {
       try {
         cb(getGarmentState());
@@ -1513,6 +2244,7 @@
     sanitizeCanvasDom();
     forceTransparentBackground();
     bindCanvasEvents(getJSONRef);
+    wirePrintOverflowChecks();
     applyResponsiveSize();
     wireMultiSelectPointer();
     wireContextMenuSuppression();
@@ -1555,6 +2287,8 @@
         if (gen !== loadGeneration) return;
         // Assign missing/duplicate blytzIds with commits suppressed (not a user edit).
         ensureBlytzIds(canvas);
+        // Re-apply lock interaction so load cannot leave locked objects editable.
+        applyLockStateToCanvas(canvas);
         // Old designs may serialize background "#ffffff"; force transparent so garment shows.
         forceTransparentBackground();
         applyResponsiveSize();
@@ -1571,7 +2305,10 @@
         throw err;
       })
       .finally(function () {
-        if (gen === loadGeneration) suppressCommit = false;
+        if (gen === loadGeneration) {
+          suppressCommit = false;
+          schedulePrintOverflowCheck();
+        }
       });
   }
 
@@ -1645,18 +2382,110 @@
     return entered;
   }
 
+  function copyCurveMeta(source, cloned) {
+    if (!source || !cloned || !source.blytzCurve || cloned.blytzCurve) return;
+    try {
+      cloned.blytzCurve = JSON.parse(JSON.stringify(source.blytzCurve));
+    } catch (err) {
+      cloned.blytzCurve = {
+        amount: source.blytzCurve.amount,
+        direction: source.blytzCurve.direction,
+        version: source.blytzCurve.version,
+      };
+    }
+  }
+
+  function finalizeDuplicatedClone(cloned, source) {
+    if (!cloned || !source) return null;
+    // Clone retains the source blytzId; always mint a fresh one.
+    forceBlytzId(cloned);
+    cloned.blytzName = duplicateLayerName(source);
+    copyCurveMeta(source, cloned);
+    // Prefer a usable clone: visible + unlocked; leave the source unchanged.
+    cloned.visible = true;
+    cloned.blytzLocked = false;
+    applyLockInteraction(cloned);
+    cloned.set({
+      left: (source.left || 0) + 24,
+      top: (source.top || 0) + 24,
+    });
+    if (typeof cloned.setCoords === "function") cloned.setCoords();
+    return cloned;
+  }
+
   function duplicateActive(getJSON) {
     if (!persistAllowed()) return Promise.resolve(false);
     var canvas = ensureCanvas(getJSON);
     if (!canvas) return Promise.resolve(false);
     var active = canvas.getActiveObject();
-    if (!active || isActiveSelection(active)) {
-      setToolFeedback("Select one object to duplicate.");
+    if (!active) {
+      setToolFeedback("Select an object to duplicate.");
       return Promise.resolve(false);
     }
     var jsonFn = getJSON || getJSONRef;
+    var fabric = fabricNS();
+
+    // Stage F: multi-selection → one commit, fresh id/name per clone.
+    if (isActiveSelection(active)) {
+      var sources = active.getObjects().slice();
+      if (sources.length < 1) {
+        setToolFeedback("Select an object to duplicate.");
+        return Promise.resolve(false);
+      }
+      var cloneJobs = sources.map(function (src) {
+        if (!src || typeof src.clone !== "function") {
+          return Promise.resolve(null);
+        }
+        return Promise.resolve(src.clone(SERIALIZE_PROPS)).then(function (cloned) {
+          return { source: src, cloned: cloned };
+        });
+      });
+      return Promise.all(cloneJobs).then(function (pairs) {
+        var ready = [];
+        var i;
+        for (i = 0; i < pairs.length; i++) {
+          if (!pairs[i] || !pairs[i].cloned) {
+            setToolFeedback("Could not duplicate selection.");
+            return false;
+          }
+          ready.push(pairs[i]);
+        }
+        return commitEdit(
+          "duplicate-selection",
+          function () {
+            var clones = [];
+            for (i = 0; i < ready.length; i++) {
+              var finalized = finalizeDuplicatedClone(
+                ready[i].cloned,
+                ready[i].source
+              );
+              if (!finalized) return false;
+              canvas.add(finalized);
+              clones.push(finalized);
+            }
+            if (clones.length > 1 && fabric && fabric.ActiveSelection) {
+              try {
+                var sel = new fabric.ActiveSelection(clones, { canvas: canvas });
+                canvas.setActiveObject(sel);
+              } catch (err) {
+                canvas.setActiveObject(clones[0]);
+              }
+            } else if (clones[0]) {
+              canvas.setActiveObject(clones[0]);
+            }
+            canvas.requestRenderAll();
+            setToolFeedback("Duplicated " + clones.length + " objects.");
+            return true;
+          },
+          jsonFn
+        );
+      });
+    }
+
     var clonedResult =
-      typeof active.clone === "function" ? active.clone() : null;
+      typeof active.clone === "function"
+        ? active.clone(SERIALIZE_PROPS)
+        : null;
     return Promise.resolve(clonedResult).then(function (cloned) {
       if (!cloned) {
         setToolFeedback("Could not duplicate.");
@@ -1665,14 +2494,7 @@
       return commitEdit(
         "duplicate",
         function () {
-          assignBlytzId(cloned);
-          if (!cloned.blytzName && active.blytzName) {
-            assignBlytzName(cloned, active.blytzName);
-          }
-          cloned.set({
-            left: (active.left || 0) + 24,
-            top: (active.top || 0) + 24,
-          });
+          if (!finalizeDuplicatedClone(cloned, active)) return false;
           canvas.add(cloned);
           canvas.setActiveObject(cloned);
           canvas.requestRenderAll();
@@ -1682,6 +2504,19 @@
         jsonFn
       );
     });
+  }
+
+  /**
+   * Discard the active selection/object without committing history or dirtying
+   * the design. Safe no-op when nothing is selected.
+   */
+  function clearSelection() {
+    var canvas = fabricCanvas;
+    if (!canvas) return false;
+    if (!canvas.getActiveObject()) return false;
+    canvas.discardActiveObject();
+    canvas.requestRenderAll();
+    return true;
   }
 
   function deleteSelection(getJSON) {
@@ -1822,8 +2657,15 @@
 
   /**
    * Downscale / re-encode pipeline. Returns {ok, dataUrl, width, height, mime, bytes, keptOriginal}.
+   * @param {File} file
+   * @param {*} bitmap decoded image
+   * @param {{forceReencode?: boolean}|undefined} opts
+   *   forceReencode: skip keptOriginal short-circuit (used when original would blow envelope budget).
+   *   Never stores a second copy of the image — either original OR re-encoded src.
    */
-  function processImageForInsert(file, bitmap) {
+  function processImageForInsert(file, bitmap, opts) {
+    opts = opts || {};
+    var forceReencode = !!opts.forceReencode;
     var srcW = bitmap.width || 0;
     var srcH = bitmap.height || 0;
     if (!(srcW > 0) || !(srcH > 0)) {
@@ -1833,7 +2675,11 @@
       return Promise.resolve({ ok: false, reason: "pixels" });
     }
     var maxEdge = Math.max(srcW, srcH);
-    if (maxEdge <= IMAGE_MAX_EDGE && file.size <= IMAGE_TARGET_BYTES) {
+    if (
+      !forceReencode &&
+      maxEdge <= IMAGE_MAX_EDGE &&
+      file.size <= IMAGE_TARGET_BYTES
+    ) {
       return fileToDataURL(file).then(function (dataUrl) {
         return {
           ok: true,
@@ -1955,7 +2801,7 @@
         return Promise.reject(new Error("decode"));
       })
       .then(function (bitmap) {
-        return processImageForInsert(file, bitmap).then(function (processed) {
+        function closeBitmap() {
           if (bitmap && typeof bitmap.close === "function") {
             try {
               bitmap.close();
@@ -1963,6 +2809,29 @@
               /* ignore */
             }
           }
+        }
+        return processImageForInsert(file, bitmap).then(function (processed) {
+          // keptOriginal embeds the full data URL. If that alone would exceed the
+          // remaining soft insert budget, re-encode instead of keeping the original.
+          // Never serializes original + re-encoded together.
+          if (processed && processed.ok && processed.keptOriginal) {
+            var current = measureEnvelopeBytes();
+            var budget = Math.floor(
+              MAX_CANVAS_JSON_BYTES * IMAGE_INSERT_BUDGET_RATIO
+            );
+            var room = Math.max(0, budget - current);
+            var srcBytes = utf8ByteLength(processed.dataUrl || "");
+            // Small margin for Fabric object wrapper fields around the src string.
+            if (srcBytes + 2048 > room) {
+              return processImageForInsert(file, bitmap, {
+                forceReencode: true,
+              }).then(function (reenc) {
+                closeBitmap();
+                return reenc;
+              });
+            }
+          }
+          closeBitmap();
           return processed;
         });
       })
@@ -2116,6 +2985,655 @@
     );
   }
 
+  /** Stage 2 / F: align / distribute / center / flip (logical canvas or selection AABB — not print areas). */
+  var ALIGN_DIRECTIONS = {
+    left: true,
+    hcenter: true,
+    right: true,
+    top: true,
+    vcenter: true,
+    bottom: true,
+  };
+
+  /**
+   * Stage F locked policy for composition ops (align / distribute / center / flip):
+   * reject the entire op if any selected member is locked — no silent skips.
+   */
+  function selectionHasLockedMembers(active) {
+    if (!active) return false;
+    if (isActiveSelection(active) && active.getObjects) {
+      var members = active.getObjects();
+      var i;
+      for (i = 0; i < members.length; i++) {
+        if (isObjectLocked(members[i])) return true;
+      }
+      return false;
+    }
+    return isObjectLocked(active);
+  }
+
+  function rejectLockedComposition() {
+    setToolFeedback("Unlock locked layers before aligning or distributing.");
+    return false;
+  }
+
+  function readObjectAabb(obj) {
+    if (!obj || typeof obj.getBoundingRect !== "function") return null;
+    var br;
+    try {
+      br = obj.getBoundingRect();
+    } catch (err) {
+      return null;
+    }
+    if (!br) return null;
+    var width = Number(br.width);
+    var height = Number(br.height);
+    if (!(width > 0) || !(height > 0)) return null;
+    return {
+      left: Number(br.left),
+      top: Number(br.top),
+      width: width,
+      height: height,
+    };
+  }
+
+  function unionAabb(rects) {
+    var left = Infinity;
+    var top = Infinity;
+    var right = -Infinity;
+    var bottom = -Infinity;
+    var count = 0;
+    var i;
+    for (i = 0; i < (rects || []).length; i++) {
+      var r = rects[i];
+      if (!r || !(r.width > 0) || !(r.height > 0)) continue;
+      count += 1;
+      left = Math.min(left, r.left);
+      top = Math.min(top, r.top);
+      right = Math.max(right, r.left + r.width);
+      bottom = Math.max(bottom, r.top + r.height);
+    }
+    if (!count) return null;
+    return {
+      left: left,
+      top: top,
+      width: right - left,
+      height: bottom - top,
+    };
+  }
+
+  /** Mirror apps/designs/align_flip.py aabb_delta_align. */
+  function aabbDeltaAlign(rect, direction, box) {
+    if (!rect || !box || !ALIGN_DIRECTIONS[direction]) {
+      return { dx: 0, dy: 0 };
+    }
+    var dx = 0;
+    var dy = 0;
+    if (direction === "left") dx = box.left - rect.left;
+    else if (direction === "hcenter") {
+      dx = box.left + box.width / 2 - (rect.left + rect.width / 2);
+    } else if (direction === "right") {
+      dx = box.left + box.width - (rect.left + rect.width);
+    } else if (direction === "top") dy = box.top - rect.top;
+    else if (direction === "vcenter") {
+      dy = box.top + box.height / 2 - (rect.top + rect.height / 2);
+    } else if (direction === "bottom") {
+      dy = box.top + box.height - (rect.top + rect.height);
+    }
+    return { dx: dx, dy: dy };
+  }
+
+  /**
+   * Mirror apps/designs/align_flip.py distribute_rects.
+   * Equal edge-to-edge gaps along transformed AABBs; first/last stay fixed.
+   * Returns [{index, dx, dy}, ...] for objects that need a translate, or null.
+   */
+  function distributeAabbDeltas(aabbs, axis) {
+    if (axis !== "horizontal" && axis !== "vertical") return null;
+    var indexed = [];
+    var i;
+    for (i = 0; i < (aabbs || []).length; i++) {
+      var r = aabbs[i];
+      if (!r || !(r.width > 0) || !(r.height > 0)) continue;
+      indexed.push({ index: i, rect: r });
+    }
+    var n = indexed.length;
+    if (n < 3) return null;
+    var horizontal = axis === "horizontal";
+    indexed.sort(function (a, b) {
+      var ka = horizontal ? a.rect.left : a.rect.top;
+      var kb = horizontal ? b.rect.left : b.rect.top;
+      if (ka !== kb) return ka - kb;
+      return a.index - b.index;
+    });
+    var sizes = indexed.map(function (item) {
+      return horizontal ? item.rect.width : item.rect.height;
+    });
+    var first = indexed[0].rect;
+    var last = indexed[n - 1].rect;
+    var firstEdge = horizontal ? first.left : first.top;
+    var lastEdge = horizontal
+      ? last.left + last.width
+      : last.top + last.height;
+    var span = lastEdge - firstEdge;
+    var sumSizes = 0;
+    for (i = 0; i < sizes.length; i++) sumSizes += sizes[i];
+    var gap = (span - sumSizes) / (n - 1);
+    var targets = [firstEdge];
+    var cursor = firstEdge + sizes[0] + gap;
+    for (i = 1; i < n - 1; i++) {
+      targets.push(cursor);
+      cursor = cursor + sizes[i] + gap;
+    }
+    targets.push(horizontal ? last.left : last.top);
+    var deltas = [];
+    for (i = 0; i < n; i++) {
+      var cur = indexed[i].rect;
+      var dx = 0;
+      var dy = 0;
+      if (horizontal) dx = targets[i] - cur.left;
+      else dy = targets[i] - cur.top;
+      if (dx || dy) {
+        deltas.push({ index: indexed[i].index, dx: dx, dy: dy });
+      }
+    }
+    return deltas;
+  }
+
+  function canvasAabbBox() {
+    return { left: 0, top: 0, width: LOGICAL_SIZE, height: LOGICAL_SIZE };
+  }
+
+  function translateObjectBy(obj, dx, dy) {
+    if (!obj || (!dx && !dy)) return;
+    obj.set({
+      left: (obj.left || 0) + dx,
+      top: (obj.top || 0) + dy,
+    });
+    if (typeof obj.setCoords === "function") obj.setCoords();
+  }
+
+  /**
+   * Exit ActiveSelection so object left/top are canvas-absolute, run fn(objects),
+   * then restore multi-selection when needed. Avoids selection-local coord bugs.
+   */
+  function withAbsoluteSelectionObjects(canvas, fn) {
+    var fabric = fabricNS();
+    var active = canvas.getActiveObject();
+    if (!active) return false;
+    var wasMulti = isActiveSelection(active);
+    var objects = wasMulti
+      ? active.getObjects().slice()
+      : [active];
+    if (!objects.length) return false;
+    // Capture canvas-space AABBs before discard (getBoundingRect is absolute).
+    var aabbs = [];
+    var i;
+    for (i = 0; i < objects.length; i++) {
+      aabbs.push(readObjectAabb(objects[i]));
+    }
+    if (wasMulti) {
+      canvas.discardActiveObject();
+    }
+    var changed = fn(objects, aabbs, wasMulti);
+    if (wasMulti && objects.length > 1 && fabric && fabric.ActiveSelection) {
+      try {
+        var sel = new fabric.ActiveSelection(objects, { canvas: canvas });
+        canvas.setActiveObject(sel);
+      } catch (err) {
+        console.warn("BlytzCanvas: could not restore multi-selection", err);
+      }
+    } else if (!wasMulti && objects[0]) {
+      canvas.setActiveObject(objects[0]);
+    }
+    canvas.requestRenderAll();
+    return changed !== false;
+  }
+
+  /**
+   * Align selection to the logical canvas (single or multi as a group of individuals
+   * each aligned to the canvas box — for multi prefer centerOnCanvas for group move).
+   * mode "canvas": each object aligns to LOGICAL_SIZE box.
+   * mode "selection": each object aligns to the union AABB (multi only; single is no-op).
+   * Locked policy: reject whole op if any member is locked.
+   */
+  function alignActive(direction, mode, getJSON) {
+    if (!ALIGN_DIRECTIONS[direction]) return false;
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var active = canvas.getActiveObject();
+    if (!active) {
+      setToolFeedback("Select an object to align.");
+      return false;
+    }
+    if (selectionHasLockedMembers(active)) return rejectLockedComposition();
+    var useSelection = mode === "selection";
+    if (useSelection && !isActiveSelection(active)) {
+      setToolFeedback("Select multiple objects to align together.");
+      return false;
+    }
+    var label =
+      (useSelection ? "align-selection-" : "align-canvas-") + direction;
+    return commitEdit(
+      label,
+      function () {
+        return withAbsoluteSelectionObjects(canvas, function (objects, aabbs) {
+          var box = useSelection
+            ? unionAabb(aabbs)
+            : canvasAabbBox();
+          if (!box) return false;
+          var moved = false;
+          var i;
+          for (i = 0; i < objects.length; i++) {
+            var rect = aabbs[i];
+            if (!rect) continue;
+            var d = aabbDeltaAlign(rect, direction, box);
+            if (d.dx || d.dy) {
+              translateObjectBy(objects[i], d.dx, d.dy);
+              moved = true;
+            }
+          }
+          return moved;
+        });
+      },
+      getJSON
+    );
+  }
+
+  /**
+   * Stage F — distribute ≥3 selected objects evenly along axis using transformed
+   * AABBs (equal edge gaps; first/last fixed). One undo step; locked → reject all.
+   */
+  function distributeActive(axis, getJSON) {
+    if (axis !== "horizontal" && axis !== "vertical") return false;
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var active = canvas.getActiveObject();
+    if (!active || !isActiveSelection(active)) {
+      setToolFeedback("Select at least 3 objects to distribute.");
+      return false;
+    }
+    if (selectionHasLockedMembers(active)) return rejectLockedComposition();
+    var count =
+      (active.getObjects && active.getObjects().length) || 0;
+    if (count < 3) {
+      setToolFeedback("Select at least 3 objects to distribute.");
+      return false;
+    }
+    return commitEdit(
+      "distribute-" + axis,
+      function () {
+        return withAbsoluteSelectionObjects(canvas, function (objects, aabbs) {
+          var deltas = distributeAabbDeltas(aabbs, axis);
+          if (!deltas || !deltas.length) return false;
+          var i;
+          var moved = false;
+          for (i = 0; i < deltas.length; i++) {
+            var d = deltas[i];
+            if (!d || (!d.dx && !d.dy)) continue;
+            translateObjectBy(objects[d.index], d.dx, d.dy);
+            moved = true;
+          }
+          return moved;
+        });
+      },
+      getJSON
+    );
+  }
+
+  /**
+   * Move the whole selection by one shared delta so its AABB centers on the
+   * logical canvas (axis: horizontal | vertical | both). Preserves relative
+   * arrangement for multi-select. Locked policy: reject whole op.
+   */
+  function centerOnCanvas(axis, getJSON) {
+    if (axis !== "horizontal" && axis !== "vertical" && axis !== "both") {
+      return false;
+    }
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var active = canvas.getActiveObject();
+    if (!active) {
+      setToolFeedback("Select an object to center on the canvas.");
+      return false;
+    }
+    if (selectionHasLockedMembers(active)) return rejectLockedComposition();
+    return commitEdit(
+      "center-canvas-" + axis,
+      function () {
+        return withAbsoluteSelectionObjects(canvas, function (objects, aabbs) {
+          var box = unionAabb(aabbs);
+          if (!box) return false;
+          var canvasBox = canvasAabbBox();
+          var dx = 0;
+          var dy = 0;
+          if (axis === "horizontal" || axis === "both") {
+            dx = canvasBox.width / 2 - (box.left + box.width / 2);
+          }
+          if (axis === "vertical" || axis === "both") {
+            dy = canvasBox.height / 2 - (box.top + box.height / 2);
+          }
+          if (!dx && !dy) return false;
+          var i;
+          for (i = 0; i < objects.length; i++) {
+            translateObjectBy(objects[i], dx, dy);
+          }
+          return true;
+        });
+      },
+      getJSON
+    );
+  }
+
+  /**
+   * Stage E — fit a single unlocked image inside the logical canvas (uniform scale,
+   * preserve aspect, then center). Does NOT stretch-to-fill, reset rotation,
+   * replace src, or switch Front/Back. Returns false for non-image / multi / locked.
+   */
+  function fitActiveWithinCanvas(getJSON) {
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var obj = canvas.getActiveObject();
+    if (!obj || isActiveSelection(obj) || typeKey(obj) !== "image") {
+      setToolFeedback("Select a single image to fit to the canvas.");
+      return false;
+    }
+    if (isObjectLocked(obj)) {
+      setToolFeedback("Unlock the image in Layers to edit it.");
+      return false;
+    }
+    return commitEdit(
+      "image-fit-canvas",
+      function () {
+        var id = obj.blytzId;
+        var name = obj.blytzName;
+        var src = obj.get && obj.get("src") != null ? obj.get("src") : obj.src;
+        var sw = typeof obj.getScaledWidth === "function" ? obj.getScaledWidth() : 0;
+        var sh = typeof obj.getScaledHeight === "function" ? obj.getScaledHeight() : 0;
+        if (!(sw > 0) || !(sh > 0)) return false;
+        var factor = Math.min(LOGICAL_SIZE / sw, LOGICAL_SIZE / sh);
+        if (!isFinite(factor) || !(factor > 0)) return false;
+        if (Math.abs(factor - 1) >= 0.0001) {
+          obj.set({
+            scaleX: (obj.scaleX == null ? 1 : obj.scaleX) * factor,
+            scaleY: (obj.scaleY == null ? 1 : obj.scaleY) * factor,
+          });
+        }
+        var fabric = fabricNS();
+        var Point = fabric && (fabric.Point || fabric.point);
+        var mid = Point
+          ? new Point(LOGICAL_SIZE / 2, LOGICAL_SIZE / 2)
+          : { x: LOGICAL_SIZE / 2, y: LOGICAL_SIZE / 2 };
+        if (typeof obj.setPositionByOrigin === "function") {
+          obj.setPositionByOrigin(mid, "center", "center");
+        } else {
+          obj.set({
+            left: LOGICAL_SIZE / 2,
+            top: LOGICAL_SIZE / 2,
+            originX: "center",
+            originY: "center",
+          });
+        }
+        if (typeof obj.setCoords === "function") obj.setCoords();
+        if (id != null) obj.blytzId = id;
+        if (name != null) obj.blytzName = name;
+        if (src != null) {
+          if (typeof obj.set === "function") obj.set("src", src);
+          else obj.src = src;
+        }
+        canvas.requestRenderAll();
+        return true;
+      },
+      getJSON
+    );
+  }
+
+  /**
+   * Stage R.2 — replace the active image's src (e.g. after client BG removal).
+   * Preserves blytzId / name / transform / opacity. One history step after load.
+   * Returns a Promise<{ok, reason}>. Locked / non-image → resolved false.
+   */
+  function replaceActiveImageSrc(dataUrl, getJSON) {
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return Promise.resolve({ ok: false, reason: "not-ready" });
+    }
+    if (
+      typeof dataUrl !== "string" ||
+      dataUrl.indexOf("data:image/") !== 0
+    ) {
+      setToolFeedback("Background removal returned an invalid image.");
+      return Promise.resolve({ ok: false, reason: "bad-url" });
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) {
+      return Promise.resolve({ ok: false, reason: "no-canvas" });
+    }
+    var obj = canvas.getActiveObject();
+    if (!obj || isActiveSelection(obj) || typeKey(obj) !== "image") {
+      setToolFeedback("Select a single image to remove its background.");
+      return Promise.resolve({ ok: false, reason: "selection" });
+    }
+    if (isObjectLocked(obj)) {
+      setToolFeedback("Unlock the image in Layers to edit it.");
+      return Promise.resolve({ ok: false, reason: "locked" });
+    }
+
+    var id = obj.blytzId;
+    var name = obj.blytzName;
+    var setSrc =
+      typeof obj.setSrc === "function" ? obj.setSrc.bind(obj) : null;
+
+    function afterLoaded() {
+      var changed = commitEdit(
+        "remove-bg",
+        function () {
+          if (id != null) obj.blytzId = id;
+          if (name != null) obj.blytzName = name;
+          if (typeof obj.setCoords === "function") obj.setCoords();
+          canvas.requestRenderAll();
+          return true;
+        },
+        getJSON
+      );
+      if (changed) setToolFeedback("Background removed.");
+      return { ok: !!changed, reason: changed ? "ok" : "commit" };
+    }
+
+    if (setSrc) {
+      return Promise.resolve(setSrc(dataUrl, { crossOrigin: "anonymous" }))
+        .then(afterLoaded)
+        .catch(function () {
+          setToolFeedback("Could not apply the background-removed image.");
+          return { ok: false, reason: "setSrc" };
+        });
+    }
+
+    // Fallback: load via fromURL and copy element onto the existing object.
+    var fabric = fabricNS();
+    var fromURL =
+      fabric && fabric.FabricImage && fabric.FabricImage.fromURL
+        ? fabric.FabricImage.fromURL.bind(fabric.FabricImage)
+        : fabric && fabric.Image && fabric.Image.fromURL
+          ? fabric.Image.fromURL.bind(fabric.Image)
+          : null;
+    if (!fromURL) {
+      setToolFeedback("Image update is unavailable.");
+      return Promise.resolve({ ok: false, reason: "api" });
+    }
+    return fromURL(dataUrl, { crossOrigin: "anonymous" })
+      .then(function (img) {
+        if (!img) throw new Error("empty");
+        if (typeof obj.setElement === "function" && img.getElement) {
+          obj.setElement(img.getElement());
+        } else if (typeof obj.set === "function") {
+          obj.set("src", dataUrl);
+        } else {
+          obj.src = dataUrl;
+        }
+        if (img.width) obj.width = img.width;
+        if (img.height) obj.height = img.height;
+        return afterLoaded();
+      })
+      .catch(function () {
+        setToolFeedback("Could not apply the background-removed image.");
+        return { ok: false, reason: "fromURL" };
+      });
+  }
+
+  /**
+   * Stage E — set angle to 0 while preserving center point and unrelated props.
+   * Image-only from Properties; rejects multi-select and locked objects.
+   */
+  function resetActiveRotation(getJSON) {
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var obj = canvas.getActiveObject();
+    if (!obj || isActiveSelection(obj) || typeKey(obj) !== "image") {
+      setToolFeedback("Select a single image to reset rotation.");
+      return false;
+    }
+    if (isObjectLocked(obj)) {
+      setToolFeedback("Unlock the image in Layers to edit it.");
+      return false;
+    }
+    var cur = obj.angle || 0;
+    if (Math.abs(cur) < 0.001) return false;
+    return commitEdit(
+      "image-reset-rotation",
+      function () {
+        var id = obj.blytzId;
+        var name = obj.blytzName;
+        var center =
+          typeof obj.getCenterPoint === "function"
+            ? obj.getCenterPoint()
+            : { x: obj.left || 0, y: obj.top || 0 };
+        obj.set("angle", 0);
+        var fabric = fabricNS();
+        var Point = fabric && (fabric.Point || fabric.point);
+        var pt = Point ? new Point(center.x, center.y) : { x: center.x, y: center.y };
+        if (typeof obj.setPositionByOrigin === "function") {
+          obj.setPositionByOrigin(pt, "center", "center");
+        }
+        if (typeof obj.setCoords === "function") obj.setCoords();
+        if (id != null) obj.blytzId = id;
+        if (name != null) obj.blytzName = name;
+        canvas.requestRenderAll();
+        return true;
+      },
+      getJSON
+    );
+  }
+
+  /**
+   * Stage E — center a single unlocked image on the logical canvas (both axes).
+   * Thin wrapper over centerOnCanvas("both") with image/lock gating + feedback.
+   */
+  function centerActiveImage(getJSON) {
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var obj = canvas.getActiveObject();
+    if (!obj || isActiveSelection(obj) || typeKey(obj) !== "image") {
+      setToolFeedback("Select a single image to center on the canvas.");
+      return false;
+    }
+    if (isObjectLocked(obj)) {
+      setToolFeedback("Unlock the image in Layers to edit it.");
+      return false;
+    }
+    return centerOnCanvas("both", getJSON);
+  }
+
+  /**
+   * Flip via Fabric flipX / flipY. Preserves blytzId / blytzName / object identity.
+   * ActiveSelection: discard, flip each object, restore selection (safe for IDs).
+   */
+  function flipActive(axis, getJSON) {
+    if (axis !== "horizontal" && axis !== "vertical") return false;
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var active = canvas.getActiveObject();
+    if (!active) {
+      setToolFeedback("Select an object to flip.");
+      return false;
+    }
+    if (selectionHasLockedMembers(active)) return rejectLockedComposition();
+    var prop = axis === "horizontal" ? "flipX" : "flipY";
+    return commitEdit(
+      "flip-" + axis,
+      function () {
+        return withAbsoluteSelectionObjects(canvas, function (objects) {
+          var i;
+          for (i = 0; i < objects.length; i++) {
+            var obj = objects[i];
+            if (!obj) continue;
+            // Snapshot identity — flip must not mint new ids or rename layers.
+            var id = obj.blytzId;
+            var name = obj.blytzName;
+            obj.set(prop, !obj.get(prop));
+            if (typeof obj.setCoords === "function") obj.setCoords();
+            if (id != null) obj.blytzId = id;
+            if (name != null) obj.blytzName = name;
+          }
+          return true;
+        });
+      },
+      getJSON
+    );
+  }
+
   /**
    * Stacking reorder via Fabric 6.6.1 canvas methods.
    * bringObjectForward/sendObjectBackwards with intersecting=false → one list step.
@@ -2217,6 +3735,18 @@
       var tag = (target && target.tagName) || "";
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       if (target && target.isContentEditable) return;
+      // Escape clears selection without dirtying (skip when props sheet owns Escape).
+      if (e.key === "Escape") {
+        var props = global.BlytzEditorProps;
+        if (props && typeof props.isSheetOpen === "function" && props.isSheetOpen()) {
+          return;
+        }
+        var escActive = fabricCanvas.getActiveObject();
+        if (!escActive || escActive.isEditing) return;
+        e.preventDefault();
+        clearSelection();
+        return;
+      }
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       var active = fabricCanvas.getActiveObject();
       if (!active) return;
@@ -2245,11 +3775,32 @@
     ALLOWED_FONTS: ALLOWED_FONTS,
     COLOR_PRESETS: COLOR_PRESETS,
     PROP_LIMITS: PROP_LIMITS,
+    TEXT_ALIGN_VALUES: TEXT_ALIGN_VALUES,
     ALLOWED_IMAGE_TYPES: ALLOWED_IMAGE_TYPES,
     DEFAULT_SHAPE_FILL: DEFAULT_SHAPE_FILL,
     DEFAULT_SHAPE_MAX_EDGE: DEFAULT_SHAPE_MAX_EDGE,
     ALLOWED_OBJECT_TYPES: ALLOWED_OBJECT_TYPES,
     SERIALIZE_PROPS: SERIALIZE_PROPS,
+    CURVE_AMOUNT_MIN: CURVE_AMOUNT_MIN,
+    CURVE_AMOUNT_MAX: CURVE_AMOUNT_MAX,
+    CURVE_BULGE_FACTOR: CURVE_BULGE_FACTOR,
+    applyTextCurve: applyTextCurve,
+    clearTextCurve: clearTextCurve,
+    previewTextCurveOnObject: previewTextCurveOnObject,
+    setCurveOnObject: setCurveOnObject,
+    buildArcPathD: buildArcPathD,
+    clampCurveAmount: clampCurveAmount,
+    normalizeCurveDirection: normalizeCurveDirection,
+    textHasMultipleLines: textHasMultipleLines,
+    isTextObject: isTextObject,
+    PRINT_OVERFLOW_EPS: PRINT_OVERFLOW_EPS,
+    printAreaContainsRect: printAreaContainsRect,
+    artworkOverflowsPrintAreas: artworkOverflowsPrintAreas,
+    evaluatePrintOverflow: evaluatePrintOverflow,
+    collectArtworkBounds: collectArtworkBounds,
+    schedulePrintOverflowCheck: schedulePrintOverflowCheck,
+    applyPrintOverflowWarning: applyPrintOverflowWarning,
+    getPrintOverflowState: getPrintOverflowState,
     utf8ByteLength: utf8ByteLength,
     parseInput: parseInput,
     scanCanvasPayload: scanCanvasPayload,
@@ -2265,6 +3816,7 @@
     buildEnvelopeFromCanvas: buildEnvelopeFromCanvas,
     getActiveCanvasJSON: getActiveCanvasJSON,
     getActiveView: getActiveView,
+    setStoredViewPayload: setStoredViewPayload,
     setActiveView: setActiveView,
     onViewChange: onViewChange,
     getGarmentState: getGarmentState,
@@ -2286,6 +3838,28 @@
     insertElement: insertElement,
     deleteSelection: deleteSelection,
     duplicateActive: duplicateActive,
+    clearSelection: clearSelection,
+    renameObjectById: renameObjectById,
+    setObjectVisibleById: setObjectVisibleById,
+    setObjectLockedById: setObjectLockedById,
+    selectObjectById: selectObjectById,
+    findObjectByBlytzId: findObjectByBlytzId,
+    isObjectLocked: isObjectLocked,
+    selectionHasLockedMembers: selectionHasLockedMembers,
+    normalizeLayerName: normalizeLayerName,
+    applyLockInteraction: applyLockInteraction,
+    applyLockStateToCanvas: applyLockStateToCanvas,
+    alignActive: alignActive,
+    distributeActive: distributeActive,
+    centerOnCanvas: centerOnCanvas,
+    fitActiveWithinCanvas: fitActiveWithinCanvas,
+    resetActiveRotation: resetActiveRotation,
+    replaceActiveImageSrc: replaceActiveImageSrc,
+    centerActiveImage: centerActiveImage,
+    flipActive: flipActive,
+    aabbDeltaAlign: aabbDeltaAlign,
+    unionAabb: unionAabb,
+    distributeAabbDeltas: distributeAabbDeltas,
     reorderActive: reorderActive,
     canReorderActive: canReorderActive,
     prefersSheetTextEdit: prefersSheetTextEdit,
@@ -2296,6 +3870,8 @@
     seedHistory: seedHistory,
     onHistoryChange: onHistoryChange,
     assignBlytzName: assignBlytzName,
+    forceBlytzId: forceBlytzId,
+    duplicateLayerName: duplicateLayerName,
     typeKey: typeKey,
     isActiveSelection: isActiveSelection,
     triggerImagePicker: triggerImagePicker,
@@ -2317,6 +3893,7 @@
      * @returns {string|Promise<string>}
      */
     getPreviewPNG: getPreviewPNG,
+    renderFrozenPreview: renderFrozenPreview,
   };
 
   var PREVIEW_MAX_BYTES = 5 * 1024 * 1024;
@@ -2325,13 +3902,25 @@
     if (!fabricCanvas) {
       return "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     }
+    // Drop handles for a clean raster, then restore selection so Stage H
+    // presentation previews do not clear the user's active object.
+    var prior = fabricCanvas.getActiveObject();
     fabricCanvas.discardActiveObject();
     fabricCanvas.requestRenderAll();
-    return fabricCanvas.toDataURL({
+    var url = fabricCanvas.toDataURL({
       format: "png",
       multiplier: 1,
       enableRetinaScaling: false,
     });
+    if (prior) {
+      try {
+        fabricCanvas.setActiveObject(prior);
+        fabricCanvas.requestRenderAll();
+      } catch (err) {
+        /* object may have been removed during an overlapping edit */
+      }
+    }
+    return url;
   }
 
   /** Fabric payload for a view without switching the live canvas. */
@@ -2353,14 +3942,19 @@
   /**
    * Render a Fabric payload to a PNG data-URL on an offscreen StaticCanvas.
    * Does not mutate the live editor canvas or fire commits.
+   * @param {object} payload
+   * @param {{enforceObjectCount?: boolean}|undefined} opts
    */
-  function artworkDataURLFromPayload(payload) {
+  function artworkDataURLFromPayload(payload, opts) {
+    opts = opts || {};
     return new Promise(function (resolve, reject) {
       var fabric = fabricNS();
       if (!fabric || typeof fabric.StaticCanvas !== "function") {
         reject(new Error("Fabric StaticCanvas is not available."));
         return;
       }
+      var source = payload || emptyFabricCanvasObject();
+      var expectedCount = Array.isArray(source.objects) ? source.objects.length : 0;
       var el = document.createElement("canvas");
       el.width = LOGICAL_SIZE;
       el.height = LOGICAL_SIZE;
@@ -2370,8 +3964,29 @@
         enableRetinaScaling: false,
         renderOnAddRemove: false,
       });
-      sc.loadFromJSON(payload || emptyFabricCanvasObject())
+      var disposed = false;
+      function disposeOnce() {
+        if (disposed) return;
+        disposed = true;
+        try {
+          sc.dispose();
+        } catch (disposeErr) {
+          /* ignore */
+        }
+      }
+      sc.loadFromJSON(source)
         .then(function () {
+          if (opts.enforceObjectCount) {
+            var actual =
+              sc.getObjects && typeof sc.getObjects === "function"
+                ? sc.getObjects().length
+                : 0;
+            if (actual !== expectedCount) {
+              disposeOnce();
+              reject(new Error("Preview could not render every design object."));
+              return;
+            }
+          }
           sc.backgroundColor = "";
           if (typeof sc.setBackgroundColor === "function") {
             try {
@@ -2381,26 +3996,91 @@
             }
           }
           sc.requestRenderAll();
-          var url = sc.toDataURL({
-            format: "png",
-            multiplier: 1,
-            enableRetinaScaling: false,
-          });
+          var url;
           try {
-            sc.dispose();
-          } catch (disposeErr) {
-            /* ignore */
+            url = sc.toDataURL({
+              format: "png",
+              multiplier: 1,
+              enableRetinaScaling: false,
+            });
+          } catch (renderErr) {
+            disposeOnce();
+            reject(renderErr || new Error("Could not render artwork for preview."));
+            return;
           }
+          disposeOnce();
           resolve(url);
         })
         .catch(function (err) {
-          try {
-            sc.dispose();
-          } catch (disposeErr2) {
-            /* ignore */
-          }
+          disposeOnce();
           reject(err || new Error("Could not render artwork for preview."));
         });
+    });
+  }
+
+  /** Front (`canvas`) or back (`views.back`) from a frozen envelope. No live-canvas read. */
+  function fabricPayloadFromEnvelope(envelope, viewId) {
+    var id = viewId === "back" ? "back" : "front";
+    var payload = null;
+    if (!envelope || typeof envelope !== "object") return null;
+    if (id === "front") {
+      payload = envelope.canvas;
+    } else if (envelope.views && typeof envelope.views === "object") {
+      payload = envelope.views.back;
+    }
+    if (!payload || typeof payload !== "object" || !Array.isArray(payload.objects)) {
+      return null;
+    }
+    return cloneFabricPayload(payload);
+  }
+
+  /**
+   * Garment + artwork PNG for one view, rendered only from the given envelope
+   * and garment snapshot. Does not read or mutate the live editor.
+   * @param {{envelope: object, view: string, garment?: {template?: string, color?: string}}} opts
+   * @returns {Promise<string>}
+   */
+  function renderFrozenPreview(opts) {
+    opts = opts || {};
+    var viewId = String(opts.view || "").toLowerCase();
+    if (viewId !== "front" && viewId !== "back") {
+      return Promise.reject(new Error("Unknown preview view."));
+    }
+    var payload = fabricPayloadFromEnvelope(opts.envelope, viewId);
+    if (!payload) {
+      return Promise.reject(new Error("Could not create preview. Please try again."));
+    }
+    var garment = opts.garment || {};
+    var template = String(garment.template || "tee");
+    var color = String(garment.color || "white");
+
+    function compositeOnce(exportOpts) {
+      var gApi = global.BlytzGarments;
+      if (!gApi || typeof gApi.getExportLayerMarkups !== "function") {
+        return Promise.reject(new Error("Garment export helpers are not available."));
+      }
+      // Clone again: Fabric loadFromJSON may mutate the object it is given.
+      var frozen = cloneFabricPayload(payload);
+      return Promise.all([
+        gApi.getExportLayerMarkups(template, color, viewId, exportOpts || {}),
+        artworkDataURLFromPayload(frozen, { enforceObjectCount: true }),
+      ]).then(function (parts) {
+        var layers = parts[0];
+        var art = parts[1];
+        return compositeUnderArtOver(layers.under, art, layers.over);
+      });
+    }
+
+    return compositeOnce({}).then(function (url) {
+      if (dataUrlByteLength(url) <= PREVIEW_MAX_BYTES) {
+        return url;
+      }
+      return compositeOnce({ stripGrain: true }).then(function (retryUrl) {
+        if (dataUrlByteLength(retryUrl) > PREVIEW_MAX_BYTES) {
+          throw new Error("Preview PNG exceeds the 5 MB upload limit.");
+        }
+        return retryUrl;
+      });
     });
   }
 

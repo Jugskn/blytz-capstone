@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
@@ -16,6 +17,18 @@ from apps.orders.models import Order, Payment, PaymentChannel
 from apps.sales.models import Lead
 
 User = get_user_model()
+
+# Supported Blytz schema v1 payload (matches editor persist contract).
+SUBMIT_CANVAS_V1 = {
+    "schema_version": 1,
+    "width": 800,
+    "height": 800,
+    "canvas": {
+        "version": "6.6.1",
+        "objects": [{"type": "rect", "width": 10, "height": 10, "fill": "#111111"}],
+    },
+    "views": {"back": {"version": "6.6.1", "objects": []}},
+}
 
 
 def _png_file(name="proof.png", size=(32, 32), color=(200, 162, 39)):
@@ -46,7 +59,13 @@ class DesignSubmitTests(TestCase):
         self.design = Design.objects.create(
             owner=self.customer,
             title="Submit me",
-            canvas_json={"version": 1, "objects": [{"type": "text"}]},
+            canvas_json={
+                "schema_version": 1,
+                "width": 800,
+                "height": 800,
+                "canvas": {"version": "6.6.1", "objects": []},
+                "views": {"back": {"version": "6.6.1", "objects": []}},
+            },
         )
 
     def _submit(
@@ -69,7 +88,7 @@ class DesignSubmitTests(TestCase):
         data = {
             "channel": (channel or self.channel).pk,
             "amount_claimed": amount,
-            "canvas_json": '{"version":1,"objects":[{"type":"rect"}]}',
+            "canvas_json": json.dumps(SUBMIT_CANVAS_V1),
             "window_started_at": started,
             "proof_file": proof if proof is not None else _png_file(),
         }
@@ -115,7 +134,9 @@ class DesignSubmitTests(TestCase):
         self.assertEqual(order.total_paid, Decimal("0.00"))
         self.assertTrue(payment.proof_file)
         self.assertEqual(lead.stage, Lead.Stage.NEW_LEAD)
-        self.assertEqual(order.canvas_json_snapshot.get("objects")[0]["type"], "rect")
+        self.assertEqual(
+            order.canvas_json_snapshot["canvas"]["objects"][0]["type"], "rect"
+        )
         self.assertTrue(order.preview_image)
         self.assertTrue(order.preview_back_image)
         kinds = set(
@@ -208,6 +229,62 @@ class DesignSubmitTests(TestCase):
         response = self._submit(user=self.other)
         self.assertEqual(response.status_code, 404)
         self.assertFalse(Order.objects.filter(design=self.design).exists())
+
+    def test_second_submit_rejected_after_order_exists(self):
+        """Server duplicate guard: once an order exists, further submits fail."""
+        first = self._submit()
+        order = Order.objects.get(design=self.design)
+        self.assertRedirects(
+            first,
+            reverse("order_detail", kwargs={"order_id": order.order_id}),
+        )
+        before = Order.objects.filter(design=self.design).count()
+        second = self._submit()
+        self.assertEqual(second.status_code, 302)
+        self.assertEqual(Order.objects.filter(design=self.design).count(), before)
+
+    def test_already_submitted_returns_json_for_xhr(self):
+        """Stage I: AJAX retry after success must get JSON, not HTML redirect."""
+        self._submit()
+        self.assertTrue(self.design.is_submitted)
+        self.client.force_login(self.customer)
+        started = timezone.now().isoformat()
+        response = self.client.post(
+            reverse("design_submit", args=[self.design.pk]),
+            {
+                "channel": self.channel.pk,
+                "amount_claimed": "500.00",
+                "canvas_json": json.dumps(SUBMIT_CANVAS_V1),
+                "window_started_at": started,
+                "proof_file": _png_file(),
+                "preview_image": _png_file("preview_front.png", (48, 48), (40, 40, 40)),
+                "preview_back_image": _png_file(
+                    "preview_back.png", (48, 48), (60, 60, 80)
+                ),
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+            HTTP_ACCEPT="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        data = response.json()
+        self.assertFalse(data.get("ok"))
+        self.assertIn("design", data.get("errors", {}))
+        self.assertEqual(Order.objects.filter(design=self.design).count(), 1)
+
+    def test_submit_persists_posted_canvas_snapshot_not_prior_draft(self):
+        """Invariant: order snapshot is the validated POST payload, not stale draft."""
+        response = self._submit()
+        order = Order.objects.get(design=self.design)
+        self.assertRedirects(
+            response,
+            reverse("order_detail", kwargs={"order_id": order.order_id}),
+        )
+        self.design.refresh_from_db()
+        self.assertEqual(self.design.canvas_json, SUBMIT_CANVAS_V1)
+        self.assertEqual(order.canvas_json_snapshot, SUBMIT_CANVAS_V1)
+        self.assertEqual(
+            order.canvas_json_snapshot["canvas"]["objects"][0]["type"], "rect"
+        )
 
     def test_editor_page_loads_for_owner(self):
         self.client.force_login(self.customer)

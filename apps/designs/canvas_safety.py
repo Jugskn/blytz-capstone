@@ -117,6 +117,19 @@ def _scan_fabric_object(obj: Any, path: str, depth: int) -> None:
     clip = obj.get("clipPath")
     if clip is not None:
         _scan_fabric_object(clip, f"{path}.clipPath", depth + 1)
+    # Text-on-path: IText/Text/Textbox may nest a Fabric Path object under "path".
+    # Standalone Path objects use "path" as a command array — leave those alone.
+    nested_path = obj.get("path")
+    if isinstance(nested_path, dict):
+        if type_key(nested_path) != "path":
+            _fail(
+                "Unsupported nested path object "
+                f"(“{nested_path.get('type', 'unknown')}”).",
+                f"{path}.path.type",
+            )
+        if nested_path.get("objects") is not None:
+            _fail("Nested path objects cannot contain objects.", f"{path}.path.objects")
+        _scan_fabric_object(nested_path, f"{path}.path", depth + 1)
     _scan_url_keys(obj, path, depth)
 
 

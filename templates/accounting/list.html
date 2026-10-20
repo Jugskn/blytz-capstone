@@ -10,6 +10,36 @@
     {% if can_edit %}You can edit agreed totals and adjustments.{% else %}View only — ask an admin for accounting edit access.{% endif %}
   </p>
 
+  <form method="get" action="{% url 'accounting_export_csv' %}"
+        class="mt-6 flex flex-col gap-3 rounded-lg border border-border bg-surface p-4 sm:flex-row sm:flex-wrap sm:items-end">
+    <div class="min-w-[10rem] flex-1">
+      <label for="export-status" class="mb-1 block text-sm font-medium text-ink">Job status</label>
+      <select name="status" id="export-status"
+              class="block w-full rounded-md border border-border bg-canvas px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+        <option value="">All phases</option>
+        {% for value, label in export_status_choices %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="min-w-[9rem] flex-1">
+      <label for="export-date-from" class="mb-1 block text-sm font-medium text-ink">From date</label>
+      <input type="date" name="date_from" id="export-date-from"
+             class="block w-full rounded-md border border-border bg-canvas px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+    </div>
+    <div class="min-w-[9rem] flex-1">
+      <label for="export-date-to" class="mb-1 block text-sm font-medium text-ink">To date</label>
+      <input type="date" name="date_to" id="export-date-to"
+             class="block w-full rounded-md border border-border bg-canvas px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+    </div>
+    <div class="flex min-h-11 items-center gap-2 pb-0.5">
+      <input type="checkbox" name="pending_review" id="export-pending-review" value="1"
+             class="h-4 w-4 rounded border-border text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+      <label for="export-pending-review" class="text-sm text-ink">Payment awaiting review</label>
+    </div>
+    {% include "components/button.html" with label="Export CSV" type="submit" variant="secondary" %}
+  </form>
+
   <div class="mt-8 grid gap-4 sm:grid-cols-2">
     {% include "components/stat_tile.html" with label="Total collected" value=total_collected %}
     {% include "components/stat_tile.html" with label="Total outstanding" value=total_outstanding accent=True %}

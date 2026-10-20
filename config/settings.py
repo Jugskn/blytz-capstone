@@ -5,6 +5,7 @@ Django settings for Blytz (config project).
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -14,12 +15,22 @@ env = environ.Env(
     PROOF_MAX_UPLOAD_MB=(int, 15),
 )
 
-environ.Env.read_env(BASE_DIR / ".env")
+# Load project .env early (before settings that call env(...)).
+# overwrite=True so a present .env value wins over an empty shell var.
+_ENV_FILE = BASE_DIR / ".env"
+if _ENV_FILE.is_file():
+    environ.Env.read_env(str(_ENV_FILE), overwrite=True)
 
-SECRET_KEY = env(
-    "SECRET_KEY",
-    default="django-insecure-change-me-in-production",
+_DEFAULT_SECRET_KEY = "django-insecure-change-me-in-production"
+_INSECURE_SECRET_KEYS = frozenset(
+    {
+        _DEFAULT_SECRET_KEY,
+        "change-me-to-a-long-random-string",
+        "change-me",
+    }
 )
+
+SECRET_KEY = env("SECRET_KEY", default=_DEFAULT_SECRET_KEY)
 
 DEBUG = env("DEBUG")
 
@@ -34,6 +45,25 @@ elif env("SECURE_PROXY_SSL_HEADER", default=""):
     _header, _, _value = env("SECURE_PROXY_SSL_HEADER").partition(",")
     if _header and _value:
         SECURE_PROXY_SSL_HEADER = (_header.strip(), _value.strip())
+
+def assert_production_secret(debug: bool, secret_key: str) -> None:
+    """Refuse known placeholder secrets when running with DEBUG=False."""
+    if not debug and secret_key in _INSECURE_SECRET_KEYS:
+        raise ImproperlyConfigured(
+            "DEBUG=False requires a strong SECRET_KEY set in the environment "
+            "(do not use the development placeholder)."
+        )
+
+
+assert_production_secret(DEBUG, SECRET_KEY)
+
+# Capstone production guardrails (only when DEBUG is off).
+if not DEBUG:
+    SESSION_COOKIE_SECURE = env.bool("SESSION_COOKIE_SECURE", default=True)
+    CSRF_COOKIE_SECURE = env.bool("CSRF_COOKIE_SECURE", default=True)
+    SECURE_SSL_REDIRECT = env.bool("SECURE_SSL_REDIRECT", default=True)
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    SECURE_REFERRER_POLICY = "same-origin"
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -146,6 +176,22 @@ TAILWIND_CLI_DIST_CSS = "css/tailwind.css"
 MESSENGER_PAGE_USERNAME = env("MESSENGER_PAGE_USERNAME", default="")
 PAYMENT_WINDOW_MINUTES = env("PAYMENT_WINDOW_MINUTES")
 PROOF_MAX_UPLOAD_MB = env("PROOF_MAX_UPLOAD_MB")
+
+# Stage O — Gemini AI design suggestions (never hard-code the key).
+# Set GEMINI_API_KEY in .env as an uncommented line, e.g. GEMINI_API_KEY=...
+# Empty / missing → live AI disabled (editor uses mock fallback). Restart runserver after .env changes.
+GEMINI_API_KEY = (env("GEMINI_API_KEY", default="") or "").strip()
+# Prefer gemini-3.5-flash-lite (works for new free-tier keys; 2.5 returns 404;
+# gemini-3.8-flash may hang/timeout on some keys). Alt: gemini-3.1-flash-lite.
+GEMINI_MODEL = (env("GEMINI_MODEL", default="gemini-3.5-flash-lite") or "").strip()
+AI_SUGGEST_RATE_LIMIT_PER_HOUR = env.int("AI_SUGGEST_RATE_LIMIT_PER_HOUR", default=5)
+AI_SUGGEST_RATE_LIMIT_WINDOW_SECONDS = env.int(
+    "AI_SUGGEST_RATE_LIMIT_WINDOW_SECONDS", default=3600
+)
+# Stage O.1.1: AI may overflow the dashed print panel by this many px per side
+# (clamped to 0..800). Editor overflow warning stays strict (no margin).
+# Stage O.1.2: default 40 (was 60) — full flat panels already cover body+sleeves.
+AI_PRINT_OVERFLOW_MARGIN_PX = env.int("AI_PRINT_OVERFLOW_MARGIN_PX", default=40)
 
 # Email — console in development; set EMAIL_BACKEND to anymail later, e.g.
 # EMAIL_BACKEND=anymail.backends.mailgun.EmailBackend (+ django-anymail + provider keys)

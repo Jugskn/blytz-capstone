@@ -207,9 +207,23 @@ class CanvasSafetyFormTests(TestCase):
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data["canvas_json"]["schema_version"], 99)
 
-    def test_legacy_stub_untouched(self):
+    def test_unsupported_legacy_stub_rejected_on_save(self):
+        """Non-empty pre-Fabric stubs match client isUnsupportedLegacy — reject persist."""
         legacy = {"version": 1, "objects": [{"type": "text"}]}
         form = DesignSaveForm(data={"canvas_json": json.dumps(legacy)})
+        self.assertFalse(form.is_valid())
+        self.assertIn("canvas_json", form.errors)
+
+    def test_legacy_empty_stub_still_accepted(self):
+        """Empty legacy stubs remain supported (client loads as empty v1 envelope)."""
+        legacy = {"version": 1, "objects": []}
+        form = DesignSaveForm(data={"canvas_json": json.dumps(legacy)})
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_raw_fabric_canvas_still_accepted(self):
+        """Raw Fabric (string version + objects) remains supported; client wraps to v1."""
+        raw = {"version": "6.6.1", "objects": [{"type": "rect", "width": 10, "height": 10}]}
+        form = DesignSaveForm(data={"canvas_json": json.dumps(raw)})
         self.assertTrue(form.is_valid(), form.errors)
 
     def test_submit_rejects_group(self):

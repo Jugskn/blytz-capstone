@@ -4,16 +4,17 @@
 {% block title %}Editor · {{ design.title }} — Blytz{% endblock %}
 
 {% block extra_head %}
-<script src="{% static 'vendor/fabric/fabric.min.js' %}"></script>
-<script src="{% static 'js/editor_canvas.js' %}"></script>
-<script src="{% static 'js/editor_garments.js' %}"></script>
-<script src="{% static 'js/editor_tools.js' %}"></script>
-<script src="{% static 'js/editor_properties.js' %}"></script>
-<script src="{% static 'js/editor_contract.js' %}"></script>
-<script src="{% static 'js/editor_chrome.js' %}"></script>
-<script src="{% static 'js/ai_chat.js' %}" defer></script>
-<script src="{% static 'js/payment_details.js' %}" defer></script>
-<script src="{% static 'js/editor_page.js' %}" defer></script>
+<script src="{% static 'vendor/fabric/fabric.min.js' %}?v=stage-h1"></script>
+<script src="{% static 'js/editor_canvas.js' %}?v=stage-r2"></script>
+<script src="{% static 'js/editor_garments.js' %}?v=stage-h1"></script>
+<script src="{% static 'js/editor_tools.js' %}?v=stage-h1"></script>
+<script src="{% static 'js/remove_bg_client.js' %}?v=stage-r2"></script>
+<script src="{% static 'js/editor_properties.js' %}?v=stage-r2"></script>
+<script src="{% static 'js/editor_contract.js' %}?v=stage-h1"></script>
+<script src="{% static 'js/editor_chrome.js' %}?v=stage-h1"></script>
+<script src="{% static 'js/ai_chat.js' %}?v=stage-h1" defer></script>
+<script src="{% static 'js/payment_details.js' %}?v=stage-h1" defer></script>
+<script src="{% static 'js/editor_page.js' %}?v=stage-h1" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -21,6 +22,9 @@
      data-editor-page
      data-save-url="{% url 'design_save' design.pk %}"
      data-submit-url="{% url 'design_submit' design.pk %}"
+     data-ai-suggest-url="{% url 'design_ai_suggest' design.pk %}"
+     data-ai-suggest-enabled="{% if ai_suggest_enabled %}1{% else %}0{% endif %}"
+     data-remove-bg-client="1"
      data-payment-window-minutes="{{ payment_window_minutes }}"
      data-proof-max-mb="{{ PROOF_MAX_UPLOAD_MB }}"
      data-already-submitted="{% if already_submitted %}1{% else %}0{% endif %}"
@@ -53,7 +57,16 @@
         {% endif %}
       </div>
       <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
-        <p class="mr-1 hidden text-sm text-ink-muted sm:mr-2 md:block" data-editor-status aria-live="polite"></p>
+        <div class="editor-status-stack mr-1 max-w-[10rem] sm:mr-2 sm:max-w-[16rem]">
+          <p class="editor-save-status truncate text-xs text-ink-muted sm:text-sm"
+             data-editor-save-status
+             role="status"
+             aria-live="polite"
+             aria-atomic="true"></p>
+          <p class="editor-flow-status truncate text-xs text-ink-muted sm:text-sm"
+             data-editor-status
+             aria-live="polite"></p>
+        </div>
         <div class="editor-undo-redo">
           <button type="button"
                   data-editor-undo
@@ -82,6 +95,11 @@
             Design info
           </button>
         </div>
+        <button type="button"
+                data-editor-preview
+                class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-3 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink sm:px-4">
+          Preview
+        </button>
         <button type="button"
                 data-editor-save
                 class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-3 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink sm:px-4">
@@ -285,6 +303,15 @@
                   width="800"
                   height="800"
                   style="touch-action:none"></canvas>
+          {# Out-of-flow overlay: must not sit in the host flex column (show/hide would reflow artboard sizing). #}
+          <div id="editor-print-overflow-warning"
+               class="editor-print-overflow-warning"
+               role="status"
+               aria-live="polite"
+               aria-hidden="true"
+               hidden
+               data-overflow="0"
+               data-reason="uninitialized"></div>
         </div>
         <p class="text-center text-xs text-ink-subtle">
           Working canvas 800×800 (provisional). Use the toolbar or the AI Assistant for ideas.
@@ -303,7 +330,13 @@
       <div class="flex items-center justify-between border-b border-border px-4 py-3">
         <div>
           <h2 class="font-display text-lg text-ink">AI Assistant</h2>
-          <p class="text-xs text-ink-subtle">Local demo candidates — not a live AI model</p>
+          <p class="text-xs text-ink-subtle" data-ai-mode-label>
+            {% if ai_suggest_enabled %}
+              Two AI candidates per turn · preview, then edit to keep
+            {% else %}
+              AI unavailable — configure GEMINI_API_KEY, or use local demo fallback
+            {% endif %}
+          </p>
         </div>
         <button type="button"
                 data-ai-close
@@ -317,7 +350,14 @@
            class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 py-4"
            aria-live="polite">
         <div data-ai-empty class="space-y-3 text-sm text-ink-muted">
-          <p>Describe a look for this tee. Each turn returns two local demo candidates you can preview on the canvas. The first real edit keeps that option and discards the other.</p>
+          <p>
+            {% if ai_suggest_enabled %}
+              Describe a look for this side. Each turn returns two AI candidates you can preview.
+              The first real edit keeps that option and discards the other. Manual tools stay available.
+            {% else %}
+              Live AI is not configured. Starter prompts still return two local demo candidates so you can try the preview/commit flow.
+            {% endif %}
+          </p>
           <p class="text-xs text-ink-subtle">Try a starter prompt:</p>
           <div class="flex flex-wrap gap-2">
             <button type="button"
@@ -336,7 +376,9 @@
               Sporty number badge
             </button>
           </div>
-          <p class="text-xs text-ink-subtle">Tip: include the word “fail” to exercise the error/retry path.</p>
+          {% if not ai_suggest_enabled %}
+          <p class="text-xs text-ink-subtle">Demo tip: include the word “fail” to exercise the local error/retry path.</p>
+          {% endif %}
         </div>
       </div>
 
@@ -395,6 +437,16 @@
            aria-live="polite"></p>
       </section>
 
+      <section aria-labelledby="editor-readiness-title">
+        <h3 id="editor-readiness-title" class="font-medium text-ink">Before you submit</h3>
+        <p class="mt-1 text-ink-muted">
+          Client-side review of known requirements. Server validation remains authoritative — passing these checks does not bypass payment or submit rules.
+        </p>
+        <div class="editor-readiness mt-3"
+             data-editor-readiness
+             aria-live="polite"></div>
+      </section>
+
       <section>
         <h3 class="font-medium text-ink">Editing</h3>
         <p class="mt-1 text-ink-muted">
@@ -405,7 +457,11 @@
 
       <section>
         <h3 class="font-medium text-ink">AI</h3>
-        <p class="mt-1 text-ink-muted">Use the AI Assistant panel for local demo candidates. Real AI arrives in a later stage.</p>
+        <p class="mt-1 text-ink-muted">
+          Use the AI Assistant panel for two-candidate suggestions
+          {% if ai_suggest_enabled %}(Gemini){% else %}(local demo until GEMINI_API_KEY is set){% endif %}.
+          Preview freely; the first real edit keeps the active candidate.
+        </p>
         <button type="button"
                 data-ai-open
                 data-drawer-close
@@ -413,6 +469,137 @@
           Open AI Assistant
         </button>
       </section>
+    </div>
+  </div>
+</div>
+
+{% comment %}Stage H: customer design preview / final review (presentation-only; does not mutate the live canvas).{% endcomment %}
+<div id="design-preview-modal"
+     class="fixed inset-0 z-50 hidden items-center justify-center p-4"
+     role="dialog"
+     aria-modal="true"
+     aria-labelledby="design-preview-title"
+     data-modal
+     data-design-preview-modal>
+  <div class="absolute inset-0 bg-ink/50" data-modal-close data-design-preview-close tabindex="-1"></div>
+  <div class="design-preview-panel relative z-10 flex max-h-[90dvh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-canvas shadow-lg">
+    <div class="flex items-center justify-between gap-2 border-b border-border px-4 py-3 sm:px-6">
+      <h2 id="design-preview-title" class="font-display text-lg text-ink">Design preview</h2>
+      <button type="button"
+              class="rounded-md p-1.5 text-ink-muted hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+              data-modal-close
+              data-design-preview-close
+              aria-label="Close preview and return to editor">
+        <span aria-hidden="true">&times;</span>
+      </button>
+    </div>
+
+    <div class="design-preview-body flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:flex-row sm:px-6">
+      <div class="design-preview-visual min-w-0 flex-1">
+        <div class="design-preview-side-tabs"
+             role="tablist"
+             aria-label="Preview garment side">
+          <button type="button"
+                  role="tab"
+                  id="design-preview-tab-front"
+                  data-design-preview-side="front"
+                  aria-controls="design-preview-figure"
+                  aria-selected="true"
+                  class="design-preview-side-tab is-active">
+            Front
+          </button>
+          <button type="button"
+                  role="tab"
+                  id="design-preview-tab-back"
+                  data-design-preview-side="back"
+                  aria-controls="design-preview-figure"
+                  aria-selected="false"
+                  class="design-preview-side-tab">
+            Back
+          </button>
+        </div>
+        <figure id="design-preview-figure"
+                class="design-preview-figure"
+                role="tabpanel"
+                aria-labelledby="design-preview-tab-front">
+          <div class="design-preview-frame"
+               data-design-preview-frame>
+            <img data-design-preview-img
+                 alt=""
+                 width="800"
+                 height="800"
+                 decoding="async"
+                 hidden>
+            <p class="design-preview-loading"
+               data-design-preview-loading
+               role="status"
+               aria-live="polite">Preparing mock-up…</p>
+            <div class="design-preview-error-panel"
+                 data-design-preview-error-panel
+                 hidden>
+              <p class="design-preview-error"
+                 data-design-preview-error
+                 role="alert"></p>
+              <button type="button"
+                      class="design-preview-refresh-retry"
+                      data-design-preview-refresh-retry
+                      hidden>
+                Retry mock-up
+              </button>
+            </div>
+          </div>
+          <figcaption class="design-preview-caption text-xs text-ink-subtle"
+                      data-design-preview-caption>
+            Garment + artwork mock-up (same export path as submit).
+          </figcaption>
+        </figure>
+      </div>
+
+      <aside class="design-preview-review w-full shrink-0 sm:max-w-[16rem]"
+             aria-labelledby="design-preview-review-heading">
+        <h3 id="design-preview-review-heading" class="font-medium text-ink">Review</h3>
+        <dl class="design-preview-meta mt-3">
+          <div>
+            <dt>Title</dt>
+            <dd data-design-preview-title>—</dd>
+          </div>
+          <div>
+            <dt>Garment</dt>
+            <dd data-design-preview-garment>—</dd>
+          </div>
+          <div>
+            <dt>Side</dt>
+            <dd data-design-preview-side-label>Front</dd>
+          </div>
+          <div>
+            <dt>Save status</dt>
+            <dd data-design-preview-save-status>—</dd>
+          </div>
+        </dl>
+        <p class="design-preview-honesty mt-3 text-sm"
+           data-design-preview-honesty
+           role="status"
+           aria-live="polite"></p>
+        <div class="design-preview-readiness mt-4"
+             data-design-preview-readiness
+             aria-live="polite"></div>
+        <p class="mt-4 text-xs text-ink-subtle">
+          Close this preview and use <strong>Submit</strong> in the editor when you are ready to open payment. This screen does not place an order.
+        </p>
+      </aside>
+    </div>
+
+    <div class="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-6">
+      <button type="button"
+              data-design-preview-close
+              class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+        Back to edit
+      </button>
+      <button type="button"
+              data-design-preview-save
+              class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40">
+        Save
+      </button>
     </div>
   </div>
 </div>

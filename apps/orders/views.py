@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
+from django.core.paginator import Paginator
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import FileResponse, Http404
@@ -8,7 +9,13 @@ from django.utils import timezone
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
 from apps.accounts.decorators import customer_required, staff_required
+from apps.designs.garment_choices import format_garment_display
 from apps.designs.models import ActivityLog
+from apps.orders.customer_display import (
+    ORDERS_PER_PAGE,
+    customer_order_status_known,
+    customer_order_status_label,
+)
 from apps.orders.design_details import parse_design_details
 from apps.orders.forms import (
     ApproveFinalDesignForm,
@@ -56,12 +63,46 @@ ADVANCE_NEEDS_ACCEPTED_PAYMENT = (
 
 @customer_required
 def order_list(request):
-    orders = (
+    """
+    Customer submission history: one row per Order owned by the customer.
+
+    Source of truth: Order (customer, created_at, status, preview_image) with
+    design title/garment from Order.design. Drafts without an Order are omitted.
+    """
+    qs = (
         Order.objects.filter(customer=request.user)
         .select_related("design")
         .prefetch_related("payments")
+        .order_by("-created_at")
     )
-    return render(request, "orders/order_list.html", {"orders": orders})
+    page_obj = Paginator(qs, ORDERS_PER_PAGE).get_page(request.GET.get("page"))
+    submissions = []
+    for order in page_obj:
+        design = order.design
+        submissions.append(
+            {
+                "order": order,
+                "title": design.title if design else "Untitled design",
+                "submitted_at": order.created_at,
+                "garment_label": format_garment_display(
+                    design.garment_template if design else "",
+                    design.garment_color if design else "",
+                ),
+                "status_label": customer_order_status_label(order.status),
+                "status_known": customer_order_status_known(order.status),
+                "preview": order.preview_image,
+            }
+        )
+    return render(
+        request,
+        "orders/order_list.html",
+        {
+            "page_obj": page_obj,
+            "submissions": submissions,
+            # Keep legacy name for any template includes expecting "orders".
+            "orders": page_obj,
+        },
+    )
 
 
 @customer_required

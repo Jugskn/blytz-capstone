@@ -1,5 +1,33 @@
 /* Blytz responsive helpers — keep templates lean */
 
+/* Keyboard: first Tab reaches main content without tabbing the whole nav */
+.blytz-skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 100;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  background: #111111;
+  color: #fafafa;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform 0.15s ease;
+}
+.blytz-skip-link:focus,
+.blytz-skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid #111111;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .blytz-skip-link {
+    transition: none;
+  }
+}
+
 html, body {
   overflow-x: hidden;
   max-width: 100%;
@@ -75,6 +103,164 @@ img, svg, video {
   #payment-modal {
     padding: 0 !important;
     align-items: stretch !important;
+  }
+}
+
+/* Stage H: design preview / final review modal */
+.design-preview-side-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+.design-preview-side-tab {
+  min-height: 2.75rem;
+  min-width: 4.5rem;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #d4d4d4;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #171717;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.design-preview-side-tab.is-active,
+.design-preview-side-tab[aria-selected="true"] {
+  border-color: #171717;
+  background: #171717;
+  color: #fafafa;
+}
+.design-preview-figure {
+  margin: 0;
+}
+.design-preview-frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  max-height: min(60dvh, 28rem);
+  border: 1px solid #e5e5e5;
+  border-radius: 0.375rem;
+  background:
+    linear-gradient(135deg, #f5f5f5 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(225deg, #f5f5f5 25%, transparent 25%) -8px 0 / 16px 16px,
+    linear-gradient(315deg, #f5f5f5 25%, transparent 25%) 0 0 / 16px 16px,
+    linear-gradient(45deg, #f5f5f5 25%, #fafafa 25%) 0 0 / 16px 16px;
+  overflow: hidden;
+}
+.design-preview-frame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.design-preview-loading,
+.design-preview-error-panel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 1rem;
+  text-align: center;
+  font-size: 0.875rem;
+}
+.design-preview-loading[hidden],
+.design-preview-error-panel[hidden],
+.design-preview-frame img[hidden] {
+  display: none !important;
+}
+.design-preview-loading {
+  color: #525252;
+  background: rgba(250, 250, 250, 0.85);
+  z-index: 1;
+}
+.design-preview-error-panel {
+  flex-direction: column;
+  gap: 0.75rem;
+  color: #b91c1c;
+  background: rgba(254, 242, 242, 0.95);
+  font-weight: 500;
+  z-index: 2;
+}
+.design-preview-error {
+  margin: 0;
+}
+.design-preview-refresh-retry {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid #b91c1c;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #b91c1c;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+.design-preview-refresh-retry[hidden] {
+  display: none !important;
+}
+.design-preview-refresh-retry:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.design-preview-caption {
+  margin: 0.5rem 0 0;
+}
+.design-preview-meta {
+  margin: 0;
+}
+.design-preview-meta > div {
+  display: grid;
+  grid-template-columns: 6.5rem 1fr;
+  gap: 0.35rem 0.75rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #f0f0f0;
+  font-size: 0.875rem;
+}
+.design-preview-meta dt {
+  margin: 0;
+  color: #737373;
+  font-weight: 500;
+}
+.design-preview-meta dd {
+  margin: 0;
+  color: #171717;
+  word-break: break-word;
+}
+.design-preview-honesty {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.375rem;
+  border: 1px solid #e5e5e5;
+  background: #fafafa;
+  color: #404040;
+}
+.design-preview-honesty.is-warn {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+}
+.design-preview-honesty.is-ok {
+  border-color: #d4d4d4;
+  background: #f5f5f5;
+  color: #171717;
+}
+@media (max-width: 639px) {
+  #design-preview-modal > .design-preview-panel {
+    max-width: 100% !important;
+    max-height: 100dvh !important;
+    height: 100dvh;
+    margin: 0;
+    border-radius: 0 !important;
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  #design-preview-modal {
+    padding: 0 !important;
+    align-items: stretch !important;
+  }
+  .design-preview-frame {
+    max-height: min(48dvh, 22rem);
   }
 }
 
@@ -167,6 +353,74 @@ img, svg, video {
   position: relative;
 }
 
+/* Stage G: compact save-status + ephemeral flow messages */
+.editor-status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  min-width: 0;
+}
+.editor-flow-status:empty {
+  display: none;
+}
+.editor-save-status.is-unsaved {
+  color: #525252;
+  font-weight: 500;
+}
+.editor-save-status.is-saving {
+  color: #525252;
+}
+.editor-save-status.is-saved {
+  color: #737373;
+}
+.editor-save-status.is-error {
+  color: #b91c1c;
+  font-weight: 500;
+}
+.editor-readiness-summary {
+  margin: 0 0 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+.editor-readiness-summary.is-ready {
+  color: #171717;
+}
+.editor-readiness-summary.is-blocked {
+  color: #b91c1c;
+}
+.editor-readiness-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.editor-readiness-list li {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: #525252;
+}
+.editor-readiness-list li.is-ok {
+  color: #171717;
+}
+.editor-readiness-list li.is-warn {
+  color: #525252;
+}
+.editor-readiness-list li.is-block {
+  color: #b91c1c;
+  font-weight: 500;
+}
+.editor-readiness-mark {
+  flex: 0 0 auto;
+  width: 0.9rem;
+  text-align: center;
+}
+
 /* Editor canvas wrap: keep CSS box aligned with Fabric display size */
 #editor-canvas-wrap {
   position: relative;
@@ -177,6 +431,34 @@ img, svg, video {
 }
 #editor-canvas-host {
   min-height: 0;
+}
+
+/*
+ * Stage 1: DOM-only print overflow warning (never a Fabric object / never in PNG).
+ * Absolutely positioned inside #editor-canvas-wrap so show/hide cannot reflow the
+ * host flex column, ResizeObserver sizing, Fabric cssOnly dimensions, or garment SVGs.
+ */
+.editor-print-overflow-warning {
+  box-sizing: border-box;
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  z-index: 6;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid #c4a35a;
+  border-radius: 0.375rem;
+  background: #fbf6e9;
+  color: #5c4a1e;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  text-align: center;
+  pointer-events: none;
+  max-width: none;
+}
+.editor-print-overflow-warning[hidden] {
+  display: none !important;
 }
 
 /*
@@ -491,6 +773,29 @@ img, svg, video {
   color: #525252;
   text-align: right;
 }
+.editor-props-opacity-num {
+  width: 4.25rem;
+  flex: 0 0 auto;
+  min-height: 2.5rem;
+}
+.editor-props-rot-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+}
+.editor-props-rot-wrap .editor-props-input {
+  flex: 1;
+  min-width: 0;
+}
+.editor-props-rot-reset {
+  flex: 0 0 auto;
+  min-width: 2.5rem;
+}
+.editor-props-image-place {
+  margin-top: 0.25rem;
+}
 .editor-props-color-input {
   width: 100%;
   min-height: 2.5rem;
@@ -521,6 +826,94 @@ img, svg, video {
   min-height: 2.5rem;
   font-size: 0.875rem;
   color: #0a0a0a;
+}
+.editor-props-align {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #E5E5E5;
+}
+.editor-props-align-heading {
+  margin: 0 0 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #737373;
+}
+.editor-props-align-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.45rem;
+}
+.editor-props-align-btn {
+  flex: 1 1 auto;
+  min-width: 3.25rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid #E5E5E5;
+  border-radius: 0.375rem;
+  background: #fff;
+  color: #0A0A0A;
+  font-size: 0.7rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+.editor-props-align-btn:hover {
+  background: #f4f4f5;
+}
+.editor-props-align-btn:focus-visible {
+  outline: 2px solid #0A0A0A;
+  outline-offset: 2px;
+}
+.editor-props-align-btn.is-active {
+  border-color: #0A0A0A;
+  background: #f4f4f5;
+  font-weight: 600;
+}
+.editor-props-align-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.editor-props-style-row .editor-props-style-btn {
+  flex: 0 0 auto;
+  min-width: 2.25rem;
+  font-size: 0.85rem;
+  line-height: 1;
+  font-weight: 600;
+}
+.editor-props-style-btn.is-italic {
+  font-style: italic;
+}
+.editor-props-style-btn.is-underline {
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
+}
+.editor-props-curve {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #E5E5E5;
+}
+.editor-props-curve-status {
+  margin: 0.15rem 0 0.5rem;
+  font-size: 0.75rem;
+  color: #525252;
+}
+.editor-props-curve-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.editor-props-curve-actions .editor-props-align-btn {
+  flex: 1 1 auto;
+  min-width: 4.5rem;
+}
+.editor-props-curve-apply:not(:disabled) {
+  border-color: #0A0A0A;
+  font-weight: 600;
+}
+.editor-props-curve-actions .editor-props-align-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .editor-props-readonly {
   margin: 0;
@@ -612,22 +1005,49 @@ img, svg, video {
 .editor-layer-row {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
   width: 100%;
   min-height: 2.75rem;
-  padding: 0.4rem 0.55rem;
+  padding: 0.25rem 0.35rem 0.25rem 0.25rem;
   border: 1px solid #E5E5E5;
   border-radius: 0.375rem;
   background: #fff;
   color: #0a0a0a;
   font-size: 0.875rem;
+}
+.editor-layer-row.is-selected,
+.editor-layer-row[aria-selected="true"] {
+  border-color: #0a0a0a;
+  background: #f5f5f5;
+}
+.editor-layer-row.is-hidden {
+  opacity: 0.55;
+}
+.editor-layer-row.is-locked .editor-layer-label::after {
+  content: " · locked";
+  font-size: 0.7rem;
+  color: #737373;
+  font-weight: 500;
+}
+.editor-layer-select {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 2.5rem;
+  padding: 0.35rem 0.4rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
-.editor-layer-row.is-selected,
-.editor-layer-row[aria-pressed="true"] {
-  border-color: #0a0a0a;
-  background: #f5f5f5;
+.editor-layer-select:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: 1px;
 }
 .editor-layer-glyph {
   flex: 0 0 auto;
@@ -639,6 +1059,54 @@ img, svg, video {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.editor-layer-row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.15rem;
+}
+.editor-layer-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  background: transparent;
+  color: #0a0a0a;
+  font-size: 0.85rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.editor-layer-icon-btn:hover {
+  background: #f5f5f5;
+  border-color: #E5E5E5;
+}
+.editor-layer-icon-btn.is-active,
+.editor-layer-icon-btn[aria-pressed="true"] {
+  background: #f0f0f0;
+  border-color: #d4d4d4;
+}
+.editor-layer-icon-btn:focus-visible {
+  outline: 2px solid #0a0a0a;
+  outline-offset: 1px;
+}
+.editor-layer-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #0a0a0a;
+  border-radius: 0.25rem;
+  background: #fff;
+  color: #0a0a0a;
+  font: inherit;
 }
 .editor-layers-empty {
   margin: 0.5rem 0;
@@ -884,15 +1352,14 @@ img, svg, video {
   gap: 0.5rem;
   align-items: center;
 }
+/*
+ * Undo/Redo live in the top chrome for desktop-first layouts.
+ * Previously display:none except coarse/phone — buttons were undiscoverable on mouse desktops.
+ */
 .editor-undo-redo {
-  display: none;
+  display: inline-flex;
   gap: 0.25rem;
   align-items: center;
-}
-@media (pointer: coarse) {
-  .editor-undo-redo {
-    display: inline-flex;
-  }
 }
 
 /* Mobile / tablet: fixed bottom toolbar inside the locked shell (no document growth). */
@@ -946,9 +1413,6 @@ img, svg, video {
   /* Phone: keep primary tools only in the bottom bar */
   .editor-toolbar-btn[data-editor-phone-hide] {
     display: none;
-  }
-  .editor-undo-redo {
-    display: inline-flex;
   }
   .editor-top-actions-secondary {
     display: none;

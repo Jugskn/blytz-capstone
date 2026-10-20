@@ -50,9 +50,11 @@ Blytz is a server-rendered Django web application for a custom apparel business.
 
 **Primary actors**
 
-- **Customer** — designs, editor, payment submit, orders, profile (`/app/`)
-- **Staff** — jobs, sales, accounting (view; edit if granted) (`/staff/`)
+- **Customer** — source of submissions: designs, editor, payment claims, order history (`/app/`)
+- **Staff** — sink for review and ops: jobs pipeline, order/design inspection, phase advances, payment accept/reject, sales, accounting (view; edit if granted) (`/staff/`)
 - **Admin** — everything staff can, plus users, payment channels, admin-only pages
+
+There is no separate Front Desk actor. Job/order phase (`Order.status`) is distinct from derived payment status (`Order.payment_status`: Fully Paid / Outstanding Balance).
 
 ---
 
@@ -92,7 +94,7 @@ apps/
   orders/                 # Order, Payment, PaymentChannel, jobs pipeline
   accounting/             # Staff accounting views (no own models)
   sales/                  # Lead pipeline
-services/                 # proof_images (+ future remove.bg / AI / email wrappers)
+services/                 # proof_images, preview_images, ai_design (+ email later)
 templates/                # Root templates + components + per-app pages
 static/                   # css/, js/, img/, garments/ (SVG mockups + garments.json)
 src/styles/main.css       # Tailwind source + @theme tokens
@@ -153,7 +155,8 @@ Procfile                  # gunicorn bind
 └─────────────────────────────────────────────────────────────────────────┘
 
 services/:
-  proof_images · preview_images (live)  ·  remove.bg / AI / email (planned)
+  proof_images · preview_images · ai_design (live)  ·  email (planned)
+  # BG removal: client-side @imgly (static/js/remove_bg_client.js)
 ```
 
 **Request path principles**
@@ -239,7 +242,10 @@ services/:
 | --- | --- |
 | `proof_images.py` | Verify/shrink PNG/JPEG proofs (EXIF orientation, strip metadata incl. GPS, max edge 2000 px, PNG optimize / JPEG ~q85); PDFs unchanged |
 | `preview_images.py` | Validate submit mock-up PNGs (real PNG via Pillow, ≤5 MB, max edge 2400 px) |
-| *(planned)* | remove.bg, AI helpers, transactional email |
+| `ai_design.py` | Stage O Gemini two-candidate suggestions |
+| *(planned)* | transactional email |
+
+Background removal is **client-side** (`@imgly/background-removal` via `static/js/remove_bg_client.js`), not a `services/` wrapper.
 
 Apps call wrappers here rather than vendor SDKs directly.
 
@@ -511,7 +517,8 @@ DEBUG only: `static()` for media; core component gallery routes.
 | `/app/designs/<id>/editor/` | `design_editor` | GET | Editor + payment modal data |
 | `/app/designs/<id>/save/` | `design_save` | POST | Save canvas (HTML or JSON) |
 | `/app/designs/<id>/submit/` | `design_submit` | POST | Submit + payment (HTML or JSON) |
-| `/app/orders/` | `order_list` | GET | Orders |
+| `/app/designs/<id>/ai/suggest/` | `design_ai_suggest` | POST | Stage O: two Gemini design candidates (JSON); never mutates `Design` |
+| `/app/orders/` | `order_list` | GET | Customer submission history (Orders): own Orders only, paginated |
 | `/app/orders/<order_id>/` | `order_detail` | GET/POST | Order detail + payment history + additional proof upload + final design preview/approve |
 | `/app/orders/<order_id>/approve-final-design/` | `approve_final_design` | Customer POST | Approve final design (version must match); owner only; Pending Edit only |
 
@@ -521,12 +528,13 @@ DEBUG only: `static()` for media; core component gallery routes.
 | --- | --- | --- | --- |
 | `/staff/` | `staff_home` | Staff+ | Overview stats + charts (customers 403) |
 | `/staff/jobs/` | `jobs_pipeline` | Staff+ | Jobs kanban (`q`, `customer`, `pending_review=1` filters) |
-| `/staff/orders/<order_id>/` | `staff_order_detail` | Staff+ | Order ops, mock-ups, final design (Pending Edit), design details, phase history, payment review |
+| `/staff/orders/<order_id>/` | `staff_order_detail` | Staff+ | Order ops; job status + payment status badges; mock-ups; garment/design details from `canvas_json_snapshot` (does not write `Design.canvas_json`); final design (Pending Edit); payment proofs + review in all phases; phase history |
 | `/staff/orders/<order_id>/previews/<side>/download/` | `download_order_preview` | Staff+ GET | Full-res front/back mock-up PNG download |
 | `/staff/orders/<order_id>/final-design/` | `upload_final_design` | Staff+ POST | Upload/replace final design (Pending Edit only); bumps version; no history |
 | `/staff/orders/<order_id>/advance/` | `advance_order_phase` | Staff+ POST | Next phase only (gate: accepted payment before Pending Edit); records `OrderPhaseChange` |
 | `/staff/orders/<order_id>/payments/<id>/review/` | `review_payment` | Staff+ POST | Accept or reject pending payment |
-| `/staff/accounting/` | `accounting_list` | Staff+ | Accounting list + charts (accepted payments only; customers 403) |
+| `/staff/accounting/` | `accounting_list` | Staff+ | Accounting list + charts (accepted payments only; customers 403) + CSV export form |
+| `/staff/accounting/export.csv` | `accounting_export_csv` | Staff+ GET | Read-only orders CSV (job status ≠ payment status); optional `status`, `date_from`, `date_to`, `pending_review`; customers 403; no source mutations |
 | `/staff/accounting/<order_id>/` | `accounting_detail` | Staff+ | Detail; POST if can edit |
 | `/staff/sales/` | `sales_pipeline` | Staff+ | Leads; `?tab=incomplete` |
 | `/staff/sales/<lead_id>/` | `lead_detail` | Staff+ | Lead + timeline |
@@ -566,8 +574,9 @@ POST /app/designs/<id>/save/
   → last save wins (no conflict check)
   → JSON {ok:true, title, updated_at} if Accept/XHR else redirect
 
-POST /app/designs/<id>/submit/   [atomic]
-  guards: not already submitted; form valid; payment window not expired;
+POST /app/designs/<id>/submit/   [atomic + design-row writer lock + unique Order.design]
+  guards: not already submitted (pre-check + re-check after the writer lock);
+          form valid; payment window not expired;
           front + back preview PNGs validated (Pillow)
   → update design.canvas_json (+ optional garment fields)
   → Order(status=job_request, canvas_json_snapshot=…,
@@ -576,15 +585,18 @@ POST /app/designs/<id>/submit/   [atomic]
   → Lead(stage=new_lead)
   → ActivityLog(DESIGN_SUBMITTED + ORDER_CONFIRMED)
   → redirect order detail (JSON {ok, redirect} for XHR)
+  → already-submitted / lock race → JSON {ok:false, errors.design} for XHR
 ```
 
-**Submit previews (client)**
+**Submit previews (client)** — Stage I
 
-1. On payment-form submit, `editor_page.js` blocks the native POST.
-2. Calls `BlytzEditor.getPreviewPNG({ view: "front"|"back", includeGarment: true })` for both views.
-3. Each call composites an **800×800** PNG in order: UNDER garment → Fabric artwork → OVER garment (print-area guides omitted). CSS `var(--…)` references in SVG text are replaced with hex before `<img>` rasterization (trim form first, then garment, then string). The non-active view is rendered offscreen (`fabric.StaticCanvas` + cached/fetched SVG) without switching the live canvas or firing commits. Export lowers grain opacity (and strips grain on retry) so files stay ≤ **5 MB** / max edge **2400** (`services/preview_images.py`).
-4. Appends `preview_image` / `preview_back_image` file fields and POSTs via `fetch`.
-5. If preview generation fails, shows an error and does **not** create an order.
+1. On payment-form submit, `editor_page.js` blocks the native POST; **re-checks** readiness; refuses if `saveInFlight` / `submitInFlight`.
+2. Snapshots intended design via `preparePersistPayload` + persist **fingerprint**; sets `submitInFlight` / `submitGeneration`.
+3. Renders both views with `BlytzEditor.renderFrozenPreview({ envelope, view, garment })`. `envelope` is `JSON.parse` of the `preparePersistPayload` string that will be posted. `garment` is a copy of template/color taken at the same time. This does **not** call `getPreviewPNG` and does **not** call `loadCanvasJSON` on the live editor.
+4. Each frozen view is loaded on a temporary `fabric.StaticCanvas` (disposed on success and failure). Artwork object count must match the frozen payload or the render rejects. The PNG is composited **800×800**: UNDER garment → that artwork → OVER garment (print-area guides omitted). Garment SVGs use the snapshotted template/color. CSS `var(--…)` references are baked to hex. Grain opacity is lowered, and grain is stripped on a retry that uses the **same** frozen payload. Files must stay ≤ **5 MB** (`services/preview_images.py` on the server). A render failure blocks the POST and shows that error when it is one of the known preview messages.
+5. After previews: abort if the live fingerprint no longer matches (an edit during submit is not posted). Otherwise POST the frozen `canvas_json`, the snapshotted garment fields, and the two PNGs. A newer `submitGeneration` drops a stale result and does not POST it.
+6. **Success only** after server JSON `{ ok: true, redirect }` — then `allowUnloadOnce` + navigate. Failures clear the submit lock; unclear network responses warn to check Orders before retrying.
+7. Preview modal remains presentation-only (Stage H/H.1); cancel is blocked while submit is in flight.
 
 **Payment window** (initial submit only)
 
@@ -608,18 +620,46 @@ POST /app/designs/<id>/submit/   [atomic]
 - If pending → “Payment awaiting staff review”; if fully paid → “Fully paid” (no form).
 - POST uses `transaction.atomic` + `select_for_update` on the order; unique pending constraint as a race backstop.
 
+### 9.1b Customer submission history (Stage J)
+
+Route: `GET /app/orders/` (`order_list`) — nav label **Orders**. Reuses the existing Order list; does **not** add a second tracking model.
+
+| Concern | Source of truth |
+| --- | --- |
+| Who submitted | `Order.customer` (= authenticated user filter) |
+| When submitted | `Order.created_at` |
+| Design title / garment | `Order.design.title`, `design.garment_template`, `design.garment_color` (labels via `format_garment_display`) |
+| Job status | `Order.status` (display via `customer_order_status_label`; unknown values → `Unknown status (…)` with warning badge — never mapped to Completed/Paid) |
+| Thumbnail | Existing `Order.preview_image` when present; otherwise a “No preview” placeholder (no new rasterization) |
+| Detail | Link to `order_detail` (`order_id` + `customer=request.user`) |
+
+**Ownership:** `@customer_required`; queryset `Order.objects.filter(customer=request.user)`. Detail stays `get_object_or_404(..., customer=request.user)` → 404 for other customers. Drafts without an Order are omitted.
+
+**Pagination:** Django `Paginator`, `ORDERS_PER_PAGE` = 20 (`apps.orders.customer_display`).
+
+**Tests:** `apps.orders.tests.test_order_list`; ownership also covered in `apps.designs.tests.test_ownership`.
+
 ### 9.2 Staff: jobs pipeline + payment review
+
+Customers submit; staff/admin review. Phase advances never mutate `Design.canvas_json` (inspection uses frozen `Order.canvas_json_snapshot` + stored mock-ups).
 
 ```
 GET /staff/jobs/?q=&customer=
-  → columns by Order.status
+  → columns by Order.status (job phase)
+  → cards show payment_status (Fully Paid / Outstanding) separately from column phase
   → cards show “Payment awaiting review” when pending_payment exists
+
+GET /staff/orders/<id>/
+  → job status stepper + payment_status badge (separate from phase)
+  → garment template/color, customer, notes, design details from snapshot
+  → front/back mock-ups (lightbox + download); payment proofs in Job Request and Pending Edit layouts
 
 POST /staff/orders/<id>/advance/
   → if next is pending_edit and not has_accepted_payment → reject (message + disabled UI)
   → else status = next in PHASE_FLOW only (ignores client target)
   → OrderPhaseChange(from, to, changed_by)
   → ActivityLog(PHASE_MOVED)
+  → does not alter Design.canvas_json or order preview files
 
 GET /staff/orders/<id>/previews/<front|back>/download/
   → staff/admin only; attachment PNG (customers 403)
@@ -685,6 +725,15 @@ GET list → sum total_paid (accepted only), sum positive balances
               line: collections over time (30 days, Payment.created_at)
               doughnut: payments by channel (GCash / Maya / Bank [+ Other])
          → json_script + empty states + table fallbacks (same chart helper)
+         → export form → GET /staff/accounting/export.csv
+
+GET export.csv [@staff_required — customers 403]
+  → read-only CSV of orders (staff/admin sink; does not write Order/Payment/Design)
+  → columns: order_id, created_at, customer, design title, garment label,
+              job_status (Order.Status label), payment_status (Fully Paid /
+              Outstanding Balance), agreed/paid/balance, payment_awaiting_review
+  → filters: status (job phase), date_from / date_to (YYYY-MM-DD on created_at),
+              pending_review=1; invalid filters → 400; empty match → header only
 
 POST detail action=set_total
   → agreed_total + accounting_edited_*
@@ -693,7 +742,7 @@ POST detail action=add_payment
   → Payment(is_manual_adjustment=True, status=accepted, reviewed_by=user, …)
 ```
 
-Helpers: `apps.accounting.charts`. View-only staff see forms disabled / POST raises `PermissionDenied`. Payment status is visible to all staff. No charts on Sales Pipeline yet.
+Helpers: `apps.accounting.charts`. View-only staff see forms disabled / POST raises `PermissionDenied`. Payment status is visible to all staff. No charts on Sales Pipeline yet. No XLSX/PDF tabular reports (CSV + artwork PNG downloads only).
 
 ### 9.4 Staff: sales
 
@@ -758,7 +807,7 @@ Defined in `docs/PROJECT_BRIEF.md` and `src/styles/main.css` (`@theme`):
 | `danger` / `success` / `warning` | status colors | |
 
 Typography: `font-display` (Playfair Display), `font-sans` (GitHub-style system stack).  
-Focus: `focus-visible:outline-ink`. Mobile-first.
+Focus: `focus-visible:outline-ink`. Mobile-first. Global skip link (`.blytz-skip-link` → `#main`) in `base.html` for keyboard users.
 
 ### 10.4 Client JavaScript (`static/js/`)
 
@@ -766,9 +815,9 @@ Focus: `focus-visible:outline-ink`. Mobile-first.
 | --- | --- |
 | `editor_contract.js` | `window.BlytzEditor` public API |
 | `editor_canvas.js` | Fabric workspace + schema helpers |
-| `ai_chat.js` | Stage 2 mocked AI Assistant (§5.4 two-candidate preview/commit; no network) |
+| `ai_chat.js` | Stage O AI Assistant (Gemini when configured; Stage 2 mock fallback; two-candidate preview/commit) |
 | `vendor/fabric/fabric.min.js` | Fabric.js 6.6.1 (local) |
-| `editor_page.js` | Save, payment modal timer, submit + preview PNG upload, CSRF |
+| `editor_page.js` | Save-state (Stage G), design preview/review (Stage H), navigation guards, payment modal, submit + preview PNG upload, CSRF |
 | `editor_chrome.js` | Phone/tablet chrome: layout mode (`sheets` vs docked), contextual selection bar, undo/redo buttons, `visualViewport` keyboard inset |
 | `payment_details.js` | Channel account/QR + Copy buttons; shared proof size check |
 | `payment_upload.js` | Customer order-page additional proof upload (full-screen sheet on phones) |
@@ -830,8 +879,8 @@ The Fabric.js canvas implementation honors this **stable public API** on `window
 | `static/js/editor_tools.js` | Upload / Elements / Layers / Garment panels, shape factories |
 | `static/js/editor_properties.js` | Properties sheet, clamps, Edit pill, ≤1279 exclusivity |
 | `static/js/editor_contract.js` | `window.BlytzEditor` public API |
-| `static/js/ai_chat.js` | Local two-candidate mock (no network) |
-| `static/js/editor_page.js` | Save, payment modal timer, submit validation, CSRF |
+| `static/js/ai_chat.js` | Two-candidate AI chat (live suggest + mock fallback) |
+| `static/js/editor_page.js` | Save-state, navigation guards, payment modal, submit validation, CSRF |
 | `apps/designs/canvas_safety.py` | Server twin of `scanCanvasPayload` (v1 only) |
 | `apps/designs/garment_choices.py` | Template/color allow-lists, template aliases, stale-client views guard |
 | `qa/` | Console-paste GATE / regression / garment scripts + device checklist |
@@ -844,6 +893,65 @@ The Fabric.js canvas implementation honors this **stable public API** on `window
 - Submit modal: channel, amount, proof, `window_started_at`, canvas snapshot, garment fields, front/back preview PNGs (required)
 - Disables submit when window expired or design already submitted; submitted designs show a read-only title
 - Submit generates front + back mock-ups via `getPreviewPNG({ view, includeGarment: true })`; failure blocks the request
+
+### 11.1a Save-state reliability (Stage G)
+
+Document dirty state is derived by comparing a **persist fingerprint** (stable `JSON.stringify` of `{ canvas, title, garment_template, garment_color }`) to the last successfully saved fingerprint — not an independent boolean that can drift.
+
+| Concern | Behavior |
+| --- | --- |
+| Mark dirty | `onCommittedChange` (canvas), `onGarmentChange`, title `input`/`change`, and `onHistoryNavigate` (undo/redo after restore) recompute vs last saved |
+| Not dirty | Selection changes, Properties open/tabs, hover, `clearSelection`, live `runSilent` previews, uncommitted curve preview (`isCurvePreviewDirty` skips recompute; `discardCurvePreview` restores then recomputes) |
+| Saved | Only after HTTP JSON `{ ok: true }` for the fingerprint that was POSTed; then recompute vs **live** canvas — if the user edited during the in-flight save, status returns to **Unsaved changes** |
+| Saving | Entered only when a save request actually begins; single in-flight mutex (`saveInFlight` / generation) prevents concurrent POSTs |
+| Save failed | Network / non-OK / malformed JSON / form errors → **Save failed** with message; latest local work kept; Save retries the same pathway |
+| UI | `[data-editor-save-status]` (aria-live, deduped announcements) + ephemeral `[data-editor-status]` for flow messages; Design info → **Before you submit** (`[data-editor-readiness]`) |
+| Navigation | Native `beforeunload` when genuinely dirty (browser text only). In-editor breadcrumb/`a[href]` clicks confirm before leave. Submit success redirect and intentional unload use `allowUnloadOnce`. Does not intercept unrelated site navigation outside the editor shell |
+| Readiness checks | Client review only: draft not submitted, `canPersist`, no save in flight, no submit in flight, non-destructive envelope size ≤ 2 MiB, artwork object count (advisory — server does **not** require artwork), payment channels present, payment fields noted as modal/server. **Does not** call `preparePersistPayload` (would discard curve preview). Server validation remains authoritative; readiness never bypasses CSRF, ownership, window, proof, or preview PNG rules |
+| Probe API | `window.BlytzEditorSaveState` (`isDirty`, `getStatus`, `isSubmitInFlight`, `getSubmissionReadiness`, `shouldWarnUnload`, …) for QA — does not replace `canPersist` locks |
+| History hook | `BlytzEditor.onHistoryNavigate` fires after undo/redo restore so dirty can match last saved when the user undoes back to that snapshot |
+
+**Unchanged:** schema allowlists, 2 MiB cap, auth/ownership, CSRF form field on save, submit transaction + payment window, no autosave service, no new endpoints.
+
+### 11.1c Submission workflow hardening (Stage I)
+
+Invariant: a successful submission persists a **server-validated snapshot** of the exact intended client design state (from `preparePersistPayload`), not stale/partial UI state.
+
+| Layer | Protection |
+| --- | --- |
+| **Client** | Re-check `getSubmissionReadiness` at Submit click and at payment-form send; `submitInFlight` + `submitGeneration` prevent overlapping preview/POST; save blocked while submitting; fingerprint of the snapshotted payload must still match the live design after async preview gen or the POST is not sent; Front/Back PNGs are rendered from that frozen envelope (`renderFrozenPreview`), not from a later live-canvas raster; POST sends that `canvas_json` plus the snapshotted garment template/color; statuses: Generating previews → Submitting → navigate only on `{ok, redirect}` / failure clears lock; cancel blocked during in-flight submit; `allowUnloadOnce` only after confirmed success |
+| **Server** | Auth + ownership (`owner=request.user`); CSRF; independent `DesignSubmitForm` validation (canvas schema/safety, proof, preview PNGs, window, amount, channel) — does **not** trust client ready/saved flags. Inside `transaction.atomic`: `UPDATE` the design row first (this is what takes SQLite’s writer lock; MySQL row locking was not run here), then `select_for_update()` and re-check `is_submitted`. `select_for_update()` does **not** emit `FOR UPDATE` on this project's SQLite backend (`has_select_for_update` is false). `Order.design` is still a `ForeignKey` (`related_name="orders"`); migration `orders.0006_unique_order_per_design` adds `UniqueConstraint` `unique_order_per_design`. A losing insert or database lock returns the existing already-submitted JSON when an order for that design is visible, otherwise a generic retry message with no database text. One lock-error retry runs inside the view |
+| **Database** | Dev and the Django test runner use SQLite (`DATABASE_URL` is unset in `.env`; test DB is `file:memorydb_default?mode=memory&cache=shared`). MySQL via `DATABASE_URL` is documented as optional and was **not** configured or tested here. Before `0006`, `db.sqlite3` had 10 orders and no design with more than one order. Code and seed data treat a second order for the same design as invalid (`is_submitted` is `orders.exists()`; save/submit stop; `seed_demo` uses `get_or_create(design=…)`). The constraint does not change the reverse relation to a `OneToOneField` |
+
+**Tests:** `apps.designs.tests.test_submit` (sequential second submit, XHR already-submitted, snapshot persistence); `apps.designs.tests.test_submit_workflow` (source contracts); `apps.designs.tests.test_submit_concurrency` (SQLite: no `FOR UPDATE` in the query; second `Order` for one design raises `IntegrityError`; two threads / two connections persist one order). Browser: `qa/stage_i_verify.js` (Stage I) and `qa/stage_i1_verify.js` (frozen preview, live-edit block, dispose, Stage H blob preview).
+
+**Concurrency not claimed:** MySQL/PostgreSQL row locks were not executed. On SQLite, overlapping submits are serialized by the design-row `UPDATE` plus the unique index. A loser can receive “Please try again.” if it observes `database is locked` before the winner’s commit is visible; the test then confirmed a following submit gets “already submitted” and the order count stays 1. Pixel identity between a live canvas and a reload of its JSON was checked for a solid red rectangle on a white tee, not for every Fabric feature (fonts, filters, grain).
+
+**Stage H vs submit:** The Preview modal still calls `getPreviewPNG`. That path rasters the **live** canvas for the active view (and an offscreen clone for the other view). Submit does not use that path.
+
+**Unchanged:** Stage G save-state, Stage H/H.1 preview presentation-only, 2 MiB / proof / preview PNG limits, payment window, no AI / new external services.
+
+### 11.1b Customer design preview / final review (Stage H / H.1)
+
+Customer-facing **Preview** in the editor opens `#design-preview-modal` for a garment + artwork mock-up and a save-state-aware review panel. Presentation-only: does **not** mutate the live Fabric canvas, history, selection, dirty fingerprint, Front/Back active view, title, or garment.
+
+| Concern | Behavior |
+| --- | --- |
+| Entry / exit | Top-bar **Preview** (`data-editor-preview`); **Back to edit** / backdrop / × / Escape close and restore focus; focus trap while open |
+| Mock-up | `BlytzEditor.getPreviewPNG({ view, includeGarment: true })` for Front and Back. The active view is rastered from the live canvas (selection handles are discarded for the PNG, then the prior active object is restored); the other view uses an offscreen `StaticCanvas`. UNDER→art→OVER compositing matches export, but this is **not** the submit path (`renderFrozenPreview` from the frozen envelope). Stale async responses ignored via `previewRequestGen`; blob/object URLs revoked on replace/close; closed-preview callbacks noop |
+| Review data | Title, garment label/color, preview side, **save status**, and readiness from `BlytzEditorSaveState` / `getSubmissionReadiness` (no invented readiness rules) |
+| Render vs save | `previewRenderStatus` (`idle`/`loading`/`ready`/`error`) is separate from Stage G `saveUiStatus`. Loading/honesty copy never presents a stale image as a newly confirmed saved mock-up without an update in progress or error |
+| Save-triggered refresh (H.1) | On **clean** `performSave` SUCCESS (fingerprint still matches live), if the preview modal is open, re-render the **current** preview side via `getPreviewPNG` while keeping the modal open. Prior image stays until the new render arrives. Failed save → no refresh-as-saved. Already-saved Preview **Save** skips a redundant `performSave` (no save loop) |
+| Refresh failure | Save remains **Saved**; show in-modal preview-refresh error + **Retry mock-up**; do not blank the prior image or mark save failed |
+| Honesty | Unsaved / saving / save-failed copy never presents a draft as a saved final; post-save refresh loading/error copy is explicit |
+| Save / Submit | Preview **Save** calls existing `performSave` only (no duplicate save path). No nested payment/submit — user returns to editor **Submit** |
+| Races | `previewRequestGen` + fingerprint match; Front/Back switches and close/reopen invalidate in-flight work; edits during refresh that dirty the design abort applying a “saved” image |
+| Probe API | `window.BlytzEditorDesignPreview` (`open` / `close` / `setSide` / `getRenderStatus` / `refreshAfterSave` / …) for QA |
+| Tests | `apps.designs.tests.test_design_preview` (source + ownership/save contracts); browser: `qa/stage_h_verify.js` (incl. post-save image refresh while modal open) |
+
+**Unchanged:** canvas safety, 2 MiB cap, CSRF, ownership, submission locks, Stage G save-state machine, no new backend routes/migrations/AI/payment.
+
+**Limitations:** post-save refresh re-exports the client canvas (same path as submit); it does not re-fetch a server-stored PNG. iOS Safari / real-device preview refresh is not automated.
 
 ### 11.2 Canvas JSON schema (`schema_version` 1) — storage B1
 
@@ -871,9 +979,25 @@ Logical working canvas: **800×800** units (provisional; not garment or print si
 
 **Image pipeline:** input ≤ `IMAGE_INPUT_LIMIT_BYTES` (8 MiB); decode via `createImageBitmap` / Image; reject `IMAGE_MAX_PIXELS`; longest edge ≤ `IMAGE_MAX_EDGE` (**2000** px); downscale/re-encode toward `IMAGE_TARGET_BYTES` (300 KB) using `IMAGE_EDGE_STEPS` / `IMAGE_QUALITY_STEPS`; keep original data URL when already small; 80% insert budget and 2 MiB hard cap measured on the **whole envelope** via `measureEnvelopeBytes`.
 
-**Commits:** `commitEdit(label, applyFn)` → one `notifyCommitted` per successful op; `runSilent` suppresses; first committed edit after AI preview discards the sibling candidate. `SERIALIZE_PROPS`: `selectable`, `evented`, `blytzId`, `blytzName` (`blytzLocked` reserved). Fabric object type `i-text` → `typeKey` strips non-letters → `itext` for comparisons.
+**Commits:** `commitEdit(label, applyFn)` → one `notifyCommitted` per successful op; `runSilent` suppresses; first committed edit after AI preview discards the sibling candidate. `SERIALIZE_PROPS`: `selectable`, `evented`, `blytzId`, `blytzName`, `blytzCurve`, `blytzLocked`. Fabric `visible` is a built-in (always serialized). Fabric object type `i-text` → `typeKey` strips non-letters → `itext` for comparisons.
+
+**Layer management (Stage D):** Layers panel supports rename / duplicate / hide-show / lock-unlock. Rename changes `blytzName` only (trim; reject empty; max `PROP_LIMITS.layerNameMax` = 60); `blytzId` unchanged. Duplicate uses `duplicateActive` → new `blytzId`, name via `duplicateLayerName` (`… copy`), copies formatting/`blytzCurve`/image src; clone is forced **visible + unlocked** even if the source was hidden/locked. Hide/show toggles Fabric `visible` (stays in JSON + layer list; canvas hit-testing skips hidden; hiding the active object discards selection). Lock sets `blytzLocked` and applies `selectable`/`evented`/movement/scale/rotate locks + `hasControls: false`; `loadFabricPayload` re-applies lock interaction so reload cannot re-enable locked objects. **Layer-panel management selection** uses `selectObjectById` / `setActiveObject` and works for locked or hidden objects (rename, unlock, show, duplicate); **canvas pointer selection** does not hit locked (`evented`/`selectable` false) or hidden objects. All layer ops go through `commitEdit` (same undo stack). Curve Text preview still uses `runSilent` until Apply; Properties `syncFromSelection` clears the panel body and discards curve preview when selection clears or the panel is hidden so stale Apply/Cancel cannot mutate a prior object.
 
 **Garment layers:** Assets in `static/garments/` (`tee`, `polo`, `hoodie`, `jersey` × front/back, 800×800). Client fetches SVG text (in-memory cache + `?v=` bust), splits into two inline SVGs sharing full `<defs>`: **under** (`#editor-garment-layer` = ground+base, first child of `#editor-canvas-wrap`) and **over** (`#editor-garment-overlay` = details+shade, last child, `pointer-events: none`). The SVG `art` group is omitted (Fabric is the art layer). OVER ids are rewritten (`…-` → `…-o-`) so defs do not collide. CSS variables `--garment`, `--trim` (`contrastColor(garment)`), `--string` (`#e9e5da` for hoodie drawcords) are set on the wrap and both SVGs for live display. Print areas come from `garments.json` (dashed guides on the over layer only; never drawn into export markups). Optional `data-blytz-lite-garment="1"` strips grain/weave rects from the over layer. Fabric background stays transparent. Template allow-list (`tee|polo|hoodie|jersey`) is identical in `garment_choices.py` and `editor_garments.js`; load-time aliases (e.g. `t-shirt`→`tee`) plus data migration `0005_normalize_garment_templates`; unknown keys rejected on save. Contrast defaults: new text/shapes/graphics/lines use `contrastColor(garment)` at insert time only.
+
+**Print-area overflow warning (Stage 1):** `BlytzGarments.getPrintAreas(garmentId, viewId)` returns catalog rectangles only (no invented sizes). `BlytzCanvas` compares each object's transformed AABB (`getBoundingRect()` / Fabric 6 `getCoords()`) against those areas; artwork that is not fully inside at least one area shows a **DOM-only** `#editor-print-overflow-warning` banner. The banner is an **absolutely positioned overlay inside `#editor-canvas-wrap`** (not a host flex sibling) so show/hide cannot reflow artboard sizing, ResizeObserver, Fabric `cssOnly` dimensions, or garment SVGs. The warning never moves/resizes/clamps artwork, is not a Fabric object, and is omitted from canvas JSON and PNG export (guides already stripped via `hidePrintAreas` / export markups). Rechecks are rAF-throttled on move/scale/rotate and also run after commits, view switches, garment/color changes, and loads. Missing print-area definitions disable the overflow banner (`defined: false`) rather than inventing guides. Geometry twin: `apps/designs/print_area_check.py`.
+
+**Align / center / flip (Stage 2):** Properties panel controls call `BlytzCanvas.alignActive(direction, mode)`, `centerOnCanvas(axis)`, and `flipActive(axis)` through `commitEdit` (one undo step each; Front/Back unchanged). Single-object align uses the logical 800×800 canvas; multi-object align uses the selection AABB (`mode: "selection"`). Canvas centering moves the whole selection by one shared delta (labels say “Center on canvas”). Flip toggles Fabric `flipX` / `flipY` without minting ids or renaming layers. ActiveSelection is discarded to absolute coords before transforms, then restored — avoids selection-local mistakes. Print overflow rechecks via existing after-commit hooks. Geometry twin: `apps/designs/align_flip.py`.
+
+**Composition tools (Stage F):** Extends Stage 2 align/center/flip — no Fabric groups, no schema changes, no persistent grouping. **Distribute** (`distributeActive("horizontal"|"vertical")`) requires ≥3 selected objects; uses **transformed AABBs** (`getBoundingRect` / twin `distribute_rects`), not raw `left`/`top`. Rule: sort by AABB left (H) or top (V) with stable index ties; keep first and last fixed; place intermediates so **edge-to-edge gaps are equal** `(span − sum(sizes)) / (n − 1)`. Unequal sizes are honored via AABB extents (not center-to-center spacing). Negative gaps (overlap) still even out. **Multi-center** reuses `centerOnCanvas` with one shared delta so relative arrangement is preserved. **Locked policy (reject-all):** if any selected member has `blytzLocked`, align / distribute / center / flip reject the whole op with feedback and **no history entry** — never silently skip or move locked objects. UI disables composition buttons when locked or when distribute count < 3 (no fake-enabled). **Multi-duplicate** extends `duplicateActive` to clone the whole ActiveSelection in one `commitEdit` (`duplicate-selection`), minting a fresh `blytzId` + `duplicateLayerName` per clone (clones forced visible+unlocked). **Delete** selection remains one undoable `deleteSelection`. **Clear selection** (`clearSelection` / Escape when the props sheet is not open) discards ActiveSelection without `commitEdit` or dirtying the design. Geometry twin additions live in `apps/designs/align_flip.py` (`distribute_rects`, `composition_rejects_locked`).
+
+**Undo/Redo chrome:** Top-bar `.editor-undo-redo` is `display: inline-flex` on desktop (previously hidden except coarse/phone). Buttons use `data-editor-undo` / `data-editor-redo`; `syncHistoryUi` sets `disabled` from `canUndo` / `canRedo`. Clicks and Ctrl/Cmd+Z / Shift+Z / Y call the same `BlytzEditor.undo` / `redo` (no parallel history).
+
+**Text formatting:** Properties registry for `itext|text|textbox` adds Bold (`fontWeight`), text align (`textAlign` left/center/right), letter spacing (`charSpacing`, Fabric 1/1000 em), and line spacing (`lineHeight` multiplier). Text-only; ActiveSelection and non-text types are rejected. Commits use `commitEdit`. Helper twin: `apps/designs/text_format.py`.
+
+**Image editing (Stage E):** Single selected `image` only (not text/shapes/ActiveSelection). Properties expose effective **width/height** via Fabric `scaleX`/`scaleY` (canvas coords; `sizeMin`/`sizeMax` = 8–1600 so intentional overflow of 800×800 is allowed); blank/non-finite/zero/negative rejected. **Aspect ratio** locked by default (`keepProportions`); unlock for independent dims. **Rotation** degrees with center preserved + reset-to-0° (`resetActiveRotation`); print-overflow rechecks via existing after-commit hooks. **Opacity** 0–100% range + numeric; live preview via `beginLive`/`endLive` → one `commitEdit` at pointer-up. **Placement:** Center (`centerActiveImage` → `centerOnCanvas("both")`), Fit within canvas (`fitActiveWithinCanvas` — uniform scale, preserve aspect, then center; never stretch-to-fill), Reset ° (rotation only). Locked images (`blytzLocked`) show a readonly notice and disable controls; APIs no-op with feedback. Does not switch Front/Back, replace `src`, or mint/rename ids. Commits reuse `commitEdit` / live end-commit; no parallel history. Helper twin: `apps/designs/image_edit.py`.
+
+**Image crop (deferred):** Not shipped in Stage E. Fabric 6.6.1 `cropX`/`cropY` mutate native image `width`/`height`, which conflicts with the scale-based Properties dims model and would require a separate cancel/apply session plus save/reload validation. A `clipPath` Rect would pass the existing nested allowlist scan but is **visual clip only** — not a durable crop of source pixels — and must not be claimed as crop. Smallest future approach: dedicated crop session (like curve preview) that applies `cropX`/`cropY` + native size in one `commitEdit`, keeps `src`/`blytzId`/`blytzName`, and teaches Properties dims to treat crop-native size as the base for scaling.
 
 **Preview PNG export (`includeGarment: true`):** `BlytzGarments.getExportLayerMarkups` loads the target view’s SVG (cache/fetch), bakes exact strings `var(--trim, var(--garment, #f2f2ef))` → trim hex, then `var(--garment, #f2f2ef)` → garment hex, then `var(--string, #e9e5da)` → string hex, asserts no `var(` remains, lowers grain opacity for file size, splits under/over, and composites with Fabric artwork (active view via live `toDataURL`; other view via offscreen `StaticCanvas`). Result must pass `services/preview_images.py` (real PNG, ≤5 MB, max edge 2400). Failures block submit (no order).
 
@@ -892,16 +1016,16 @@ Logical working canvas: **800×800** units (provisional; not garment or print si
 
 ### 11.3 Legacy compatibility
 
-| Incoming data | Behavior |
-| --- | --- |
-| Blytz `{schema_version:1, canvas:{…}}` | Load Fabric payload |
-| Empty legacy stub / seed: `{version:1, objects:[]}` (optional `stub`, `demo`, …) | Empty canvas (ready to edit/save) |
-| Raw Fabric canvas JSON (`version` string + `objects`) | Wrap into schema v1 and load |
-| Unknown `schema_version` (≠ 1) | **Not loaded** — persist blocked; original data preserved |
-| Non-empty pre-Fabric stub objects (e.g. `{version:1, objects:[{type:"text"}]}`) | **Not loaded** — persist blocked; original data preserved |
-| Missing / malformed JSON | Empty workspace + persist blocked when data was expected to load |
+| Incoming data | Client load | Server save/submit |
+| --- | --- | --- |
+| Blytz `{schema_version:1, canvas:{…}}` | Load Fabric payload | Accept + safety scan |
+| Empty legacy stub / seed: `{version:1, objects:[]}` (optional `stub`, `demo`, …) | Empty canvas (ready to edit/save) | Accept |
+| Raw Fabric canvas JSON (`version` string + `objects`) | Wrap into schema v1 and load | Accept (opaque; client rewrites to v1 on next save) |
+| Unknown `schema_version` (≠ 1) | **Not loaded** — persist blocked; original preserved | Opaque round-trip (forward-compat) |
+| Non-empty pre-Fabric stub objects (e.g. `{version:1, objects:[{type:"text"}]}`) | **Not loaded** — persist blocked | **Rejected** (aligned with client) |
+| Missing / malformed JSON | Empty workspace + persist blocked when data was expected to load | Reject invalid JSON |
 
-**Current state:** Fabric-backed editor (Stage 1); backend still stores/loads opaque JSON via existing save/submit endpoints.
+**Current state:** Fabric-backed editor; save/submit accept supported formats only. Unsupported legacy stubs are rejected rather than stored as data the editor cannot reopen.
 
 ---
 
@@ -912,17 +1036,56 @@ services/
   __init__.py
   proof_images.py    # payment proof verify / shrink / strip metadata
   preview_images.py  # submit mock-up PNG validate (Pillow)
+  ai_design.py       # Stage O Gemini two-candidate design suggestions
 ```
 
 **Wrappers**
 
 1. **proof_images** — live; used by submit + order-page uploads  
 2. **preview_images** — live; validates front/back mock-up PNGs at design submit  
-3. **remove.bg** — background removal for uploads (planned)  
-4. **AI helpers** — design cleanup / assist (planned)  
-5. **Email** — transactional mail beyond console (django-anymail + HTTPS provider) (planned)
+3. **ai_design** — Stage O; `suggest_design_candidates()` calls Gemini REST (stdlib `urllib`); apps never talk to Gemini directly; key from settings only  
+4. **Email** — transactional mail beyond console (django-anymail + HTTPS provider) (planned)  
+
+**Client (not services/):** Stage R.2 background removal uses `@imgly/background-removal` in the browser (`static/js/remove_bg_client.js`).
+
+### 12.1 Stage O / O.1 — AI-assisted design suggestions
+
+Additive customer feature on top of the Stage 2 chat UX (`#ai-assistant` + `ai_chat.js`).
+
+| Piece | Behavior |
+| --- | --- |
+| Endpoint | `POST /app/designs/<id>/ai/suggest/` (`design_ai_suggest`) — `@customer_required`, owner-only, JSON body |
+| Request | `{ message, canvas_json, active_side, garment_template?, garment_color? }` — **Design row** is source of truth for garment |
+| Response | `{ ok, message, suggestions: [{ id, label, description, canvasJSON, otherSideCanvasJSON? }, ×2], dual_side, print_areas }` |
+| Print areas | Catalog `static/garments/garments.json` (+ embedded `editor_garments.js` + `generate_garments.py` AREAS): **primary** panels use id `front`/`back` = **full visible flat front/back of the mockup including sleeve areas as drawn on the 2D SVG** (body + sleeves). Still **not** 3D wrap and **not** separate physical sleeve print jobs. Jersey back may also list `name`/`number` sub-guides nested inside the large back panel; **AI bounds use primary only** |
+| Prompt | Backend injects garment, color, side(s), primary print rects, current canvas; apparel-only; prefer panel fill (slight overflow OK); printable = flat mockup face incl. sleeves |
+| Validation | Schema v1 + 2 MiB + `canvas_safety` + **no `views` key** + soft AI print bounds (primary panel **+ `AI_PRINT_OVERFLOW_MARGIN_PX`**, default **40px** after Stage O.1.2 full panels — was 60 when panels were torso-only — clamped to 800×800; reject fully off-canvas); optional `otherSideCanvasJSON` when dual-side; far overflow → retry up to 2× then HTTP 400. **Editor dashed guides + overflow warning stay strict** (no margin) for manual correction |
+| Images | Prior canvas `image` objects soft-merged into candidates unless the user asks to clear/replace images |
+| Dual-side | On for `jersey` or explicit “front and back” / “both sides” prompts; `otherSideCanvasJSON` applied to inactive view on first commit via `setStoredViewPayload` |
+| Rate limit | 5 **successful** calls per user per hour; only final OK consumes quota (retries do not) |
+| Persistence | Never writes `Design.canvas_json` and never creates Orders (prompt/AI audit fields not stored yet) |
+| Logging | Metadata only (user, design id, success/failure, token counts, dual_side) — not prompts or canvas JSON |
+| Client | `previewCanvasJSON` for tentative loads; first real `commitEdit` keeps active candidate (+ other side if present) and discards the other |
+| Offline | If `GEMINI_API_KEY` is empty, editor shows AI unavailable and `ai_chat.js` falls back to the local Stage 2 mock |
 
 Rule: apps import from `services.*`, never vendor SDKs directly.
+
+**Still deferred:** reference-image → AI, area-specific click-to-place (%), 3D contours, storing original prompts / AI JSON at submit.
+
+### 12.2 Stage R.2 — Background removal (client `@imgly/background-removal`)
+
+Replaces Stage R.1 remove.bg (server API + credits). No `REMOVE_BG_*` settings and no remove-bg HTTP endpoint.
+
+| Piece | Behavior |
+| --- | --- |
+| Library | `@imgly/background-removal@1.7.0` loaded via dynamic `import()` from esm.sh (`static/js/remove_bg_client.js`); exposes `window.BlytzRemoveBg` |
+| Assets | ONNX/WASM fetched on **first use** (browser-cached); progress feedback “Loading model…” / “Removing…” |
+| Client UX | Properties → Image placement → **Remove BG** on a selected unlocked image; PNG **data URL** → `replaceActiveImageSrc` (one undo step) |
+| Safety | Output must stay `data:image/…;base64` (canvas_safety); no `blob:` persistence |
+| License | AGPL-3.0 for the IMG.LY package — see `static/vendor/imgly/LICENSE.md` (capstone: document; commercial: review) |
+| Offline / fail | Network needed for first model load; failures show tool feedback (no server fallback) |
+
+**Still deferred:** auto-remove on every upload, vendoring models under `static/` (`publicPath`), local rembg server fallback.
 
 ---
 
@@ -940,6 +1103,7 @@ Rule: apps import from `services.*`, never vendor SDKs directly.
 | Media | `MEDIA_ROOT=media/`; served in DEBUG via urls |
 | Tailwind | `TAILWIND_CLI_SRC_CSS`, `TAILWIND_CLI_DIST_CSS` |
 | Business | `MESSENGER_PAGE_USERNAME`, `PAYMENT_WINDOW_MINUTES`, `PROOF_MAX_UPLOAD_MB` |
+| Stage O AI | `GEMINI_API_KEY`, `GEMINI_MODEL`, `AI_SUGGEST_RATE_LIMIT_PER_HOUR`, `AI_SUGGEST_RATE_LIMIT_WINDOW_SECONDS`, `AI_PRINT_OVERFLOW_MARGIN_PX` (default 40) |
 | Email | Console default; `ANYMAIL` dict reserved |
 | Sites | `SITE_ID=1` for allauth |
 
@@ -957,6 +1121,11 @@ Rule: apps import from `services.*`, never vendor SDKs directly.
 | `MESSENGER_PAGE_USERNAME` | your_page_username | m.me deep-link |
 | `PAYMENT_WINDOW_MINUTES` | `10` | Submit deadline |
 | `PROOF_MAX_UPLOAD_MB` | `15` | Payment proof max upload size |
+| `GEMINI_API_KEY` | empty | Stage O Gemini key (empty disables live AI) |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Gemini model id (alt: `gemini-3.1-flash-lite`; 2.5 → 404 for new keys) |
+| `AI_SUGGEST_RATE_LIMIT_PER_HOUR` | `5` | Successful AI suggests per user per window |
+| `AI_SUGGEST_RATE_LIMIT_WINDOW_SECONDS` | `3600` | Rate-limit window |
+| `AI_PRINT_OVERFLOW_MARGIN_PX` | `40` | Soft AI overflow past primary print panel (UI warning stays strict) |
 | `EMAIL_BACKEND` | console | Swap to anymail later |
 | `DEFAULT_FROM_EMAIL` | noreply@blytz.local | From address |
 
@@ -1057,8 +1226,13 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 | `apps.accounts.tests.test_access` | Role guards / redirects |
 | `apps.accounts.tests.test_admin_pages` | Admin user/channel pages |
 | `apps.designs.tests.test_ownership` | Owner isolation |
-| `apps.designs.tests.test_submit` | Submit transaction / window |
+| `apps.orders.tests.test_order_list` | Stage J customer submission history / isolation / pagination |
+| `apps.designs.tests.test_submit` | Submit transaction / window / Stage I duplicate JSON + snapshot |
+| `apps.designs.tests.test_submit_workflow` | Stage I submit lock / fingerprint source + editor markup |
+| `apps.designs.tests.test_save_state` | Stage G save-state / readiness source + save rejection |
+| `apps.designs.tests.test_design_preview` | Stage H/H.1 preview markup / save-refresh contracts + ownership |
 | `apps.designs.tests.test_canvas_schema` | Schema round-trip + SOURCE-STRING |
+| `apps.designs.tests.test_ai_suggest` | Stage O AI suggest auth / rate limit / two candidates / validation (Gemini mocked) |
 | `apps.designs.tests.test_canvas_safety` | Shared safety rules (BEHAVIOR) |
 | `apps.designs.tests.test_garment_views` | Garment fields + B1 views (BEHAVIOR/SOURCE-STRING) |
 | `apps.orders.tests.test_models` | Order ID, payment aggregates, phases |
@@ -1067,6 +1241,8 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 | `apps.orders.tests.test_staff_order_detail` | Staff fields/mock-ups, artwork download perms, phase history |
 | `apps.orders.tests.test_final_design` | Final design upload/replace/version, customer approve, stale version, perms, manual Production move |
 | `apps.accounting.tests.test_staff` | View vs edit accounting; manual adj. auto-accepted |
+| `apps.accounting.tests.test_export` | Staff CSV export authz, distinct job/payment status columns, filters, read-only |
+| `apps.core.tests.test_production_settings` | `DEBUG=False` rejects placeholder `SECRET_KEY` |
 | `apps.accounting.tests.test_charts` | Accounting charts perms, accepted-only aggregates, empty states |
 | `apps.accounts.tests.test_staff_charts` | Overview charts perms, phase/pending aggregates, empty states, jobs pending_review filter |
 | `apps.core.tests.test_landing_nav` | Landing redirects / nav / staff role badge |
@@ -1093,8 +1269,43 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 | Admin self-harm guards | No self-demote / self-deactivate; ≥1 active admin |
 | Media in prod | Not auto-served by Django when `DEBUG=False` — needs object storage or proxy config later |
 | Secrets | `.env` gitignored; never commit credentials |
+| Production guard | `DEBUG=False` rejects known placeholder `SECRET_KEY` values; enables secure cookies / SSL redirect / nosniff / referrer policy (env-overridable) |
+| Staff CSV export | `@staff_required` read-only; customers 403; does not mutate Order/Payment/Design |
 
 **Business policy reflected in UI copy:** strictly no refunds; P2P money never settles inside Blytz — only claimed amounts and proofs are stored.
+
+### 18.1 Capstone security posture (Stage N audit)
+
+**Verified in code / automated tests (actual controls):**
+
+| Area | Evidence |
+| --- | --- |
+| Role gates | `@customer_required` / `@staff_required` / `@admin_required` → 403 (`apps.accounts.tests.test_access`, accounting/staff tests) |
+| Ownership / IDOR | Design/order queries filter `owner` / `customer`; approve re-checks `customer_id` under `select_for_update` (`test_ownership`, `test_final_design`, submit tests) |
+| CSRF | `CsrfViewMiddleware` in middleware stack; forms use `{% csrf_token %}` |
+| Canvas limits | `MAX_CANVAS_JSON_BYTES` 2 MiB + `validate_v1_envelope` on save/submit |
+| Uploads | Proof/final-design allow-lists + size caps (`apps.orders.proof`); preview PNG validation on submit |
+| Duplicate order | `unique_order_per_design` + submit transaction / concurrency tests (SQLite) |
+| Payment vs job status | Distinct fields/labels; export CSV keeps separate columns |
+
+**Theoretical / untested in this pass (not claimed production-ready):**
+
+| Item | Notes |
+| --- | --- |
+| Real MySQL/PostgreSQL concurrency | Submit races tested on SQLite only |
+| Production host / HTTPS termination | Railway checklist documented; no live deploy verified here |
+| Real payment provider | P2P proof upload only — no gateway |
+| Media CDN / private media ACL | Filesystem `media/`; public URL exposure depends on host config |
+| `ACCOUNT_LOGOUT_ON_GET=True` | Logout via GET can be CSRF-triggered to log users out (session theft not implied); left as-is to preserve nav link UX |
+| iOS Safari / real-device editor | Manual checklist exists; not automated |
+
+### 18.2 Capstone demo flow
+
+1. `python manage.py migrate` → `python manage.py seed_demo` → `python manage.py runserver` (or `tailwind runserver`).
+2. **Customer** (`customer1@blytz.demo` / `demo-pass-123`): Designs → Start new design → edit Front/Back → Save → Preview → Submit with channel + amount + proof → Orders list → order detail (job phase ≠ payment status).
+3. **Staff** (`staff@blytz.demo` or `staff.accounting@blytz.demo` / `demo-pass-123`): Jobs pipeline → open order → inspect mock-ups / design snapshot → accept/reject payment → advance phase (accepted payment required before Pending Edit).
+4. **Accounting / reports:** `/staff/accounting/` → optional filters → **Export CSV** (`/staff/accounting/export.csv`). Admin (`admin@blytz.demo`) can do the same plus users/channels.
+5. Password for all seeded demo users: `demo-pass-123`.
 
 ---
 
@@ -1103,10 +1314,14 @@ Run: `python manage.py test` or `python manage.py test apps.designs`.
 | Item | Status |
 | --- | --- |
 | Fabric.js (or full) canvas editor | Stage 1: Fabric 6.6.1 + Blytz schema v1 (basic tools) |
-| AI chat (mocked) / two-candidate preview + commit-on-edit | Stage 2: `ai_chat.js` + `previewCanvasJSON` / `onCommittedChange` (§5.4) |
-| Area-specific prompting / real AI / services wrappers | Not started (Stages 3–5) |
-| remove.bg integration | `services/` placeholder |
-| AI helpers | `services/` placeholder |
+| AI chat (mocked) / two-candidate preview + commit-on-edit | Stage 2 base UX in `ai_chat.js` |
+| Stage O — Gemini two-candidate suggest | Shipped: `services/ai_design.py` + `design_ai_suggest` + live/mock `ai_chat.js` |
+| Stage O.1 — print panels, zone prompts, bounds, image merge, jersey dual-side | Shipped (see §12.1) |
+| Stage O.1.1 — soft AI print overflow margin | Shipped (`AI_PRINT_OVERFLOW_MARGIN_PX`; UI warning still strict) |
+| Stage O.1.2 — full flat front/back panels (body + sleeves on mockup) | Shipped (catalog sync; AI soft margin default 40; still not 3D) |
+| Stage R.1 — remove.bg server path | Removed in R.2 |
+| Stage R.2 — client `@imgly/background-removal` | Shipped (see §12.2); no API credits |
+| Area-specific prompting refinements | Later (optional) |
 | HTTPS transactional email (anymail) | Commented optional dep + `ANYMAIL` stub |
 | MySQL in production | Supported via `DATABASE_URL`; SQLite is default |
 | Design `preview_image` (design draft thumb) | Optional field; order front/back mock-ups persisted at submit |

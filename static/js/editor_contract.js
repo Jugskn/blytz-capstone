@@ -9,6 +9,8 @@
  * Additive readiness / safety helpers (used by editor_page.js):
  *   getLoadState(), isReady(), canPersist(), getPersistBlockReason(),
  *   whenReady(), preparePersistPayload()
+ * Additive history navigate hook (Stage G dirty recompute after undo/redo):
+ *   onHistoryNavigate(cb)
  *
  * Canvas JSON schema (schema_version 1):
  * {
@@ -22,6 +24,7 @@
   "use strict";
 
   var commitListeners = [];
+  var historyNavigateListeners = [];
   /** @type {'idle'|'loading'|'ready'|'error'} */
   var loadState = "idle";
   var persistBlocked = false;
@@ -29,6 +32,16 @@
   var readyPromise = Promise.resolve();
   var readyResolve = null;
   var pageInitialized = false;
+
+  function notifyHistoryNavigate(action, result) {
+    historyNavigateListeners.slice().forEach(function (cb) {
+      try {
+        cb(action, result);
+      } catch (err) {
+        console.error("BlytzEditor onHistoryNavigate error", err);
+      }
+    });
+  }
 
   function canvasApi() {
     return global.BlytzCanvas;
@@ -275,6 +288,15 @@
         : "front";
     },
 
+    /** Stage O.1 dual-side: store inactive view Fabric payload without switching. */
+    setStoredViewPayload: function (viewId, fabricPayload) {
+      var api = canvasApi();
+      if (!api || typeof api.setStoredViewPayload !== "function") {
+        return { ok: false, reason: "Editor is not available." };
+      }
+      return api.setStoredViewPayload(viewId, fabricPayload);
+    },
+
     setActiveView: function (id) {
       var api = canvasApi();
       if (!api || typeof api.setActiveView !== "function") {
@@ -352,6 +374,20 @@
       return opts ? Promise.resolve(url) : url;
     },
 
+    /**
+     * Submit mock-up from a frozen envelope + garment snapshot.
+     * Does not load that JSON into the live editor.
+     * @param {{envelope: object, view: string, garment?: {template?: string, color?: string}}} opts
+     * @returns {Promise<string>}
+     */
+    renderFrozenPreview: function (opts) {
+      var api = canvasApi();
+      if (!api || typeof api.renderFrozenPreview !== "function") {
+        return Promise.reject(new Error("Could not create preview. Please try again."));
+      }
+      return api.renderFrozenPreview(opts);
+    },
+
     onCommittedChange: function (cb) {
       if (typeof cb === "function") {
         commitListeners.push(cb);
@@ -394,6 +430,13 @@
           ok: false,
           error: BlytzEditor.getPersistBlockReason() || "Design is not ready to save.",
         };
+      }
+      // Never persist an in-progress curve preview (Apply not chosen).
+      if (
+        global.BlytzEditorProps &&
+        typeof global.BlytzEditorProps.discardCurvePreview === "function"
+      ) {
+        global.BlytzEditorProps.discardCurvePreview();
       }
       var api = canvasApi();
       var json = getJSON();
@@ -513,14 +556,20 @@
     undo: function () {
       var api = canvasApi();
       if (!api || typeof api.undo !== "function") return Promise.resolve(false);
-      return api.undo();
+      return Promise.resolve(api.undo()).then(function (result) {
+        notifyHistoryNavigate("undo", result);
+        return result;
+      });
     },
 
     /** Additive: redo previously undone edit. */
     redo: function () {
       var api = canvasApi();
       if (!api || typeof api.redo !== "function") return Promise.resolve(false);
-      return api.redo();
+      return Promise.resolve(api.redo()).then(function (result) {
+        notifyHistoryNavigate("redo", result);
+        return result;
+      });
     },
 
     canUndo: function () {
@@ -531,6 +580,21 @@
     canRedo: function () {
       var api = canvasApi();
       return !!(api && api.canRedo && api.canRedo());
+    },
+
+    /**
+     * Subscribe to completed undo/redo navigations (after canvas restore).
+     * Used by Stage G save-state to recompute dirty vs last saved snapshot.
+     * @returns {function(): void} unsubscribe
+     */
+    onHistoryNavigate: function (cb) {
+      if (typeof cb === "function") {
+        historyNavigateListeners.push(cb);
+      }
+      return function unsubscribe() {
+        var idx = historyNavigateListeners.indexOf(cb);
+        if (idx >= 0) historyNavigateListeners.splice(idx, 1);
+      };
     },
 
     get _commitListeners() {

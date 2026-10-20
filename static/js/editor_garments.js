@@ -78,6 +78,7 @@
    * Metadata aligned with static/garments/garments.json (labels + print areas).
    * Cross-ref: apps/designs/garment_choices.py GARMENT_TEMPLATE_IDS
    */
+  /* Stage O.1.2: primary printable = full flat front/back incl. sleeves (id front|back). */
   var GARMENT_TYPES = [
     {
       id: "tee",
@@ -86,14 +87,13 @@
         front: {
           svg: "tee-front.svg",
           printAreas: [
-            { id: "chest", name: "Chest", x: 300, y: 258, w: 200, h: 280 },
-            { id: "left-chest", name: "Left chest", x: 432, y: 250, w: 80, h: 80 },
+            { id: "front", name: "Front", x: 100, y: 160, w: 600, h: 520 },
           ],
         },
         back: {
           svg: "tee-back.svg",
           printAreas: [
-            { id: "back", name: "Back", x: 290, y: 215, w: 220, h: 340 },
+            { id: "back", name: "Back", x: 100, y: 155, w: 600, h: 525 },
           ],
         },
       },
@@ -105,14 +105,13 @@
         front: {
           svg: "polo-front.svg",
           printAreas: [
-            { id: "left-chest", name: "Left chest", x: 438, y: 262, w: 76, h: 76 },
-            { id: "chest", name: "Lower chest", x: 310, y: 350, w: 180, h: 220 },
+            { id: "front", name: "Front", x: 100, y: 175, w: 600, h: 505 },
           ],
         },
         back: {
           svg: "polo-back.svg",
           printAreas: [
-            { id: "back", name: "Back", x: 290, y: 215, w: 220, h: 320 },
+            { id: "back", name: "Back", x: 100, y: 160, w: 600, h: 510 },
           ],
         },
       },
@@ -124,13 +123,13 @@
         front: {
           svg: "hoodie-front.svg",
           printAreas: [
-            { id: "chest", name: "Chest", x: 310, y: 250, w: 180, h: 200 },
+            { id: "front", name: "Front", x: 130, y: 185, w: 540, h: 495 },
           ],
         },
         back: {
           svg: "hoodie-back.svg",
           printAreas: [
-            { id: "back", name: "Back", x: 280, y: 372, w: 240, h: 268 },
+            { id: "back", name: "Back", x: 130, y: 210, w: 540, h: 470 },
           ],
         },
       },
@@ -142,12 +141,13 @@
         front: {
           svg: "jersey-front.svg",
           printAreas: [
-            { id: "chest", name: "Chest", x: 290, y: 270, w: 220, h: 300 },
+            { id: "front", name: "Front", x: 240, y: 165, w: 320, h: 520 },
           ],
         },
         back: {
           svg: "jersey-back.svg",
           printAreas: [
+            { id: "back", name: "Back", x: 240, y: 160, w: 320, h: 520 },
             { id: "name", name: "Name", x: 300, y: 215, w: 200, h: 70 },
             { id: "number", name: "Number", x: 320, y: 300, w: 160, h: 260 },
           ],
@@ -499,6 +499,66 @@
     return next;
   }
 
+  /**
+   * Print areas for a garment + view from the embedded GARMENT_TYPES catalog
+   * (aligned with garments.json). Does not invent dimensions.
+   * @returns {{ok: boolean, areas: Array<{id?: string, name?: string, x: number, y: number, w: number, h: number}>, reason: string}}
+   */
+  function getPrintAreas(garmentId, viewId) {
+    var garment = garmentById(garmentId);
+    if (!garment) {
+      return {
+        ok: false,
+        areas: [],
+        reason: "unknown_garment",
+      };
+    }
+    var view = normalizeViewId(viewId);
+    var viewDef = garment.views && garment.views[view];
+    if (!viewDef) {
+      return {
+        ok: false,
+        areas: [],
+        reason: "unknown_view",
+      };
+    }
+    var raw = viewDef.printAreas;
+    if (!Array.isArray(raw) || raw.length === 0) {
+      return {
+        ok: false,
+        areas: [],
+        reason: "no_print_areas",
+      };
+    }
+    var areas = [];
+    var i;
+    for (i = 0; i < raw.length; i++) {
+      var a = raw[i];
+      if (!a) continue;
+      var x = Number(a.x);
+      var y = Number(a.y);
+      var w = Number(a.w);
+      var h = Number(a.h);
+      if (!(w > 0) || !(h > 0) || isNaN(x) || isNaN(y)) continue;
+      areas.push({
+        id: a.id || "",
+        name: a.name || "",
+        x: x,
+        y: y,
+        w: w,
+        h: h,
+      });
+    }
+    if (!areas.length) {
+      return {
+        ok: false,
+        areas: [],
+        reason: "no_print_areas",
+      };
+    }
+    return { ok: true, areas: areas, reason: "" };
+  }
+
   function drawPrintAreas(svg, printAreas, strokeHex) {
     var existing = svg.querySelectorAll('[data-blytz-layer="print-area"]');
     var i;
@@ -722,6 +782,7 @@
     splitGarmentSvg: splitGarmentSvg,
     rewriteIdPrefix: rewriteIdPrefix,
     renderGarmentLayer: renderGarmentLayer,
+    getPrintAreas: getPrintAreas,
     buildPartsForTest: buildPartsForTest,
     thumbUrl: thumbUrl,
     hidePrintAreas: hidePrintAreas,

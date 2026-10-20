@@ -99,6 +99,7 @@ class StaffOrderDetailTests(TestCase):
             channel=self.channel,
             amount_claimed=Decimal("500.00"),
             status=Payment.Status.ACCEPTED,
+            proof_file=_png("proof.png", color=(200, 162, 39)),
         )
 
     def test_staff_see_all_fields(self):
@@ -125,6 +126,41 @@ class StaffOrderDetailTests(TestCase):
         self.assertContains(resp, "Download artwork (back)")
         self.assertContains(resp, self.order.preview_image.url)
         self.assertContains(resp, self.order.preview_back_image.url)
+        # Job status and derived payment status shown separately.
+        self.assertContains(resp, "Job Request")
+        self.assertContains(resp, Order.OUTSTANDING)
+
+    def test_customer_forbidden_on_staff_detail(self):
+        self.client.force_login(self.customer)
+        resp = self.client.get(
+            reverse("staff_order_detail", kwargs={"order_id": self.order.order_id})
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_advance_does_not_alter_design_canvas(self):
+        original = self.design.canvas_json
+        self.client.force_login(self.staff)
+        self.client.post(
+            reverse("advance_order_phase", kwargs={"order_id": self.order.order_id})
+        )
+        self.design.refresh_from_db()
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, Order.Status.PENDING_EDIT)
+        self.assertEqual(self.design.canvas_json, original)
+
+    def test_pending_edit_shows_payment_proof(self):
+        """Pending Edit layout must still expose payment proofs for review."""
+        self.order.status = Order.Status.PENDING_EDIT
+        self.order.save(update_fields=["status"])
+        payment = self.order.payments.get()
+        self.client.force_login(self.staff)
+        resp = self.client.get(
+            reverse("staff_order_detail", kwargs={"order_id": self.order.order_id})
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "Final design")
+        self.assertContains(resp, payment.proof_file.url)
+        self.assertContains(resp, Order.OUTSTANDING)
 
     def test_customer_cannot_download_artwork(self):
         self.client.force_login(self.customer)

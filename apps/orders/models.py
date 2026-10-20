@@ -89,6 +89,13 @@ class Order(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            # One customer submission per design. Revisions stay on this order.
+            models.UniqueConstraint(
+                fields=["design"],
+                name="unique_order_per_design",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.order_id or f"Order#{self.pk}"

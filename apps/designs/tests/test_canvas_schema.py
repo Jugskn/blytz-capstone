@@ -59,9 +59,10 @@ class CanvasSchemaSaveTests(TestCase):
         self.assertContains(response, "data-editor-image-input")
         self.assertContains(response, "data-ai-form")
         self.assertContains(response, "data-ai-turn")
-        self.assertContains(response, "Local demo candidates")
+        self.assertContains(response, "data-ai-suggest-url")
         self.assertContains(response, "editor-shell")
-        self.assertContains(response, "two local demo candidates")
+        # Without GEMINI_API_KEY, copy explains local demo fallback.
+        self.assertContains(response, "local demo candidates")
         self.assertNotContains(response, "four local demo candidates")
         self.assertNotContains(response, "data-ai-apply")
         self.assertNotContains(response, "Apply to canvas")
@@ -224,6 +225,11 @@ class CanvasSchemaSaveTests(TestCase):
         self.assertIn("text:editing:exited", source)
         self.assertIn("validateObjectsAllowlist", source)
         self.assertRegex(source, r'["\']blytzId["\']')
+        # Stage 0: duplicates must mint a new id; undo restores active view.
+        self.assertIn("function forceBlytzId", source)
+        self.assertIn("function duplicateLayerName", source)
+        self.assertIn("historyActiveViews", source)
+        self.assertIn("forceReencode", source)
 
     def test_editor_insertion_constants_source_checks(self):
         """Source checks: Stage 3b constants that later stages / panels rely on."""
@@ -320,7 +326,8 @@ class CanvasSchemaSaveTests(TestCase):
         self.assertIn('id === "layers"', tools_src)
         self.assertIn("No layers yet.", tools_src)
 
-    def test_ai_chat_module_is_local_mock_only(self):
+    def test_ai_chat_module_keeps_mock_and_live_adapters(self):
+        """Stage O: live fetch to design AI URL; mock fallback; no hard-coded keys."""
         from django.contrib.staticfiles import finders
 
         path = finders.find("js/ai_chat.js")
@@ -328,16 +335,22 @@ class CanvasSchemaSaveTests(TestCase):
         with open(path, encoding="utf-8") as fh:
             source = fh.read()
         self.assertIn("mockAssistantRespond", source)
+        self.assertIn("liveAssistantRespond", source)
+        self.assertIn("assistantRespond", source)
         self.assertIn("previewCanvasJSON", source)
         self.assertIn("onCommittedChange", source)
         self.assertIn("CANDIDATES_PER_TURN", source)
         self.assertIn("contextFingerprint", source)
         self.assertRegex(source, r"CANDIDATES_PER_TURN\s*=\s*2")
-        self.assertNotIn("fetch(", source)
-        self.assertNotIn("XMLHttpRequest", source)
+        self.assertIn("fetch(", source)
+        self.assertIn("data-ai-suggest-url", source)
+        # Header value only — must not construct XHR transport.
+        self.assertNotIn("new XMLHttpRequest", source)
         self.assertNotIn("apiKey", source)
         self.assertNotIn("openai", source.lower())
-        self.assertNotIn("gemini", source.lower())
+        # Must not embed a Gemini secret; "gemini" may appear only as a source label.
+        self.assertNotRegex(source, r"AIza[0-9A-Za-z_-]{10,}")
+        self.assertNotIn("GEMINI_API_KEY", source)
         # §5.4: no Apply confirmation gate; commit is via real canvas edits.
         self.assertNotIn("Apply to canvas", source)
         self.assertNotIn("openPreview", source)

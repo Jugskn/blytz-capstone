@@ -60,6 +60,15 @@ class LandingAuthNavTests(TestCase):
         self.assertContains(response, f'href="{reverse("app_home")}"')
         self.assertNotContains(response, f'href="{reverse("home")}"')
 
+    def test_skip_link_and_main_landmark(self):
+        self.client.force_login(self.customer)
+        response = self.client.get(reverse("app_home"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'href="#main"')
+        self.assertContains(response, "Skip to main content")
+        self.assertContains(response, 'id="main"')
+        self.assertContains(response, "blytz-skip-link")
+
     def test_logged_out_navbar_has_no_dashboard(self):
         response = self.client.get(reverse("home"))
         self.assertEqual(response.status_code, 200)

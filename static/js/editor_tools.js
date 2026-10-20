@@ -470,28 +470,59 @@
     return "Object";
   }
 
-  /** Layer row label: text truncated; else blytzName; else type fallback. */
+  /**
+   * Layer row label: prefer custom blytzName; for default "Text" show live text;
+   * else type fallback. Truncate for the list.
+   */
   function layerLabel(obj) {
     var t = objectTypeKey(obj);
-    if (t === "itext" || t === "text" || t === "textbox") {
-      var text = obj && typeof obj.text === "string" ? obj.text : "";
-      if (text.length > 20) return text.slice(0, 20) + "…";
-      return text || "Text";
+    var name =
+      obj && typeof obj.blytzName === "string" ? obj.blytzName.trim() : "";
+    if (name) {
+      var isDefaultTextName =
+        (t === "itext" || t === "text" || t === "textbox") && name === "Text";
+      if (isDefaultTextName) {
+        var text = obj && typeof obj.text === "string" ? obj.text : "";
+        if (text.length > 20) return text.slice(0, 20) + "…";
+        return text || "Text";
+      }
+      if (name.length > 20) return name.slice(0, 20) + "…";
+      return name;
     }
-    if (obj && typeof obj.blytzName === "string" && obj.blytzName) {
-      return obj.blytzName;
+    if (t === "itext" || t === "text" || t === "textbox") {
+      var fallbackText = obj && typeof obj.text === "string" ? obj.text : "";
+      if (fallbackText.length > 20) return fallbackText.slice(0, 20) + "…";
+      return fallbackText || "Text";
     }
     return typeFallbackLabel(obj);
   }
 
+  function layerNameMax() {
+    var a = api();
+    var L = a && a.PROP_LIMITS;
+    return L && L.layerNameMax != null ? L.layerNameMax : 60;
+  }
+
   function renderLayerRow(obj, selectedIds) {
-    var btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "editor-layer-row";
-    btn.setAttribute("data-layer-id", obj.blytzId || "");
+    var row = document.createElement("div");
+    row.className = "editor-layer-row";
+    row.setAttribute("data-layer-id", obj.blytzId || "");
+    row.setAttribute("role", "listitem");
     var pressed = !!(obj.blytzId && selectedIds[obj.blytzId]);
-    btn.setAttribute("aria-pressed", pressed ? "true" : "false");
-    if (pressed) btn.classList.add("is-selected");
+    row.setAttribute("aria-selected", pressed ? "true" : "false");
+    if (pressed) row.classList.add("is-selected");
+    if (obj && obj.visible === false) row.classList.add("is-hidden");
+    if (obj && obj.blytzLocked) row.classList.add("is-locked");
+
+    var selectBtn = document.createElement("button");
+    selectBtn.type = "button";
+    selectBtn.className = "editor-layer-select";
+    selectBtn.setAttribute("data-layer-select", "1");
+    selectBtn.setAttribute("aria-pressed", pressed ? "true" : "false");
+    selectBtn.setAttribute(
+      "aria-label",
+      "Select layer " + layerLabel(obj)
+    );
 
     var glyph = document.createElement("span");
     glyph.className = "editor-layer-glyph";
@@ -500,12 +531,116 @@
 
     var lab = document.createElement("span");
     lab.className = "editor-layer-label";
+    lab.setAttribute("data-layer-label", "1");
     lab.textContent = layerLabel(obj);
 
-    btn.appendChild(glyph);
-    btn.appendChild(lab);
-    btn.setAttribute("aria-label", "Select layer " + layerLabel(obj));
-    return btn;
+    selectBtn.appendChild(glyph);
+    selectBtn.appendChild(lab);
+
+    var actions = document.createElement("div");
+    actions.className = "editor-layer-row-actions";
+    actions.setAttribute("role", "group");
+    actions.setAttribute("aria-label", "Layer actions for " + layerLabel(obj));
+
+    function iconBtn(action, label, pressedState, text) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "editor-layer-icon-btn";
+      b.setAttribute("data-layer-row-action", action);
+      b.setAttribute("aria-label", label);
+      b.title = label;
+      if (pressedState != null) {
+        b.setAttribute("aria-pressed", pressedState ? "true" : "false");
+        if (pressedState) b.classList.add("is-active");
+      }
+      b.textContent = text;
+      return b;
+    }
+
+    var hidden = !!(obj && obj.visible === false);
+    var locked = !!(obj && obj.blytzLocked);
+    actions.appendChild(
+      iconBtn(
+        "visibility",
+        hidden ? "Show layer" : "Hide layer",
+        !hidden,
+        hidden ? "○" : "◉"
+      )
+    );
+    actions.appendChild(
+      iconBtn(
+        "lock",
+        locked ? "Unlock layer" : "Lock layer",
+        locked,
+        locked ? "▣" : "□"
+      )
+    );
+    actions.appendChild(iconBtn("rename", "Rename layer", null, "✎"));
+    actions.appendChild(iconBtn("duplicate", "Duplicate layer", null, "⧉"));
+
+    row.appendChild(selectBtn);
+    row.appendChild(actions);
+    return row;
+  }
+
+  function beginLayerRename(row, obj) {
+    if (!row || !obj || !obj.blytzId) return;
+    if (row.querySelector("[data-layer-rename-input]")) return;
+    var lab = row.querySelector("[data-layer-label]");
+    var selectBtn = row.querySelector("[data-layer-select]");
+    if (!lab || !selectBtn) return;
+    var prior = typeof obj.blytzName === "string" ? obj.blytzName : layerLabel(obj);
+    var input = document.createElement("input");
+    input.type = "text";
+    input.className = "editor-layer-rename-input";
+    input.setAttribute("data-layer-rename-input", "1");
+    input.setAttribute("aria-label", "Rename layer");
+    input.maxLength = layerNameMax();
+    input.value = prior;
+    lab.hidden = true;
+    selectBtn.appendChild(input);
+    input.focus();
+    input.select();
+
+    var finished = false;
+    function cleanup() {
+      if (finished) return;
+      finished = true;
+      if (input.parentNode) input.parentNode.removeChild(input);
+      lab.hidden = false;
+    }
+    function confirm() {
+      if (finished) return;
+      var a = api();
+      var id = obj.blytzId;
+      var raw = input.value;
+      cleanup();
+      if (a && a.renameObjectById) {
+        a.renameObjectById(id, raw, getJSON);
+      }
+      // Refresh even on reject (empty name) so the label returns.
+      refreshLayers();
+    }
+    function cancel() {
+      cleanup();
+      refreshLayers();
+    }
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        confirm();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        cancel();
+      }
+    });
+    input.addEventListener("blur", function () {
+      // Blur after Enter/Escape already finished — ignore.
+      if (finished) return;
+      confirm();
+    });
   }
 
   function selectedIdMap() {
@@ -546,6 +681,7 @@
     toolbar.appendChild(layerActionBtn("forward", "Bring Forward"));
     toolbar.appendChild(layerActionBtn("backward", "Send Backward"));
     toolbar.appendChild(layerActionBtn("back", "Send to Back"));
+    toolbar.appendChild(layerActionBtn("duplicate", "Duplicate"));
     toolbar.appendChild(layerActionBtn("delete", "Delete"));
     body.appendChild(toolbar);
 
@@ -576,9 +712,7 @@
       list.appendChild(empty);
     } else {
       objects.forEach(function (obj) {
-        var row = renderLayerRow(obj, selected);
-        row.setAttribute("role", "listitem");
-        list.appendChild(row);
+        list.appendChild(renderLayerRow(obj, selected));
       });
     }
     var t1 =
@@ -610,6 +744,17 @@
         btn.title = btn.getAttribute("aria-label") || "";
       }
     });
+    var dup = toolbar.querySelector('[data-layer-action="duplicate"]');
+    if (dup) {
+      var canDup = !!(active && !multi);
+      dup.disabled = !canDup;
+      dup.setAttribute("aria-disabled", canDup ? "false" : "true");
+      dup.title = canDup
+        ? "Duplicate"
+        : multi
+          ? "Duplicate is unavailable for multi-selection"
+          : "Select one layer to duplicate";
+    }
     var del = toolbar.querySelector('[data-layer-action="delete"]');
     if (del) {
       var has = !!(active || (c && c.getActiveObjects && c.getActiveObjects().length));
@@ -624,9 +769,17 @@
       // Still cheap to skip full render when closed.
       return;
     }
+    // Do not rebuild while a rename input is open — selection sync would
+    // destroy the input before Enter/Escape/blur can commit or cancel.
+    if (document.querySelector("[data-layer-rename-input]")) {
+      return;
+    }
     if (layersRaf) return;
     layersRaf = requestAnimationFrame(function () {
       layersRaf = 0;
+      if (document.querySelector("[data-layer-rename-input]")) {
+        return;
+      }
       fillLayersList();
       syncLayerActionState();
     });
@@ -997,23 +1150,72 @@
     });
 
     document.addEventListener("click", function (e) {
-      var row = e.target.closest("[data-layer-id]");
-      if (row && panelEl() && panelEl().contains(row)) {
+      if (!panelEl() || !panelEl().contains(e.target)) return;
+
+      var rowAction = e.target.closest("[data-layer-row-action]");
+      if (rowAction) {
         e.preventDefault();
-        var id = row.getAttribute("data-layer-id");
-        var c = api() && api().getFabricCanvas();
-        if (!c || !id) return;
-        var obj = null;
-        var objs = c.getObjects();
-        for (var i = 0; i < objs.length; i++) {
-          if (objs[i].blytzId === id) {
-            obj = objs[i];
-            break;
-          }
-        }
+        e.stopPropagation();
+        var row = rowAction.closest("[data-layer-id]");
+        var id = row && row.getAttribute("data-layer-id");
+        var a = api();
+        if (!a || !id) return;
+        var act = rowAction.getAttribute("data-layer-row-action");
+        var obj = a.findObjectByBlytzId ? a.findObjectByBlytzId(id) : null;
         if (!obj) return;
-        c.setActiveObject(obj);
-        c.requestRenderAll();
+        if (act === "visibility") {
+          var show = obj.visible === false;
+          a.setObjectVisibleById(id, show, getJSON);
+          if (show && a.selectObjectById) a.selectObjectById(id);
+          refreshLayers();
+          if (global.BlytzEditorProps && BlytzEditorProps.syncFromSelection) {
+            BlytzEditorProps.syncFromSelection();
+          }
+          return;
+        }
+        if (act === "lock") {
+          a.setObjectLockedById(id, !obj.blytzLocked, getJSON);
+          if (a.selectObjectById) a.selectObjectById(id);
+          refreshLayers();
+          if (global.BlytzEditorProps && BlytzEditorProps.syncFromSelection) {
+            BlytzEditorProps.syncFromSelection();
+          }
+          return;
+        }
+        if (act === "rename") {
+          if (a.selectObjectById) a.selectObjectById(id);
+          beginLayerRename(row, obj);
+          return;
+        }
+        if (act === "duplicate") {
+          if (a.selectObjectById) a.selectObjectById(id);
+          Promise.resolve(a.duplicateActive(getJSON)).then(function () {
+            refreshLayers();
+            if (global.BlytzEditorProps && BlytzEditorProps.syncFromSelection) {
+              BlytzEditorProps.syncFromSelection();
+            }
+          });
+          return;
+        }
+        return;
+      }
+
+      var selectBtn = e.target.closest("[data-layer-select]");
+      var rowEl = e.target.closest("[data-layer-id]");
+      if (selectBtn || (rowEl && !e.target.closest("[data-layer-rename-input]"))) {
+        if (e.target.closest("[data-layer-rename-input]")) return;
+        e.preventDefault();
+        var selectId =
+          (selectBtn && selectBtn.closest("[data-layer-id]")
+            ? selectBtn.closest("[data-layer-id]")
+            : rowEl
+          ).getAttribute("data-layer-id");
+        var canvasApi = api();
+        if (!canvasApi || !selectId) return;
+        // Management selection — works for locked/hidden via selectObjectById.
+        if (canvasApi.selectObjectById) {
+          canvasApi.selectObjectById(selectId);
+        }
         // Selection only — 0 commits.
         refreshLayers();
         if (global.BlytzEditorProps && BlytzEditorProps.syncFromSelection) {
@@ -1021,22 +1223,42 @@
         }
         return;
       }
+
       var actionBtn = e.target.closest("[data-layer-action]");
-      if (actionBtn && panelEl() && panelEl().contains(actionBtn)) {
+      if (actionBtn) {
         e.preventDefault();
         if (actionBtn.disabled || actionBtn.getAttribute("aria-disabled") === "true") {
           return;
         }
-        var act = actionBtn.getAttribute("data-layer-action");
-        var a = api();
-        if (!a) return;
-        if (act === "delete") {
-          a.deleteSelection(getJSON);
+        var toolbarAct = actionBtn.getAttribute("data-layer-action");
+        var canvas = api();
+        if (!canvas) return;
+        if (toolbarAct === "delete") {
+          canvas.deleteSelection(getJSON);
+        } else if (toolbarAct === "duplicate") {
+          Promise.resolve(canvas.duplicateActive(getJSON)).then(function () {
+            refreshLayers();
+          });
+          return;
         } else {
-          a.reorderActive(act, getJSON);
+          canvas.reorderActive(toolbarAct, getJSON);
         }
         refreshLayers();
       }
+    });
+
+    document.addEventListener("dblclick", function (e) {
+      if (!panelEl() || !panelEl().contains(e.target)) return;
+      var label = e.target.closest("[data-layer-label]");
+      var row = e.target.closest("[data-layer-id]");
+      if (!label || !row) return;
+      e.preventDefault();
+      var a = api();
+      var id = row.getAttribute("data-layer-id");
+      var obj = a && a.findObjectByBlytzId ? a.findObjectByBlytzId(id) : null;
+      if (!obj) return;
+      if (a.selectObjectById) a.selectObjectById(id);
+      beginLayerRename(row, obj);
     });
 
     document.addEventListener("keydown", function (e) {

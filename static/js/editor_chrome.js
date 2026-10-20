@@ -147,16 +147,45 @@
     syncLayoutMode();
     wireVisualViewport();
 
+    // Existing history only — Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redo.
+    document.addEventListener("keydown", function (e) {
+      var tag = (e.target && e.target.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.target && e.target.isContentEditable) return;
+      var canvasApi = global.BlytzCanvas;
+      var fc = canvasApi && canvasApi.getFabricCanvas && canvasApi.getFabricCanvas();
+      var active = fc && fc.getActiveObject && fc.getActiveObject();
+      if (active && active.isEditing) return;
+      var mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      var key = e.key;
+      if (key === "z" || key === "Z") {
+        e.preventDefault();
+        if (e.shiftKey) {
+          if (global.BlytzEditor && global.BlytzEditor.redo) global.BlytzEditor.redo();
+        } else if (global.BlytzEditor && global.BlytzEditor.undo) {
+          global.BlytzEditor.undo();
+        }
+        return;
+      }
+      if (key === "y" || key === "Y") {
+        e.preventDefault();
+        if (global.BlytzEditor && global.BlytzEditor.redo) global.BlytzEditor.redo();
+      }
+    });
+
     document.addEventListener("click", function (e) {
       var undoBtn = e.target.closest("[data-editor-undo]");
       if (undoBtn) {
         e.preventDefault();
+        if (undoBtn.disabled) return;
         if (global.BlytzEditor && global.BlytzEditor.undo) global.BlytzEditor.undo();
         return;
       }
       var redoBtn = e.target.closest("[data-editor-redo]");
       if (redoBtn) {
         e.preventDefault();
+        if (redoBtn.disabled) return;
         if (global.BlytzEditor && global.BlytzEditor.redo) global.BlytzEditor.redo();
         return;
       }

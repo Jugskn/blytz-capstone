@@ -89,22 +89,32 @@ JERSEY_SEGS = [
     ((290, 698), (350, 700), (400, 700)),
 ]
 
+# Stage O.1.2: primary printable = full visible flat front/back of the mockup
+# (body + sleeves as drawn on the 2D SVG). Not 3D wrap / separate sleeve jobs.
+# Jersey back keeps name/number as optional sub-guides inside the primary back panel.
+# Coordinates are 800×800 editor units (not physical print cm).
+# Tuned to clipPath silhouette extents (tee/polo ~90–710×138–696; hoodie ~122–678;
+# jersey side-sleeve silhouette ~232–568).
 AREAS = {
     "tee": {
-        "front": [("chest", "Chest", 300, 258, 200, 280), ("left-chest", "Left chest", 432, 250, 80, 80)],
-        "back": [("back", "Back", 290, 215, 220, 340)],
+        "front": [("front", "Front", 100, 160, 600, 520)],
+        "back": [("back", "Back", 100, 155, 600, 525)],
     },
     "polo": {
-        "front": [("left-chest", "Left chest", 438, 262, 76, 76), ("chest", "Lower chest", 310, 350, 180, 220)],
-        "back": [("back", "Back", 290, 215, 220, 320)],
+        "front": [("front", "Front", 100, 175, 600, 505)],
+        "back": [("back", "Back", 100, 160, 600, 510)],
     },
     "hoodie": {
-        "front": [("chest", "Chest", 310, 250, 180, 200)],
-        "back": [("back", "Back", 280, 372, 240, 268)],
+        "front": [("front", "Front", 130, 185, 540, 495)],
+        "back": [("back", "Back", 130, 210, 540, 470)],
     },
     "jersey": {
-        "front": [("chest", "Chest", 290, 270, 220, 300)],
-        "back": [("name", "Name", 300, 215, 200, 70), ("number", "Number", 320, 300, 160, 260)],
+        "front": [("front", "Front", 240, 165, 320, 520)],
+        "back": [
+            ("back", "Back", 240, 160, 320, 520),
+            ("name", "Name", 300, 215, 200, 70),
+            ("number", "Number", 320, 300, 160, 260),
+        ],
     },
 }
 

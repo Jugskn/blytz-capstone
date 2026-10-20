@@ -1,7 +1,8 @@
 /**
- * Blytz Stage 2 — mocked AI Assistant (§5.4 interaction model).
+ * Blytz Stage O — AI Assistant (two candidates via Gemini when configured).
+ * Stage 2 mock remains as offline/demo fallback when live AI is disabled.
  * Two candidates per turn · live canvas preview · commit on first real edit.
- * Canvas changes go only through BlytzEditor. No network / API keys / Fabric internals.
+ * Canvas changes go only through BlytzEditor. Never hard-code API keys.
  */
 (function (global) {
   "use strict";
@@ -229,6 +230,7 @@
         if (/fail|error|timeout/i.test(trimmed)) {
           resolve({
             ok: false,
+            code: "mock_error",
             error:
               "Mock assistant failure (demo). Retry, or try a different prompt without “fail”/“error”.",
           });
@@ -238,6 +240,7 @@
         var fp = contextFingerprint(contextJSON);
         resolve({
           ok: true,
+          source: "mock",
           contextNote: suggestions[0] && suggestions[0].contextNote,
           message:
             "Here are two local demo candidates for “" +
@@ -249,6 +252,147 @@
         });
       }, MOCK_DELAY_MS);
     });
+  }
+
+  function getCookie(name) {
+    var match = document.cookie.match(
+      new RegExp("(?:^|; )" + name.replace(/([.$?*|{}()[\]\\/+^])/g, "\\$1") + "=([^;]*)")
+    );
+    return match ? decodeURIComponent(match[1]) : "";
+  }
+
+  function getEditorShell() {
+    return document.querySelector("[data-editor-page]");
+  }
+
+  function getSuggestUrl() {
+    var shell = getEditorShell();
+    return (shell && shell.getAttribute("data-ai-suggest-url")) || "";
+  }
+
+  function isLiveAiEnabled() {
+    var shell = getEditorShell();
+    return !!(shell && shell.getAttribute("data-ai-suggest-enabled") === "1");
+  }
+
+  function getActiveSide() {
+    try {
+      if (global.BlytzEditor && typeof global.BlytzEditor.getActiveView === "function") {
+        var view = global.BlytzEditor.getActiveView();
+        return view === "back" ? "back" : "front";
+      }
+    } catch (e) {
+      /* ignore */
+    }
+    return "front";
+  }
+
+  /**
+   * Live Gemini suggest via design-scoped POST. Falls back to mock when AI is disabled.
+   * @returns {Promise<{ok: boolean, message?: string, suggestions?: array, error?: string, code?: string, source?: string}>}
+   */
+  function liveAssistantRespond(prompt, contextJSON) {
+    var url = getSuggestUrl();
+    if (!url || !isLiveAiEnabled()) {
+      return mockAssistantRespond(prompt, contextJSON);
+    }
+
+    var csrf = getCookie("csrftoken");
+    return global
+      .fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          "X-CSRFToken": csrf,
+        },
+        body: JSON.stringify(
+          (function () {
+            var garment = { template: "", color: "" };
+            try {
+              if (
+                global.BlytzEditor &&
+                typeof global.BlytzEditor.getGarmentState === "function"
+              ) {
+                garment = global.BlytzEditor.getGarmentState() || garment;
+              }
+            } catch (eG) {
+              /* ignore */
+            }
+            return {
+              message: textSafe(prompt).trim(),
+              canvas_json: contextJSON || {},
+              active_side: getActiveSide(),
+              garment_template: garment.template || "",
+              garment_color: garment.color || "",
+            };
+          })()
+        ),
+      })
+      .then(function (resp) {
+        return resp.json().then(
+          function (data) {
+            return { httpStatus: resp.status, data: data || {} };
+          },
+          function () {
+            return {
+              httpStatus: resp.status,
+              data: {
+                ok: false,
+                error: "AI response was unreadable. Please retry.",
+                code: "bad_response",
+              },
+            };
+          }
+        );
+      })
+      .then(function (pack) {
+        var data = pack.data;
+        if (pack.httpStatus === 429 || data.code === "rate_limited") {
+          return {
+            ok: false,
+            code: "rate_limited",
+            error:
+              data.error ||
+              "AI suggestion rate limit reached. Try again later, or edit manually.",
+          };
+        }
+        if (pack.httpStatus === 503 || data.code === "ai_unavailable") {
+          return {
+            ok: false,
+            code: "ai_unavailable",
+            error:
+              data.error ||
+              "AI suggestions are unavailable right now. Manual editing is still available.",
+          };
+        }
+        if (!data.ok) {
+          return {
+            ok: false,
+            code: data.code || "ai_error",
+            error: data.error || "Could not generate AI candidates. Please retry.",
+          };
+        }
+        return {
+          ok: true,
+          source: "gemini",
+          message: data.message,
+          suggestions: data.suggestions,
+        };
+      })
+      .catch(function () {
+        return {
+          ok: false,
+          code: "network",
+          error: "Network error talking to AI. Check your connection and retry.",
+        };
+      });
+  }
+
+  function assistantRespond(prompt, contextJSON) {
+    return liveAssistantRespond(prompt, contextJSON);
   }
 
   function qs(sel, root) {
@@ -454,14 +598,24 @@
           error: validated.error || "A demo candidate failed validation.",
         };
       }
-      clones.push({
+      var entry = {
         id: sug.id || "candidate-" + i,
         label: sug.label || "Option " + (i + 1),
         description: sug.description || "",
         thumb: sug.thumb,
         canvasJSON: deepClone(sug.canvasJSON),
         contextNote: sug.contextNote || "",
-      });
+      };
+      if (sug.otherSideCanvasJSON) {
+        var otherValidated = global.BlytzEditor.validateCanvasJSON(
+          sug.otherSideCanvasJSON
+        );
+        if (otherValidated.ok) {
+          entry.otherSideCanvasJSON = deepClone(sug.otherSideCanvasJSON);
+          entry.other_side = sug.other_side || "";
+        }
+      }
+      clones.push(entry);
     }
     // Ensure unique ids
     var seen = {};
@@ -536,11 +690,38 @@
       });
   }
 
+  function applyOtherSideIfPresent(cand) {
+    if (!cand || !cand.otherSideCanvasJSON) return;
+    if (!global.BlytzEditor || typeof global.BlytzEditor.setStoredViewPayload !== "function") {
+      return;
+    }
+    var otherSide = cand.other_side;
+    if (otherSide !== "front" && otherSide !== "back") {
+      otherSide = getActiveSide() === "front" ? "back" : "front";
+    }
+    var fabricPayload =
+      cand.otherSideCanvasJSON.canvas || cand.otherSideCanvasJSON;
+    try {
+      global.BlytzEditor.setStoredViewPayload(otherSide, fabricPayload);
+    } catch (eApply) {
+      /* non-fatal: active side already committed */
+    }
+  }
+
   function onCanvasCommitted() {
     if (state.committed) return;
     if (!state.candidates.length) return;
     if (state.switching || state.busy) return;
     if (!state.activeCandidateId) return;
+
+    var kept = null;
+    for (var i = 0; i < state.candidates.length; i++) {
+      if (state.candidates[i].id === state.activeCandidateId) {
+        kept = state.candidates[i];
+        break;
+      }
+    }
+    applyOtherSideIfPresent(kept);
 
     state.committed = true;
     state.previewSeq += 1;
@@ -550,7 +731,9 @@
     setStatus("Candidate kept. Other options discarded. Save when you are ready.");
     appendMessage(
       "assistant",
-      "Kept the active candidate after your edit. The other option was discarded. Send another message anytime to refine."
+      kept && kept.otherSideCanvasJSON
+        ? "Kept the active candidate (and applied the matching other side). The other option was discarded."
+        : "Kept the active candidate after your edit. The other option was discarded. Send another message anytime to refine."
     );
   }
 
@@ -587,11 +770,12 @@
     var requestId = ++state.requestId;
 
     setBusy(true);
-    setStatus("Thinking…");
+    setStatus(isLiveAiEnabled() ? "Asking AI…" : "Thinking…");
     if (!options.isRetry) {
       appendMessage("user", prompt);
     }
     // New prompt discards prior uncommitted alternatives (context already captured).
+    // Next-turn context: previewed candidate if uncommitted, else live canvas after commit.
     discardCandidates(null);
     state.committed = false;
     clearTurnUi();
@@ -599,17 +783,23 @@
     var roots = getRoots();
     if (roots.input) roots.input.value = "";
 
-    mockAssistantRespond(prompt, contextJSON)
+    assistantRespond(prompt, contextJSON)
       .then(function (result) {
         if (requestId !== state.requestId) return;
 
         if (!result || !result.ok) {
-          appendMessage(
-            "assistant",
-            (result && result.error) || "Something went wrong generating demo candidates."
-          );
+          var errText =
+            (result && result.error) ||
+            "Something went wrong generating candidates.";
+          appendMessage("assistant", errText);
           renderRetry(prompt);
-          setStatus("Demo request failed. Manual editing is still available.");
+          if (result && result.code === "rate_limited") {
+            setStatus("Rate limit reached. Manual editing is still available.");
+          } else if (result && result.code === "ai_unavailable") {
+            setStatus("AI unavailable. Manual editing is still available.");
+          } else {
+            setStatus("Request failed. Manual editing is still available.");
+          }
           return;
         }
 
@@ -617,11 +807,14 @@
         if (!checked.ok) {
           appendMessage("assistant", checked.error);
           renderRetry(prompt);
-          setStatus("Invalid demo candidates. Please retry.");
+          setStatus("Invalid candidates. Please retry.");
           return;
         }
 
-        appendMessage("assistant", result.message || "Here are two demo candidates.");
+        appendMessage(
+          "assistant",
+          result.message || "Here are two candidates."
+        );
         beginTurnWithCandidates(checked.candidates);
         setStatus("Select a candidate to preview on the canvas.");
         // Unlock send before preview load so selectCandidate is not blocked by busy.
@@ -631,9 +824,9 @@
       })
       .catch(function () {
         if (requestId !== state.requestId) return;
-        appendMessage("assistant", "Unexpected mock error. Please retry.");
+        appendMessage("assistant", "Unexpected error. Please retry.");
         renderRetry(prompt);
-        setStatus("Demo request failed.");
+        setStatus("Request failed.");
         setBusy(false);
       })
       .finally(function () {
@@ -745,9 +938,12 @@
 
   global.BlytzAIChat = {
     mockAssistantRespond: mockAssistantRespond,
+    assistantRespond: assistantRespond,
+    liveAssistantRespond: liveAssistantRespond,
     sendPrompt: sendPrompt,
     buildMockSuggestions: buildMockSuggestions,
     contextFingerprint: contextFingerprint,
+    isLiveAiEnabled: isLiveAiEnabled,
     CANDIDATES_PER_TURN: CANDIDATES_PER_TURN,
     getState: function () {
       return {

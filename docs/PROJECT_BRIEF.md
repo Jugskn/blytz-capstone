@@ -1,10 +1,10 @@
 # Blytz — Project Brief
 
-Blytz is a Django web app for a custom apparel / design business. Staff manage designs, orders, sales, and accounting; customers discover designs and can be routed to Facebook Messenger for checkout support. Background-removal (remove.bg), AI helpers, and transactional email live behind thin wrappers in `services/`.
+Blytz is a Django web app for a custom apparel / design business. Staff manage designs, orders, sales, and accounting; customers discover designs and can be routed to Facebook Messenger for checkout support. AI helpers and transactional email live behind thin wrappers in `services/`; background removal runs client-side (`@imgly/background-removal`).
 
 ## Product goals
 
-- Design catalog and upload pipeline (with optional remove.bg / AI cleanup)
+- Design catalog and upload pipeline (optional client BG removal / AI cleanup)
 - Order lifecycle with a short payment confirmation window
 - Sales and accounting views for day-to-day operations
 - Staff accounts with role-aware access (custom User in Prompt 2)
@@ -27,7 +27,7 @@ Blytz is a Django web app for a custom apparel / design business. Staff manage d
 manage.py
 config/          # project settings, urls, wsgi/asgi
 apps/            # accounts, core, designs, orders, accounting, sales
-services/        # remove.bg / AI / email wrappers (later)
+services/        # AI / email wrappers (email later); BG removal is client-side
 templates/       # base + components
 static/          # css, js, img
 media/           # user uploads (gitignored)
