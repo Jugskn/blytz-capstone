@@ -56,7 +56,7 @@
                class="mt-0.5 w-full max-w-xl truncate rounded-md border border-transparent bg-transparent px-1 py-0.5 font-display text-lg text-ink hover:border-border focus:border-border-strong focus:bg-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink sm:text-2xl">
         {% endif %}
       </div>
-      <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+      <div class="editor-top-actions flex flex-wrap items-center gap-2 sm:gap-3">
         <div class="editor-status-stack mr-1 max-w-[10rem] sm:mr-2 sm:max-w-[16rem]">
           <p class="editor-save-status truncate text-xs text-ink-muted sm:text-sm"
              data-editor-save-status
@@ -72,15 +72,23 @@
                   data-editor-undo
                   disabled
                   aria-label="Undo"
-                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-border-strong bg-canvas px-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40">
-            Undo
+                  class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border-strong bg-canvas px-2.5 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 sm:px-3">
+            <svg class="editor-undo-redo-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+              <path d="M4.5 6.5H11a3 3 0 0 1 0 6H9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M6.5 4.5 4.5 6.5 6.5 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Undo</span>
           </button>
           <button type="button"
                   data-editor-redo
                   disabled
                   aria-label="Redo"
-                  class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md border border-border-strong bg-canvas px-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40">
-            Redo
+                  class="inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md border border-border-strong bg-canvas px-2.5 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40 sm:px-3">
+            <svg class="editor-undo-redo-icon" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" focusable="false">
+              <path d="M11.5 6.5H5a3 3 0 0 0 0 6h1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M9.5 4.5 11.5 6.5 9.5 8.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>Redo</span>
           </button>
         </div>
         <div class="editor-top-actions-secondary">
@@ -164,6 +172,15 @@
                 class="editor-toolbar-btn">
           <span aria-hidden="true" class="editor-toolbar-icon">▤</span>
           <span class="editor-toolbar-label">Layers</span>
+        </button>
+        <button type="button"
+                data-editor-action="auto-layout"
+                aria-label="Auto layout"
+                title="Arrange images and text on the print panel (rule-based)"
+                class="editor-toolbar-btn"
+                data-editor-phone-hide>
+          <span aria-hidden="true" class="editor-toolbar-icon">▦</span>
+          <span class="editor-toolbar-label">Auto Layout</span>
         </button>
         {% comment %}Toolbar Front/Back — always reachable; also mirrored by overlay toggle{% endcomment %}
         <button type="button"
@@ -250,6 +267,23 @@
                 data-editor-view="back"
                 aria-pressed="false">Back</button>
       </div>
+      <div id="editor-zoom-chrome"
+           class="editor-zoom-chrome"
+           role="group"
+           aria-label="Canvas zoom">
+        <button type="button"
+                data-editor-zoom-out
+                aria-label="Zoom out"
+                title="Zoom out (Ctrl/−)">−</button>
+        <button type="button"
+                data-editor-zoom-reset
+                aria-label="Reset zoom to 100%"
+                title="Reset zoom (Ctrl/0)">100%</button>
+        <button type="button"
+                data-editor-zoom-in
+                aria-label="Zoom in"
+                title="Zoom in (Ctrl/=)">+</button>
+      </div>
       <button type="button"
               id="editor-props-pill"
               class="editor-props-pill"
@@ -299,10 +333,13 @@
         <div id="editor-canvas-wrap"
              class="overflow-hidden rounded-md border border-border shadow-sm"
              style="touch-action:none">
-          <canvas id="blytz-fabric-canvas"
-                  width="800"
-                  height="800"
-                  style="touch-action:none"></canvas>
+          {# Scene scales garment + Fabric together (viewport zoom). Overflow banner stays outside. #}
+          <div id="editor-artboard-scene" class="editor-artboard-scene">
+            <canvas id="blytz-fabric-canvas"
+                    width="800"
+                    height="800"
+                    style="touch-action:none"></canvas>
+          </div>
           {# Out-of-flow overlay: must not sit in the host flex column (show/hide would reflow artboard sizing). #}
           <div id="editor-print-overflow-warning"
                class="editor-print-overflow-warning"

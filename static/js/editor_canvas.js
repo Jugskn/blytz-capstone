@@ -191,6 +191,22 @@
   var gestureLastCenter = null;
   var gestureActive = false;
   var gesturesWired = false;
+  /**
+   * Option A viewport zoom: CSS transform on #editor-artboard-scene only.
+   * Fabric viewportTransform stays identity. Twin: apps/designs/canvas_zoom.py.
+   */
+  var ZOOM_MIN = 0.35;
+  var ZOOM_MAX = 4;
+  var ZOOM_STEP_FACTOR = 1.1;
+  var sceneZoom = 1;
+  var scenePanX = 0;
+  var scenePanY = 0;
+  var zoomUiListeners = [];
+  var zoomChromeWired = false;
+  /** Desktop Space / middle-button scene pan (Option A CSS pan). */
+  var scenePanWired = false;
+  var spacePanHeld = false;
+  var scenePanDrag = null;
 
   function fabricNS() {
     return global.fabric;
@@ -1942,6 +1958,225 @@
     return Math.max(220, Math.floor(side));
   }
 
+  /** Clamp viewport zoom (mirrors canvas_zoom.clamp_zoom). */
+  function clampZoom(value) {
+    var z = Number(value);
+    if (!isFinite(z)) z = 1;
+    return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  }
+
+  /** Multiplicative ± step (mirrors canvas_zoom.next_zoom_step). */
+  function nextZoomStep(current, direction) {
+    var z = clampZoom(current);
+    if (direction > 0) return clampZoom(z * ZOOM_STEP_FACTOR);
+    if (direction < 0) return clampZoom(z / ZOOM_STEP_FACTOR);
+    return z;
+  }
+
+  /**
+   * Ensure #editor-artboard-scene exists and holds Fabric + garments.
+   * Print-overflow warning stays a sibling of the scene inside the wrap.
+   */
+  function ensureArtboardScene() {
+    var wrap = document.getElementById("editor-canvas-wrap");
+    if (!wrap) return null;
+    var scene = document.getElementById("editor-artboard-scene");
+    var warning = document.getElementById("editor-print-overflow-warning");
+    if (!scene) {
+      scene = document.createElement("div");
+      scene.id = "editor-artboard-scene";
+      scene.className = "editor-artboard-scene";
+      wrap.insertBefore(scene, warning || wrap.firstChild);
+    }
+    // Move stray Fabric wrapper / canvas into the scene (not the warning).
+    if (fabricCanvas && fabricCanvas.wrapperEl) {
+      var wrapper = fabricCanvas.wrapperEl;
+      if (wrapper.parentNode !== scene) {
+        scene.appendChild(wrapper);
+      }
+    } else {
+      var canvasEl = document.getElementById("blytz-fabric-canvas");
+      if (canvasEl && canvasEl.parentNode !== scene) {
+        scene.appendChild(canvasEl);
+      }
+    }
+    ["editor-garment-layer", "editor-garment-overlay"].forEach(function (id) {
+      var layer = document.getElementById(id);
+      if (layer && layer.parentNode !== scene) {
+        if (id === "editor-garment-layer") {
+          scene.insertBefore(layer, scene.firstChild);
+        } else {
+          scene.appendChild(layer);
+        }
+      }
+    });
+    if (scene.parentNode !== wrap) {
+      wrap.insertBefore(scene, warning || null);
+    }
+    // Keep overlay above Fabric after moves.
+    var over = document.getElementById("editor-garment-overlay");
+    if (over && over.parentNode === scene) {
+      scene.appendChild(over);
+    }
+    return scene;
+  }
+
+  function ensureFabricViewportIdentity() {
+    if (!fabricCanvas) return;
+    if (typeof fabricCanvas.setViewportTransform === "function") {
+      var vpt = fabricCanvas.viewportTransform;
+      if (
+        !vpt ||
+        vpt[0] !== 1 ||
+        vpt[1] !== 0 ||
+        vpt[2] !== 0 ||
+        vpt[3] !== 1 ||
+        vpt[4] !== 0 ||
+        vpt[5] !== 0
+      ) {
+        fabricCanvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+      }
+    } else if (typeof fabricCanvas.setZoom === "function") {
+      fabricCanvas.setZoom(1);
+    }
+  }
+
+  /** Apply CSS scene transform (garment + Fabric). Not a commitEdit. */
+  function applySceneTransform() {
+    var scene = ensureArtboardScene();
+    if (!scene) return;
+    ensureFabricViewportIdentity();
+    scene.style.transformOrigin = "0 0";
+    scene.style.transform =
+      "translate(" +
+      scenePanX +
+      "px, " +
+      scenePanY +
+      "px) scale(" +
+      sceneZoom +
+      ")";
+    if (fabricCanvas) fabricCanvas.requestRenderAll();
+    notifyZoomUi();
+  }
+
+  /**
+   * Zoom about wrap-local point (mirrors canvas_zoom.scene_zoom_to_point).
+   * wrap_xy = scale * scene_xy + pan
+   */
+  function sceneZoomToPoint(nextZoom, pointX, pointY) {
+    var s0 = sceneZoom > 0 ? sceneZoom : 1;
+    var s1 = clampZoom(nextZoom);
+    var sx = (pointX - scenePanX) / s0;
+    var sy = (pointY - scenePanY) / s0;
+    sceneZoom = s1;
+    scenePanX = pointX - s1 * sx;
+    scenePanY = pointY - s1 * sy;
+    applySceneTransform();
+  }
+
+  function getZoom() {
+    return clampZoom(sceneZoom);
+  }
+
+  /**
+   * Legacy no-op name kept for garment refresh hooks.
+   * Garments live inside #editor-artboard-scene so they co-scale automatically.
+   */
+  function syncGarmentViewport() {
+    ensureArtboardScene();
+    ensureFabricViewportIdentity();
+  }
+
+  function notifyZoomUi() {
+    var z = getZoom();
+    var label = Math.round(z * 100) + "%";
+    var atMin = z <= ZOOM_MIN + 1e-6;
+    var atMax = z >= ZOOM_MAX - 1e-6;
+    var pctBtn = document.querySelector("[data-editor-zoom-reset]");
+    if (pctBtn) pctBtn.textContent = label;
+    document.querySelectorAll("[data-editor-zoom-out]").forEach(function (btn) {
+      btn.disabled = atMin;
+    });
+    document.querySelectorAll("[data-editor-zoom-in]").forEach(function (btn) {
+      btn.disabled = atMax;
+    });
+    zoomUiListeners.slice().forEach(function (cb) {
+      try {
+        cb(z);
+      } catch (err) {
+        console.error(err);
+      }
+    });
+  }
+
+  function onZoomChange(cb) {
+    if (typeof cb === "function") zoomUiListeners.push(cb);
+    return function unsubscribe() {
+      var idx = zoomUiListeners.indexOf(cb);
+      if (idx >= 0) zoomUiListeners.splice(idx, 1);
+    };
+  }
+
+  function wrapLocalPointFromClient(clientX, clientY) {
+    var wrap = document.getElementById("editor-canvas-wrap");
+    if (!wrap) return { x: 0, y: 0 };
+    var rect = wrap.getBoundingClientRect();
+    var cs =
+      typeof global.getComputedStyle === "function"
+        ? global.getComputedStyle(wrap)
+        : null;
+    var bl = cs ? parseFloat(cs.borderLeftWidth) || 0 : 0;
+    var bt = cs ? parseFloat(cs.borderTopWidth) || 0 : 0;
+    return {
+      x: clientX - rect.left - bl,
+      y: clientY - rect.top - bt,
+    };
+  }
+
+  function wrapCenterPoint() {
+    var wrap = document.getElementById("editor-canvas-wrap");
+    if (!wrap) {
+      return { x: LOGICAL_SIZE / 2, y: LOGICAL_SIZE / 2 };
+    }
+    return {
+      x: (wrap.clientWidth || 0) / 2,
+      y: (wrap.clientHeight || 0) / 2,
+    };
+  }
+
+  /**
+   * Viewport-only zoom via scene CSS. Does not commitEdit / change object coords.
+   * @param {number} nextZoom
+   * @param {{x:number,y:number}|null|undefined} point — wrap-local CSS px; default center
+   */
+  function setZoomLevel(nextZoom, point) {
+    ensureArtboardScene();
+    var pt = point && isFinite(point.x) && isFinite(point.y) ? point : wrapCenterPoint();
+    sceneZoomToPoint(nextZoom, pt.x, pt.y);
+    return true;
+  }
+
+  function zoomBy(factor, point) {
+    var f = Number(factor);
+    if (!isFinite(f) || f <= 0) return false;
+    return setZoomLevel(getZoom() * f, point);
+  }
+
+  /** Reset scene to 100% / identity pan. Not a history step. */
+  function resetZoom() {
+    sceneZoom = 1;
+    scenePanX = 0;
+    scenePanY = 0;
+    applySceneTransform();
+    return true;
+  }
+
+  function panSceneBy(dx, dy) {
+    scenePanX += dx;
+    scenePanY += dy;
+    applySceneTransform();
+  }
+
   function applyResponsiveSize() {
     if (!fabricCanvas) return;
     var wrap = document.getElementById("editor-canvas-wrap");
@@ -1953,7 +2188,12 @@
     }
     lastAppliedDisplaySize = css;
     // Logical coordinates stay 800×800. CSS size is display-only; never rewrite object coords.
-    fabricCanvas.setZoom(1);
+    // Policy: reset scene zoom on CSS resize. Front/Back does not call this — zoom preserved.
+    ensureArtboardScene();
+    ensureFabricViewportIdentity();
+    sceneZoom = 1;
+    scenePanX = 0;
+    scenePanY = 0;
     fabricCanvas.setDimensions(
       { width: LOGICAL_SIZE, height: LOGICAL_SIZE },
       { backstoreOnly: true }
@@ -1964,6 +2204,7 @@
     wrap.style.height = css + "px";
     fabricCanvas.setDimensions({ width: css, height: css }, { cssOnly: true });
     sanitizeCanvasDom();
+    applySceneTransform();
     fabricCanvas.requestRenderAll();
   }
 
@@ -2074,25 +2315,17 @@
           gestureLastCenter = center;
           return;
         }
-        var vpt = fabricCanvas.viewportTransform
-          ? fabricCanvas.viewportTransform.slice()
-          : [1, 0, 0, 1, 0, 0];
-        var zoom = fabricCanvas.getZoom() || 1;
         var factor = dist / gestureLastDist;
-        var nextZoom = Math.min(4, Math.max(0.35, zoom * factor));
-        var rect = wrap.getBoundingClientRect();
-        var cx = center.x - rect.left;
-        var cy = center.y - rect.top;
-        fabricCanvas.zoomToPoint({ x: cx, y: cy }, nextZoom);
+        var local = wrapLocalPointFromClient(center.x, center.y);
+        setZoomLevel(getZoom() * factor, local);
         if (gestureLastCenter) {
-          vpt = fabricCanvas.viewportTransform.slice();
-          vpt[4] += center.x - gestureLastCenter.x;
-          vpt[5] += center.y - gestureLastCenter.y;
-          fabricCanvas.setViewportTransform(vpt);
+          panSceneBy(
+            center.x - gestureLastCenter.x,
+            center.y - gestureLastCenter.y
+          );
         }
         gestureLastDist = dist;
         gestureLastCenter = center;
-        fabricCanvas.requestRenderAll();
       },
       { passive: false }
     );
@@ -2111,6 +2344,196 @@
     wrap.addEventListener("pointerup", endPointer);
     wrap.addEventListener("pointercancel", endPointer);
     wrap.addEventListener("pointerleave", endPointer);
+
+    // Ctrl/Cmd + wheel: zoom toward pointer (desktop). Only while over the wrap.
+    wrap.addEventListener(
+      "wheel",
+      function (e) {
+        if (!fabricCanvas) return;
+        if (!(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+        var pt = wrapLocalPointFromClient(e.clientX, e.clientY);
+        var direction = e.deltaY < 0 ? 1 : -1;
+        setZoomLevel(nextZoomStep(getZoom(), direction), pt);
+      },
+      { passive: false }
+    );
+  }
+
+  function isTypingTarget(el) {
+    if (!el) return false;
+    var tag = (el.tagName || "").toUpperCase();
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (el.isContentEditable) return true;
+    return false;
+  }
+
+  function canScenePan() {
+    return getZoom() > 1.001;
+  }
+
+  function syncScenePanCursor() {
+    var wrap = document.getElementById("editor-canvas-wrap");
+    if (!wrap) return;
+    wrap.classList.toggle("is-scene-pan-ready", !!spacePanHeld && canScenePan());
+    wrap.classList.toggle("is-scene-panning", !!(scenePanDrag && scenePanDrag.active));
+  }
+
+  function endScenePanDrag() {
+    if (!scenePanDrag) return;
+    scenePanDrag = null;
+    if (fabricCanvas) {
+      fabricCanvas.selection = true;
+      fabricCanvas.skipTargetFind = false;
+    }
+    syncScenePanCursor();
+  }
+
+  /**
+   * Desktop pan when zoomed: Space+drag or middle-mouse drag on the wrap.
+   * Calls panSceneBy only — Fabric VPT stays identity; not a commitEdit.
+   */
+  function wireScenePan() {
+    if (scenePanWired) return;
+    var wrap = document.getElementById("editor-canvas-wrap");
+    if (!wrap) return;
+    scenePanWired = true;
+
+    document.addEventListener("keydown", function (e) {
+      if (e.code !== "Space" && e.key !== " ") return;
+      if (e.repeat) return;
+      if (isTypingTarget(e.target)) return;
+      var root = document.getElementById("editor-root");
+      if (root && e.target && e.target !== document.body && !root.contains(e.target)) {
+        return;
+      }
+      spacePanHeld = true;
+      // Avoid page scroll while using Space as a pan modifier in the editor.
+      if (canScenePan()) e.preventDefault();
+      syncScenePanCursor();
+    });
+
+    document.addEventListener("keyup", function (e) {
+      if (e.code !== "Space" && e.key !== " ") return;
+      spacePanHeld = false;
+      if (scenePanDrag && scenePanDrag.via === "space") {
+        endScenePanDrag();
+      } else {
+        syncScenePanCursor();
+      }
+    });
+
+    window.addEventListener("blur", function () {
+      spacePanHeld = false;
+      endScenePanDrag();
+    });
+
+    // Capture so Fabric does not start a selection/move while panning.
+    wrap.addEventListener(
+      "pointerdown",
+      function (e) {
+        if (!fabricCanvas) return;
+        if (gestureActive || gesturePointers.size >= 2) return;
+        var middle = e.button === 1;
+        var space = spacePanHeld && (e.button === 0 || e.button == null);
+        if (!middle && !space) return;
+        if (!canScenePan()) return;
+        e.preventDefault();
+        e.stopPropagation();
+        scenePanDrag = {
+          active: true,
+          via: middle ? "middle" : "space",
+          pointerId: e.pointerId,
+          lastX: e.clientX,
+          lastY: e.clientY,
+        };
+        fabricCanvas.selection = false;
+        fabricCanvas.skipTargetFind = true;
+        fabricCanvas.discardActiveObject();
+        fabricCanvas.requestRenderAll();
+        try {
+          wrap.setPointerCapture(e.pointerId);
+        } catch (err) {
+          /* ignore */
+        }
+        syncScenePanCursor();
+      },
+      true
+    );
+
+    wrap.addEventListener(
+      "pointermove",
+      function (e) {
+        if (!scenePanDrag || !scenePanDrag.active) return;
+        if (e.pointerId !== scenePanDrag.pointerId) return;
+        e.preventDefault();
+        e.stopPropagation();
+        var dx = e.clientX - scenePanDrag.lastX;
+        var dy = e.clientY - scenePanDrag.lastY;
+        scenePanDrag.lastX = e.clientX;
+        scenePanDrag.lastY = e.clientY;
+        if (dx || dy) panSceneBy(dx, dy);
+      },
+      true
+    );
+
+    function endPanPointer(e) {
+      if (!scenePanDrag || !scenePanDrag.active) return;
+      if (e.pointerId != null && e.pointerId !== scenePanDrag.pointerId) return;
+      endScenePanDrag();
+    }
+    wrap.addEventListener("pointerup", endPanPointer, true);
+    wrap.addEventListener("pointercancel", endPanPointer, true);
+
+    // Middle-click often opens autoscroll — block it on the artboard.
+    wrap.addEventListener("auxclick", function (e) {
+      if (e.button === 1) e.preventDefault();
+    });
+  }
+
+  /** Wire − / % / + chrome + optional Ctrl/Cmd+= − 0 when focus is in the editor. */
+  function wireZoomChrome() {
+    if (zoomChromeWired) return;
+    zoomChromeWired = true;
+    document.addEventListener("click", function (e) {
+      var out = e.target.closest("[data-editor-zoom-out]");
+      var inn = e.target.closest("[data-editor-zoom-in]");
+      var reset = e.target.closest("[data-editor-zoom-reset]");
+      if (!out && !inn && !reset) return;
+      e.preventDefault();
+      if (out && !out.disabled) {
+        setZoomLevel(nextZoomStep(getZoom(), -1));
+      } else if (inn && !inn.disabled) {
+        setZoomLevel(nextZoomStep(getZoom(), 1));
+      } else if (reset) {
+        resetZoom();
+      }
+    });
+    document.addEventListener("keydown", function (e) {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      var root = document.getElementById("editor-root");
+      if (!root) return;
+      var t = e.target;
+      var tag = (t && t.tagName) || "";
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (t && t.isContentEditable) return;
+      // Only intercept when focus is inside the editor shell (avoid fighting browser zoom elsewhere).
+      if (t !== document.body && t !== document.documentElement && !root.contains(t)) {
+        return;
+      }
+      var key = e.key;
+      if (key === "=" || key === "+") {
+        e.preventDefault();
+        setZoomLevel(nextZoomStep(getZoom(), 1));
+      } else if (key === "-" || key === "_") {
+        e.preventDefault();
+        setZoomLevel(nextZoomStep(getZoom(), -1));
+      } else if (key === "0") {
+        e.preventDefault();
+        resetZoom();
+      }
+    });
+    notifyZoomUi();
   }
 
   function syncMultiSelectUi() {
@@ -2233,6 +2656,7 @@
       return null;
     }
     applyTouchFriendlyHandles();
+    ensureArtboardScene();
     fabricCanvas = new fabric.Canvas(el, {
       preserveObjectStacking: true,
       selection: true,
@@ -2240,6 +2664,8 @@
       selectionKey: "shiftKey",
       allowTouchScrolling: false,
     });
+    ensureArtboardScene();
+    ensureFabricViewportIdentity();
     fabricCanvas.setDimensions({ width: LOGICAL_SIZE, height: LOGICAL_SIZE });
     sanitizeCanvasDom();
     forceTransparentBackground();
@@ -2249,8 +2675,11 @@
     wireMultiSelectPointer();
     wireContextMenuSuppression();
     wireCanvasGestures();
+    wireScenePan();
+    wireZoomChrome();
     syncMultiSelectUi();
     initGarmentFromPage();
+    applySceneTransform();
     if (typeof ResizeObserver !== "undefined" && !resizeObserver) {
       // Observe the height-locked workspace root, not the wrap (avoids feedback).
       var workspace = document.getElementById("editor-root");
@@ -3635,6 +4064,422 @@
   }
 
   /**
+   * UC-06 rule-based auto-layout (deterministic; mirrors apps/designs/auto_layout.py).
+   * Active view only. Skips locked (blytzLocked) and hidden (visible===false).
+   * Images 1→center, 2→left-chest, 3→right-chest; extras unmoved. Texts under primary.
+   * One commitEdit. Slots from primary print panel (id front|back), else largest area.
+   */
+  var AUTO_LAYOUT_TEXT_GAP = 16;
+  var AUTO_LAYOUT_TEXT_STACK_GAP = 12;
+  var AUTO_LAYOUT_CENTER_W_FRAC = 0.55;
+  var AUTO_LAYOUT_CENTER_H_FRAC = 0.42;
+  var AUTO_LAYOUT_CHEST_W_FRAC = 0.22;
+  var AUTO_LAYOUT_CHEST_H_FRAC = 0.22;
+  var AUTO_LAYOUT_CHEST_X_INSET = 0.06;
+  var AUTO_LAYOUT_CHEST_Y_INSET = 0.1;
+  var AUTO_LAYOUT_WORDMARK_W_FRAC = 0.7;
+  var AUTO_LAYOUT_WORDMARK_H_FRAC = 0.18;
+
+  function pickPrimaryPrintPanel(areas) {
+    var list = Array.isArray(areas) ? areas : [];
+    var i;
+    var primaries = [];
+    for (i = 0; i < list.length; i++) {
+      var a = list[i];
+      if (!a) continue;
+      var id = String(a.id || "").toLowerCase();
+      if (id === "front" || id === "back") primaries.push(a);
+    }
+    if (primaries.length) return primaries[0];
+    var best = null;
+    var bestArea = -1;
+    for (i = 0; i < list.length; i++) {
+      var area = list[i];
+      if (!area) continue;
+      var w = Number(area.w);
+      var h = Number(area.h);
+      if (!(w > 0) || !(h > 0)) continue;
+      var size = w * h;
+      if (size > bestArea) {
+        bestArea = size;
+        best = area;
+      }
+    }
+    return best;
+  }
+
+  function getActivePrimaryPrintPanel() {
+    var g = global.BlytzGarments;
+    if (!g || typeof g.getPrintAreas !== "function") return null;
+    var result = g.getPrintAreas(garmentState.template, activeView);
+    if (!result || !result.ok || !result.areas || !result.areas.length) return null;
+    return pickPrimaryPrintPanel(result.areas);
+  }
+
+  /** Mirror auto_layout.derive_slots */
+  function deriveAutoLayoutSlots(panel) {
+    if (!panel) return null;
+    var x = Number(panel.x);
+    var y = Number(panel.y);
+    var w = Number(panel.w);
+    var h = Number(panel.h);
+    if (!(w > 0) || !(h > 0) || isNaN(x) || isNaN(y)) return null;
+    var cx = x + w / 2;
+    var cy = y + h / 2;
+    var centerW = w * AUTO_LAYOUT_CENTER_W_FRAC;
+    var centerH = h * AUTO_LAYOUT_CENTER_H_FRAC;
+    var chestW = w * AUTO_LAYOUT_CHEST_W_FRAC;
+    var chestH = h * AUTO_LAYOUT_CHEST_H_FRAC;
+    var leftCx = x + w * AUTO_LAYOUT_CHEST_X_INSET + chestW / 2;
+    var rightCx = x + w * (1 - AUTO_LAYOUT_CHEST_X_INSET) - chestW / 2;
+    var chestCy = y + h * AUTO_LAYOUT_CHEST_Y_INSET + chestH / 2;
+    return {
+      center: {
+        cx: cx,
+        cy: y + h * 0.38,
+        max_w: centerW,
+        max_h: centerH,
+      },
+      left_chest: {
+        cx: leftCx,
+        cy: chestCy,
+        max_w: chestW,
+        max_h: chestH,
+      },
+      right_chest: {
+        cx: rightCx,
+        cy: chestCy,
+        max_w: chestW,
+        max_h: chestH,
+      },
+      wordmark: {
+        cx: cx,
+        cy: cy,
+        max_w: w * AUTO_LAYOUT_WORDMARK_W_FRAC,
+        max_h: h * AUTO_LAYOUT_WORDMARK_H_FRAC,
+      },
+      panel: { x: x, y: y, w: w, h: h },
+    };
+  }
+
+  function autoLayoutScaleToFit(width, height, maxW, maxH, allowUpscale) {
+    var w = Math.max(1e-6, Number(width) || 0);
+    var h = Math.max(1e-6, Number(height) || 0);
+    var mw = Math.max(1e-6, Number(maxW) || 0);
+    var mh = Math.max(1e-6, Number(maxH) || 0);
+    var factor = Math.min(mw / w, mh / h);
+    if (!allowUpscale) factor = Math.min(1, factor);
+    return factor > 0 ? factor : 1e-6;
+  }
+
+  function autoLayoutClampCenter(cx, cy, width, height, panel) {
+    if (!panel) return { cx: cx, cy: cy };
+    var halfW = Math.max(0, width / 2);
+    var halfH = Math.max(0, height / 2);
+    var minCx = panel.x + halfW;
+    var maxCx = panel.x + panel.w - halfW;
+    var minCy = panel.y + halfH;
+    var maxCy = panel.y + panel.h - halfH;
+    if (minCx > maxCx) cx = panel.x + panel.w / 2;
+    else cx = Math.min(Math.max(cx, minCx), maxCx);
+    if (minCy > maxCy) cy = panel.y + panel.h / 2;
+    else cy = Math.min(Math.max(cy, minCy), maxCy);
+    return { cx: cx, cy: cy };
+  }
+
+  /** Mirror auto_layout.plan_auto_layout — items already filtered for locked/hidden. */
+  function planAutoLayout(items, panel) {
+    var slots = deriveAutoLayoutSlots(panel);
+    if (!slots) {
+      return {
+        ok: false,
+        reason: "no_panel",
+        placements: [],
+        skipped_extra_images: 0,
+        notes: "",
+      };
+    }
+    var movable = [];
+    var i;
+    for (i = 0; i < (items || []).length; i++) {
+      var raw = items[i];
+      if (!raw) continue;
+      if (raw.visible === false) continue;
+      if (raw.locked || raw.blytzLocked) continue;
+      var kind = String(raw.kind || raw.type || "").toLowerCase();
+      var isImg = kind === "image";
+      var isTxt = kind === "text" || kind === "itext" || kind === "textbox";
+      if (!isImg && !isTxt) continue;
+      var width = Number(raw.width);
+      var height = Number(raw.height);
+      if (!(width > 0) || !(height > 0)) continue;
+      movable.push({
+        id: raw.id != null && raw.id !== "" ? raw.id : i,
+        kind: isImg ? "image" : "text",
+        width: width,
+        height: height,
+        order: raw.order != null ? Number(raw.order) : i,
+      });
+    }
+    if (!movable.length) {
+      return {
+        ok: false,
+        reason: "empty",
+        placements: [],
+        skipped_extra_images: 0,
+        notes: "",
+      };
+    }
+    movable.sort(function (a, b) {
+      if (a.order !== b.order) return a.order - b.order;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    var images = movable.filter(function (it) {
+      return it.kind === "image";
+    });
+    var texts = movable.filter(function (it) {
+      return it.kind === "text";
+    });
+    var placements = [];
+    var panelN = slots.panel;
+    var notes = "";
+    var skippedExtra = Math.max(0, images.length - 3);
+    var primaryBottom = null;
+    var primaryCx = slots.center.cx;
+
+    function placeInSlot(item, slot) {
+      var factor = autoLayoutScaleToFit(
+        item.width,
+        item.height,
+        slot.max_w,
+        slot.max_h,
+        true
+      );
+      var nw = item.width * factor;
+      var nh = item.height * factor;
+      var clamped = autoLayoutClampCenter(slot.cx, slot.cy, nw, nh, panelN);
+      return {
+        id: item.id,
+        cx: clamped.cx,
+        cy: clamped.cy,
+        width: nw,
+        height: nh,
+        scale_factor: factor,
+      };
+    }
+
+    if (images.length) {
+      var slotKeys = ["center", "left_chest", "right_chest"];
+      for (i = 0; i < Math.min(3, images.length); i++) {
+        var pl = placeInSlot(images[i], slots[slotKeys[i]]);
+        placements.push(pl);
+        if (i === 0) {
+          primaryBottom = pl.cy + pl.height / 2;
+          primaryCx = pl.cx;
+        }
+      }
+      if (skippedExtra) {
+        notes = skippedExtra + " extra image(s) left unmoved.";
+      }
+    } else if (texts.length) {
+      var first = texts[0];
+      var wm = placeInSlot(first, slots.wordmark);
+      placements.push(wm);
+      primaryBottom = wm.cy + wm.height / 2;
+      primaryCx = wm.cx;
+      texts = texts.slice(1);
+    }
+
+    if (texts.length && primaryBottom != null) {
+      var cursorTop = primaryBottom + AUTO_LAYOUT_TEXT_GAP;
+      for (i = 0; i < texts.length; i++) {
+        var t = texts[i];
+        var tf = autoLayoutScaleToFit(
+          t.width,
+          t.height,
+          panelN.w * 0.85,
+          panelN.h * 0.12,
+          true
+        );
+        var tw = t.width * tf;
+        var th = t.height * tf;
+        var tcy = cursorTop + th / 2;
+        var tc = autoLayoutClampCenter(primaryCx, tcy, tw, th, panelN);
+        placements.push({
+          id: t.id,
+          cx: tc.cx,
+          cy: tc.cy,
+          width: tw,
+          height: th,
+          scale_factor: tf,
+        });
+        cursorTop = tc.cy + th / 2 + AUTO_LAYOUT_TEXT_STACK_GAP;
+      }
+    }
+
+    if (!placements.length) {
+      return {
+        ok: false,
+        reason: "empty",
+        placements: [],
+        skipped_extra_images: skippedExtra,
+        notes: notes,
+      };
+    }
+    return {
+      ok: true,
+      reason: "ok",
+      placements: placements,
+      skipped_extra_images: skippedExtra,
+      notes: notes,
+    };
+  }
+
+  function collectAutoLayoutItems(canvas) {
+    var objects = canvas && canvas.getObjects ? canvas.getObjects() : [];
+    var items = [];
+    var i;
+    for (i = 0; i < objects.length; i++) {
+      var obj = objects[i];
+      if (!obj) continue;
+      if (obj.visible === false) continue;
+      if (isObjectLocked(obj)) continue;
+      var tk = typeKey(obj);
+      if (tk !== "image" && !isTextObject(obj)) continue;
+      var sw =
+        typeof obj.getScaledWidth === "function"
+          ? obj.getScaledWidth()
+          : Number(obj.width) * (obj.scaleX == null ? 1 : obj.scaleX);
+      var sh =
+        typeof obj.getScaledHeight === "function"
+          ? obj.getScaledHeight()
+          : Number(obj.height) * (obj.scaleY == null ? 1 : obj.scaleY);
+      if (!(sw > 0) || !(sh > 0)) continue;
+      items.push({
+        id: obj.blytzId != null ? obj.blytzId : i,
+        kind: tk === "image" ? "image" : "text",
+        width: sw,
+        height: sh,
+        order: i,
+        obj: obj,
+      });
+    }
+    return items;
+  }
+
+  function canAutoLayout() {
+    if (!persistAllowed()) return false;
+    if (!fabricCanvas) return false;
+    if (!getActivePrimaryPrintPanel()) return false;
+    return collectAutoLayoutItems(fabricCanvas).length > 0;
+  }
+
+  function applyAutoLayoutPlacement(obj, placement) {
+    if (!obj || !placement) return false;
+    var id = obj.blytzId;
+    var name = obj.blytzName;
+    var factor = Number(placement.scale_factor);
+    if (isFinite(factor) && factor > 0 && Math.abs(factor - 1) >= 0.0001) {
+      obj.set({
+        scaleX: (obj.scaleX == null ? 1 : obj.scaleX) * factor,
+        scaleY: (obj.scaleY == null ? 1 : obj.scaleY) * factor,
+      });
+    }
+    var fabric = fabricNS();
+    var Point = fabric && (fabric.Point || fabric.point);
+    var pt = Point
+      ? new Point(placement.cx, placement.cy)
+      : { x: placement.cx, y: placement.cy };
+    if (typeof obj.setPositionByOrigin === "function") {
+      obj.setPositionByOrigin(pt, "center", "center");
+    } else {
+      obj.set({
+        left: placement.cx,
+        top: placement.cy,
+        originX: "center",
+        originY: "center",
+      });
+    }
+    if (typeof obj.setCoords === "function") obj.setCoords();
+    if (id != null) obj.blytzId = id;
+    if (name != null) obj.blytzName = name;
+    return true;
+  }
+
+  function autoLayoutActive(getJSON) {
+    if (!persistAllowed()) {
+      setToolFeedback(
+        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+          "Editing is unavailable until the design finishes loading."
+      );
+      return false;
+    }
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var panel = getActivePrimaryPrintPanel();
+    if (!panel) {
+      setToolFeedback("Print panel unavailable for auto layout.");
+      return false;
+    }
+    var items = collectAutoLayoutItems(canvas);
+    if (!items.length) {
+      setToolFeedback("Nothing to layout — add unlocked images or text.");
+      return false;
+    }
+    var plan = planAutoLayout(items, panel);
+    if (!plan.ok || !plan.placements.length) {
+      setToolFeedback(
+        plan.reason === "empty"
+          ? "Nothing to layout — add unlocked images or text."
+          : "Auto layout could not place objects."
+      );
+      return false;
+    }
+    var byId = {};
+    var i;
+    for (i = 0; i < items.length; i++) {
+      byId[String(items[i].id)] = items[i].obj;
+    }
+    var skippedLocked = 0;
+    var allObjs = canvas.getObjects();
+    for (i = 0; i < allObjs.length; i++) {
+      var o = allObjs[i];
+      if (!o) continue;
+      var tk = typeKey(o);
+      if (tk !== "image" && !isTextObject(o)) continue;
+      if (o.visible === false) continue;
+      if (isObjectLocked(o)) skippedLocked += 1;
+    }
+    return commitEdit(
+      "auto-layout",
+      function () {
+        canvas.discardActiveObject();
+        var moved = 0;
+        for (i = 0; i < plan.placements.length; i++) {
+          var pl = plan.placements[i];
+          var target = byId[String(pl.id)];
+          if (!target) continue;
+          if (applyAutoLayoutPlacement(target, pl)) moved += 1;
+        }
+        if (!moved) return false;
+        canvas.requestRenderAll();
+        return true;
+      },
+      getJSON
+    )
+      ? (function () {
+          var parts = ["Auto layout applied."];
+          if (skippedLocked) {
+            parts.push(skippedLocked + " locked skipped.");
+          }
+          if (plan.notes) parts.push(plan.notes);
+          setToolFeedback(parts.join(" "));
+          return true;
+        })()
+      : false;
+  }
+
+  /**
    * Stacking reorder via Fabric 6.6.1 canvas methods.
    * bringObjectForward/sendObjectBackwards with intersecting=false → one list step.
    */
@@ -3700,9 +4545,12 @@
       } else if (action === "select") {
         e.preventDefault();
         setMultiSelectMode(false);
-      } else if (action === "multi-select") {
+      } else       if (action === "multi-select") {
         e.preventDefault();
         setMultiSelectMode(!multiSelectMode);
+      } else if (action === "auto-layout") {
+        e.preventDefault();
+        autoLayoutActive(getJSON);
       }
       // add-image / elements are handled by editor_tools.js (panel open).
     });
@@ -3829,6 +4677,22 @@
     aiCandidatesPending: aiCandidatesPending,
     VIEW_SWITCH_DURING_AI_PREVIEW: VIEW_SWITCH_DURING_AI_PREVIEW,
     applyResponsiveSize: applyResponsiveSize,
+    getZoom: getZoom,
+    setZoomLevel: setZoomLevel,
+    zoomBy: zoomBy,
+    resetZoom: resetZoom,
+    clampZoom: clampZoom,
+    nextZoomStep: nextZoomStep,
+    sceneZoomToPoint: sceneZoomToPoint,
+    panSceneBy: panSceneBy,
+    ensureArtboardScene: ensureArtboardScene,
+    ensureFabricViewportIdentity: ensureFabricViewportIdentity,
+    applySceneTransform: applySceneTransform,
+    syncGarmentViewport: syncGarmentViewport,
+    onZoomChange: onZoomChange,
+    ZOOM_MIN: ZOOM_MIN,
+    ZOOM_MAX: ZOOM_MAX,
+    ZOOM_STEP_FACTOR: ZOOM_STEP_FACTOR,
     setToolFeedback: setToolFeedback,
     setMessageSink: setMessageSink,
     commitEdit: commitEdit,
@@ -3857,6 +4721,13 @@
     replaceActiveImageSrc: replaceActiveImageSrc,
     centerActiveImage: centerActiveImage,
     flipActive: flipActive,
+    autoLayoutActive: autoLayoutActive,
+    canAutoLayout: canAutoLayout,
+    planAutoLayout: planAutoLayout,
+    deriveAutoLayoutSlots: deriveAutoLayoutSlots,
+    autoLayoutScaleToFit: autoLayoutScaleToFit,
+    autoLayoutClampCenter: autoLayoutClampCenter,
+    pickPrimaryPrintPanel: pickPrimaryPrintPanel,
     aabbDeltaAlign: aabbDeltaAlign,
     unionAabb: unionAabb,
     distributeAabbDeltas: distributeAabbDeltas,

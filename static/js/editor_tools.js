@@ -720,6 +720,22 @@
     list.setAttribute("data-render-ms", String(Math.round((t1 - t0) * 100) / 100));
   }
 
+  function syncAutoLayoutToolbar() {
+    var btn = document.querySelector(
+      '#editor-toolbar [data-editor-action="auto-layout"]'
+    );
+    if (!btn || !api()) return;
+    var can = !!(api().canAutoLayout && api().canAutoLayout());
+    btn.disabled = !can;
+    if (can) {
+      btn.removeAttribute("aria-disabled");
+      btn.title = "Arrange images and text on the print panel (rule-based)";
+    } else {
+      btn.setAttribute("aria-disabled", "true");
+      btn.title = "Add unlocked images or text to use auto layout";
+    }
+  }
+
   function syncLayerActionState(toolbar) {
     toolbar = toolbar || document.querySelector(".editor-layers-toolbar");
     if (!toolbar || !api()) return;
@@ -1283,11 +1299,18 @@
         "selection:updated",
         "selection:cleared",
       ].forEach(function (ev) {
-        c.on(ev, refreshLayers);
+        c.on(ev, function () {
+          refreshLayers();
+          syncAutoLayoutToolbar();
+        });
       });
       if (global.BlytzEditor && BlytzEditor.onCommittedChange) {
-        BlytzEditor.onCommittedChange(refreshLayers);
+        BlytzEditor.onCommittedChange(function () {
+          refreshLayers();
+          syncAutoLayoutToolbar();
+        });
       }
+      syncAutoLayoutToolbar();
     })();
 
     function bindGarmentUi() {
@@ -1304,11 +1327,13 @@
       if (typeof global.BlytzEditor.onViewChange === "function") {
         global.BlytzEditor.onViewChange(function () {
           refreshViewToggle();
+          syncAutoLayoutToolbar();
         });
       }
       if (typeof global.BlytzEditor.onGarmentChange === "function") {
         global.BlytzEditor.onGarmentChange(function () {
           updateGarmentSummary();
+          syncAutoLayoutToolbar();
           if (openPanelId === "garment") {
             syncGarmentPanelPressed();
             syncGarmentPanelLive();
@@ -1318,8 +1343,10 @@
       if (typeof global.BlytzEditor.onCommittedChange === "function") {
         global.BlytzEditor.onCommittedChange(function () {
           refreshViewToggle();
+          syncAutoLayoutToolbar();
         });
       }
+      syncAutoLayoutToolbar();
       return true;
     }
     var garmentTries = 0;

@@ -900,7 +900,33 @@
     var locked = !!(opts && opts.locked);
     var canCompose = !locked;
     var canDistribute = canCompose && isMulti && count >= 3;
+    var a = api();
+    var canLayout = !!(a && a.canAutoLayout && a.canAutoLayout());
     var section = el("div", { className: "editor-props-align" });
+    section.appendChild(
+      el("p", {
+        className: "editor-props-align-heading",
+        text: "Auto layout",
+      })
+    );
+    section.appendChild(
+      el("div", { className: "editor-props-align-row" }, [
+        (function () {
+          var btn = el("button", {
+            type: "button",
+            className: "editor-props-align-btn",
+            "data-auto-layout": "1",
+            text: "Auto layout",
+            title: canLayout
+              ? "Arrange images and text on the print panel (rule-based)"
+              : "Add unlocked images or text to use auto layout",
+            "aria-label": "Auto layout",
+          });
+          if (!canLayout) btn.disabled = true;
+          return btn;
+        })(),
+      ])
+    );
     if (locked) {
       section.appendChild(
         el("p", {
@@ -1610,6 +1636,11 @@
       buildAlignFlipControls({ isMulti: false, count: 1, locked: locked })
     );
     if (locked) setPropsControlsDisabled(body, true);
+    // Auto layout is canvas-wide (skips locked); keep it available when selection is locked.
+    body.querySelectorAll("[data-auto-layout]").forEach(function (btn) {
+      var allow = !!(api() && api().canAutoLayout && api().canAutoLayout());
+      btn.disabled = !allow;
+    });
   }
 
   function buildTextStyleControls(obj) {
@@ -1809,6 +1840,14 @@
     if (!a) return;
     if (runCurvePanelClick(e)) return;
     if (runImagePlacementClick(e)) return;
+    var layoutBtn = e.target.closest("[data-auto-layout]");
+    if (layoutBtn) {
+      e.preventDefault();
+      if (layoutBtn.disabled) return;
+      if (a.autoLayoutActive) a.autoLayoutActive(getJSON);
+      scheduleSync();
+      return;
+    }
     var styleBtn = e.target.closest("[data-text-style]");
     if (styleBtn) {
       e.preventDefault();

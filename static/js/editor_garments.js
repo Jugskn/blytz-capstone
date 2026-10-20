@@ -440,32 +440,67 @@
     }
   }
 
-  function positionLayerSvg(svg, wrap) {
+  /**
+   * Mount target for garment SVGs: shared #editor-artboard-scene when present
+   * so CSS viewport zoom scales garment + Fabric together (Option A).
+   */
+  function getArtboardMount() {
+    return (
+      document.getElementById("editor-artboard-scene") ||
+      document.getElementById("editor-canvas-wrap")
+    );
+  }
+
+  function positionLayerSvg(svg, mount) {
+    mount = mount || getArtboardMount();
+    if (!mount) return;
     svg.setAttribute("viewBox", VIEW_BOX);
     svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");
     svg.setAttribute("draggable", "false");
-    var cs =
-      typeof global.getComputedStyle === "function"
-        ? global.getComputedStyle(wrap)
-        : null;
-    var bl = cs ? parseFloat(cs.borderLeftWidth) || 0 : 0;
-    var bt = cs ? parseFloat(cs.borderTopWidth) || 0 : 0;
-    svg.setAttribute(
-      "style",
-      "pointer-events:none;user-select:none;position:absolute;left:" +
-        -bl +
-        "px;top:" +
-        -bt +
-        "px;width:" +
-        wrap.offsetWidth +
-        "px;height:" +
-        wrap.offsetHeight +
-        "px;max-width:none;max-height:none;box-sizing:border-box;margin:0;padding:0;overflow:visible"
-    );
-    svg.setAttribute("width", String(wrap.offsetWidth));
-    svg.setAttribute("height", String(wrap.offsetHeight));
+    // Inside the scene: fill the scene box (no wrap-border offset).
+    // Legacy wrap mount: compensate border so SVG covers the padded box.
+    var bl = 0;
+    var bt = 0;
+    if (mount.id === "editor-canvas-wrap") {
+      var cs =
+        typeof global.getComputedStyle === "function"
+          ? global.getComputedStyle(mount)
+          : null;
+      bl = cs ? parseFloat(cs.borderLeftWidth) || 0 : 0;
+      bt = cs ? parseFloat(cs.borderTopWidth) || 0 : 0;
+    }
+    var w = mount.clientWidth || mount.offsetWidth || 0;
+    var h = mount.clientHeight || mount.offsetHeight || 0;
+    svg.style.pointerEvents = "none";
+    svg.style.userSelect = "none";
+    svg.style.position = "absolute";
+    svg.style.left = -bl + "px";
+    svg.style.top = -bt + "px";
+    svg.style.width = w + bl * 2 + "px";
+    svg.style.height = h + bt * 2 + "px";
+    svg.style.maxWidth = "none";
+    svg.style.maxHeight = "none";
+    svg.style.boxSizing = "border-box";
+    svg.style.margin = "0";
+    svg.style.padding = "0";
+    svg.style.overflow = "visible";
+    // Clear any leftover per-layer zoom transform (scene owns zoom now).
+    svg.style.transform = "";
+    svg.style.transformOrigin = "";
+    svg.setAttribute("width", String(w + bl * 2));
+    svg.setAttribute("height", String(h + bt * 2));
+  }
+
+  function syncGarmentViewportFromCanvas() {
+    var canvas = global.BlytzCanvas;
+    if (canvas && typeof canvas.ensureArtboardScene === "function") {
+      canvas.ensureArtboardScene();
+    }
+    if (canvas && typeof canvas.syncGarmentViewport === "function") {
+      canvas.syncGarmentViewport();
+    }
   }
 
   function applyColorVars(el, fillHex, trimHex) {
@@ -484,17 +519,18 @@
     return document.importNode(root, true);
   }
 
-  function replaceLayerSvg(wrap, id, markup, asFirst) {
+  function replaceLayerSvg(mount, id, markup, asFirst) {
+    mount = mount || getArtboardMount();
     var next = parseSvgMarkup(markup);
     next.setAttribute("id", id);
-    positionLayerSvg(next, wrap);
+    positionLayerSvg(next, mount);
     var prev = document.getElementById(id);
     if (prev && prev.parentNode) {
       prev.parentNode.replaceChild(next, prev);
     } else if (asFirst) {
-      wrap.insertBefore(next, wrap.firstChild);
+      mount.insertBefore(next, mount.firstChild);
     } else {
-      wrap.appendChild(next);
+      mount.appendChild(next);
     }
     return next;
   }
@@ -606,6 +642,7 @@
   function renderGarmentLayer(garmentId, colorId, viewId) {
     var wrap = document.getElementById("editor-canvas-wrap");
     if (!wrap) return null;
+    var mount = getArtboardMount() || wrap;
 
     var garment = garmentById(garmentId) || garmentById("tee");
     var view = normalizeViewId(viewId);
@@ -614,6 +651,7 @@
     var trimHex = contrastColor(fillHex);
 
     applyColorVars(wrap, fillHex, trimHex);
+    applyColorVars(mount, fillHex, trimHex);
 
     var viewDef = garment.views[view] || { svg: "", printAreas: [] };
     var fileName = viewDef.svg;
@@ -624,24 +662,30 @@
       .then(function (text) {
         if (token !== renderToken) return null;
         var split = splitGarmentSvg(text);
-        var under = replaceLayerSvg(wrap, "editor-garment-layer", split.under, true);
+        var under = replaceLayerSvg(
+          mount,
+          "editor-garment-layer",
+          split.under,
+          true
+        );
         var over = replaceLayerSvg(
-          wrap,
+          mount,
           "editor-garment-overlay",
           split.over,
           false
         );
         applyColorVars(under, fillHex, trimHex);
         applyColorVars(over, fillHex, trimHex);
-        positionLayerSvg(under, wrap);
-        positionLayerSvg(over, wrap);
+        positionLayerSvg(under, mount);
+        positionLayerSvg(over, mount);
+        syncGarmentViewportFromCanvas();
         if (liteGarmentEnabled(wrap)) {
           stripGrainAndWeave(over);
         }
         drawPrintAreas(over, viewDef.printAreas, contrastColor(fillHex));
-        // Keep overlay above Fabric canvases.
-        if (over.parentNode === wrap) {
-          wrap.appendChild(over);
+        // Keep overlay above Fabric canvases inside the scene.
+        if (over.parentNode === mount) {
+          mount.appendChild(over);
         }
         return { under: under, over: over };
       })
