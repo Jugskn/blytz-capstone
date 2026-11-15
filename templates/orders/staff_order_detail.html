@@ -1,18 +1,25 @@
-  {% extends "base_staff.html" %}
-  {% load static %}
+{% extends "base_staff_nosidebar.html" %}    
+{% load static %}
 
-  {% block title %}{{ order.order_id }} — Staff{% endblock %}
+{% block title %}{{ order.order_id }} — Staff{% endblock %}
 
-  {% block content %}
+{% block staff_content %}
 <style>
   h1, h2, h3, h4, h5, h6 {
     color: #000000 !important;
   }
 </style>
-  <section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-    <p class="text-sm text-ink-muted">
-      <a href="{% url 'jobs_pipeline' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Jobs</a>
-      <span class="mx-1">/</span>
+  <section class="mx-auto w-full max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8">
+    <p class="flex items-center gap-2 text-sm text-ink-muted">
+      <a href="{% url 'jobs_pipeline' %}"
+        aria-label="Back to Jobs"
+        class="inline-flex items-center justify-center rounded-full p-1 transition-colors hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+        <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+        </svg>
+      </a>
+      <a href="{% url 'jobs_pipeline' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Jobs</a>
+      <span>/</span>
       <span class="font-mono">{{ order.order_id }}</span>
     </p>
 
@@ -576,25 +583,24 @@
         {% endif %}
       </div>
 
-      <div class="rounded-lg p-4 sm:p-6" {% if order.status == 'job_request' %}style="border: 3px solid #ef4444; background-color: #fef2f2; box-shadow: 0 4px 15px rgba(239,68,68,0.15);"{% else %}style="border: 1px solid #e5e5e5; background-color: #ffffff;"{% endif %}>
-        <div class="flex items-center justify-between gap-2">
-          {% if order.status == 'job_request' %}
-          <h2 class="font-display text-xl flex items-center gap-2" style="color: #b91c1c !important;">
-            <span style="display: inline-block; width: 12px; height: 12px; background-color: #ef4444; border-radius: 50%; animation: pulse 1.5s infinite;"></span>
-            ⚠️ Payments — Action Required
-          </h2>
-          {% else %}
-          <h2 class="font-display text-xl text-ink">Payments</h2>
-          {% endif %}
-          <a href="{% url 'accounting_detail' order.order_id %}" class="text-sm underline" {% if order.status == 'job_request' %}style="color: #b91c1c !important;"{% endif %}>Accounting</a>
-        </div>
+  <div class="rounded-lg p-4 sm:p-6" {% if order.status == 'job_request' and order.pending_payment %}style="border: 3px solid #d4a017; background-color: #fffbeb; box-shadow: 0 4px 15px rgba(212,160,23,0.18);"{% else %}style="border: 1px solid #e7e5e4; background-color: #ffffff;"{% endif %}>
+  <div class="flex items-center justify-between gap-2">
+    {% if order.status == 'job_request' and order.pending_payment %}
+    <h2 class="font-display text-xl flex items-center gap-2" style="color: #92400e !important;">
+      <span style="display: inline-block; width: 12px; height: 12px; background-color: #d4a017; border-radius: 50%; animation: pulse 1.5s infinite;"></span>
+      Payments — Action Required
+    </h2>
+    {% else %}
+    <h2 class="font-display text-xl text-ink">Payments</h2>
+    {% endif %}
+    <a href="{% url 'accounting_detail' order.order_id %}" class="text-sm underline" {% if order.status == 'job_request' and order.pending_payment %}style="color: #92400e !important;"{% endif %}>Accounting</a>
+  </div>
         {% if payments %}
         {% if order.status == 'job_request' and order.pending_payment %}
-        <div class="mt-3 flex items-center gap-2 rounded-lg px-4 py-3" style="background-color: #fee2e2; border: 2px solid #fca5a5;">
-          <span class="text-2xl">⚠️</span>
+        <div class="mt-3 flex items-center gap-2 rounded-lg px-4 py-3" style="background-color: #fef3c7; border: 2px solid #fbbf24;">
           <div>
-            <p class="text-sm font-bold" style="color: #991b1b !important;">Payment awaiting your review!</p>
-            <p class="text-xs" style="color: #dc2626 !important;">Please accept or reject the payment proof below.</p>
+            <p class="text-sm font-bold" style="color: #78350f !important;">Payment awaiting your review!</p>
+            <p class="text-xs" style="color: #b45309 !important;">Please accept or reject the payment proof below.</p>
           </div>
         </div>
         {% endif %}

@@ -5,7 +5,7 @@ from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.utils import timezone
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from apps.accounts.models import User
 from apps.designs.models import ActivityLog, Design
@@ -35,6 +35,30 @@ def placeholder_preview(label: str, color=(180, 180, 190)) -> ContentFile:
     buffer = BytesIO()
     img.save(buffer, format="PNG")
     return ContentFile(buffer.getvalue(), name=f"{label}.png")
+
+
+def _font(size: int):
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:  # older Pillow: fixed-size built-in font
+        return ImageFont.load_default()
+
+
+def placeholder_proof(label: str, *, channel: str, amount, reference: str) -> ContentFile:
+    """A fake payment receipt (PNG) to use as proof of payment in demo data."""
+    img = Image.new("RGB", (480, 640), color=(250, 250, 248))
+    draw = ImageDraw.Draw(img)
+    draw.rectangle([0, 0, 480, 96], fill=(11, 11, 12))
+    draw.text((24, 36), f"{channel}  |  PAYMENT RECEIPT", font=_font(22), fill=(212, 175, 55))
+    draw.text((24, 140), "Amount sent", font=_font(18), fill=(110, 110, 110))
+    draw.text((24, 168), f"PHP {amount}", font=_font(34), fill=(20, 20, 20))
+    draw.text((24, 240), "Reference no.", font=_font(18), fill=(110, 110, 110))
+    draw.text((24, 268), reference, font=_font(28), fill=(20, 20, 20))
+    draw.text((24, 340), "Sent successfully", font=_font(22), fill=(30, 140, 60))
+    draw.text((24, 596), "Sample image - demo data only", font=_font(16), fill=(150, 150, 150))
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    return ContentFile(buffer.getvalue(), name=f"{label}-proof.png")
 
 
 class Command(BaseCommand):
@@ -241,6 +265,19 @@ class Command(BaseCommand):
             # Orders past Job Request always get an accepted payment so gates stay valid.
             # Payment created_at is backdated within the last 60 days for charts.
             def _add_payment(*, amount, status, channel_obj, days_offset=0, **extra):
+                # Demo proof of payment + reference number for every claim.
+                n = Payment.objects.filter(order=order).count() + 1
+                reference = str(8100000000000 + order.pk * 100 + n)  # 13-digit, e-wallet style
+                extra.setdefault("reference_number", reference)
+                extra.setdefault(
+                    "proof_file",
+                    placeholder_proof(
+                        f"{order.order_id}-{n}",
+                        channel=channel_obj.display_name,
+                        amount=amount,
+                        reference=extra["reference_number"],
+                    ),
+                )
                 payment = Payment.objects.create(
                     order=order,
                     channel=channel_obj,
