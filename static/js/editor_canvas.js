@@ -3573,6 +3573,24 @@
     return { left: 0, top: 0, width: LOGICAL_SIZE, height: LOGICAL_SIZE };
   }
 
+  /**
+   * Printable-area AABB for the current garment + active view.
+   * Falls back to the full logical canvas when no print panel is defined,
+   * so alignment never silently stops working on unusual garments.
+   */
+  function printPanelAabbBox() {
+    var panel = getActivePrimaryPrintPanel();
+    if (!panel) return canvasAabbBox();
+    var x = Number(panel.x);
+    var y = Number(panel.y);
+    var w = Number(panel.w != null ? panel.w : panel.width);
+    var h = Number(panel.h != null ? panel.h : panel.height);
+    if (!(w > 0) || !(h > 0) || isNaN(x) || isNaN(y)) {
+      return canvasAabbBox();
+    }
+    return { left: x, top: y, width: w, height: h };
+  }
+   
   function translateObjectBy(obj, dx, dy) {
     if (!obj || (!dx && !dy)) return;
     obj.set({
@@ -3656,7 +3674,7 @@
         return withAbsoluteSelectionObjects(canvas, function (objects, aabbs) {
           var box = useSelection
             ? unionAabb(aabbs)
-            : canvasAabbBox();
+            : printPanelAabbBox();
           if (!box) return false;
           var moved = false;
           var i;
@@ -3754,7 +3772,7 @@
         return withAbsoluteSelectionObjects(canvas, function (objects, aabbs) {
           var box = unionAabb(aabbs);
           if (!box) return false;
-          var canvasBox = canvasAabbBox();
+          var canvasBox = printPanelAabbBox();
           var dx = 0;
           var dy = 0;
           if (axis === "horizontal" || axis === "both") {
@@ -4335,6 +4353,8 @@
     };
   }
 
+  var SMART_SHAPE_KEYS = ["rect", "ellipse", "circle", "polygon", "path"];
+
   function collectAutoLayoutItems(canvas) {
     var objects = canvas && canvas.getObjects ? canvas.getObjects() : [];
     var items = [];
@@ -4345,7 +4365,9 @@
       if (obj.visible === false) continue;
       if (isObjectLocked(obj)) continue;
       var tk = typeKey(obj);
-      if (tk !== "image" && !isTextObject(obj)) continue;
+      var isTxt = isTextObject(obj);
+      var isShape = SMART_SHAPE_KEYS.indexOf(tk) >= 0;
+      if (tk !== "image" && !isTxt && !isShape) continue;
       var sw =
         typeof obj.getScaledWidth === "function"
           ? obj.getScaledWidth()
@@ -4357,7 +4379,7 @@
       if (!(sw > 0) || !(sh > 0)) continue;
       items.push({
         id: obj.blytzId != null ? obj.blytzId : i,
-        kind: tk === "image" ? "image" : "text",
+        kind: tk === "image" ? "image" : isTxt ? "text" : "shape",
         width: sw,
         height: sh,
         order: i,
@@ -4405,80 +4427,466 @@
     if (name != null) obj.blytzName = name;
     return true;
   }
+  /* =====================================================================
+     GARMENT-AWARE AUTO LAYOUT
+     - Auto Layout ALL  : toolbar button -> autoLayoutActive()
+     - Individual layout: properties panel -> autoLayoutSelected()
+     Supported garments: tee (T-shirt), polo, hoodie, jersey (= Sleeveless).
+     5 layouts x 4 garments x 2 sides = 40 layouts. Each click moves to the
+     next layout for that garment + side (6th click returns to layout 1).
+     Slot tuple: [kind, x, y, w, h, align]   (garment SVG units, 800x800)
+       kind  img  = biggest image / main graphic (also used by elements)
+             logo = smallest image
+             txt  = text, in priority order (biggest text takes slot 1)
+             num  = player / jersey number (a text that is 1-3 digits)
+             el   = element (shape) or extra image
+       align "l" | "r" | "c" (default) = horizontal alignment inside the box
+     Every box was measured against the real garment SVGs: it stays clear of
+     the collar, polo placket, hoodie hood and pocket, and sleeves/armholes.
+     ===================================================================== */
+  var GARMENT_LAYOUTS = {
+    "tee:front": [
+      { name: "Classic center print", slots: [["img",300,285,200,230], ["txt",290,525,220,64], ["el",285,598,52,52], ["el",463,598,52,52]] },
+      { name: "Left chest minimalist", slots: [["logo",292,272,92,92,"l"], ["txt",292,372,170,34,"l"], ["txt",292,410,140,26,"l"]] },
+      { name: "Typography focused", slots: [["txt",290,330,220,130], ["txt",300,268,200,50], ["txt",300,470,200,44], ["logo",360,548,80,80], ["el",285,556,60,60], ["el",455,556,60,60]] },
+      { name: "Artistic composition", slots: [["img",300,320,200,170], ["txt",285,498,230,56], ["txt",300,560,200,34], ["el",285,264,50,50], ["el",465,264,50,50], ["el",285,602,48,48]] },
+      { name: "Layered graphic", slots: [["img",300,285,200,190], ["txt",290,483,220,66], ["txt",300,555,200,34], ["el",285,598,48,48], ["el",352,600,96,44], ["el",467,598,48,48]] },
+    ],
+    "tee:back": [
+      { name: "Large center back", slots: [["img",290,260,220,290], ["txt",295,560,210,60]] },
+      { name: "Upper back branding", slots: [["logo",350,245,100,76], ["img",330,430,140,150], ["txt",300,330,200,80], ["txt",310,590,180,36]] },
+      { name: "Typography back", slots: [["txt",290,262,220,120], ["txt",300,392,200,60], ["logo",360,470,80,80]] },
+      { name: "Artistic back", slots: [["img",300,300,200,220], ["txt",290,528,220,56], ["txt",300,590,200,34], ["el",285,247,46,46], ["el",469,247,46,46]] },
+      { name: "Minimalist back", slots: [["logo",365,248,70,70], ["txt",320,326,160,34]] },
+    ],
+    "polo:front": [
+      { name: "Classic corporate", slots: [["logo",296,276,70,70], ["txt",288,358,150,30,"l"]] },
+      { name: "Balanced branding", slots: [["logo",290,270,80,80], ["txt",430,276,84,60]] },
+      { name: "Logo focused", slots: [["logo",288,268,84,100,"l"], ["txt",288,376,150,32,"l"]] },
+      { name: "Minimalist", slots: [["logo",296,276,64,64]] },
+      { name: "Modern corporate", slots: [["logo",290,266,70,70,"l"], ["txt",288,354,170,32,"l"], ["el",290,394,34,34], ["el",330,394,34,34]] },
+    ],
+    "polo:back": [
+      { name: "Centered branding", slots: [["img",330,250,140,140], ["txt",300,400,200,50]] },
+      { name: "Text focused", slots: [["txt",290,252,220,80], ["logo",360,345,80,80]] },
+      { name: "Minimalist branding", slots: [["logo",365,250,70,70], ["txt",330,326,140,28]] },
+      { name: "Corporate graphic", slots: [["img",310,260,180,220], ["txt",300,490,200,50]] },
+      { name: "Balanced composition", slots: [["txt",300,252,200,56], ["img",330,318,140,170], ["txt",310,498,180,40]] },
+    ],
+    "hoodie:front": [
+      { name: "Classic hoodie", slots: [["img",310,300,180,150], ["txt",300,262,200,34]] },
+      { name: "Left chest branding", slots: [["logo",290,268,66,66,"l"], ["txt",288,342,160,28,"l"]] },
+      { name: "Centered typography", slots: [["txt",300,312,200,86], ["txt",310,404,180,34], ["logo",285,262,64,44], ["el",451,262,64,44]] },
+      { name: "Oversized graphic", slots: [["img",290,262,220,150], ["txt",300,420,200,38]] },
+      { name: "Layered streetwear", slots: [["logo",290,262,60,44], ["img",310,312,180,110], ["txt",300,426,200,32], ["el",450,262,60,44]] },
+    ],
+    "hoodie:back": [
+      { name: "Large center back", slots: [["img",290,380,220,200], ["txt",300,590,200,52]] },
+      { name: "Upper back branding", slots: [["logo",360,376,80,70], ["txt",310,454,180,60], ["img",330,524,140,116]] },
+      { name: "Typography focused", slots: [["txt",290,378,220,110], ["img",320,496,160,100], ["txt",320,604,160,38]] },
+      { name: "Oversized artistic", slots: [["img",310,424,180,170], ["txt",300,600,200,44], ["el",284,376,44,44], ["el",472,376,44,44]] },
+      { name: "Minimalist streetwear", slots: [["logo",365,378,70,70], ["txt",330,456,140,30]] },
+    ],
+    "jersey:front": [
+      { name: "Classic sports", slots: [["num",330,392,140,190], ["txt",320,344,160,40], ["logo",308,276,60,60], ["el",320,592,60,50], ["el",420,592,60,50]] },
+      { name: "Balanced split", slots: [["num",330,420,140,200], ["txt",378,280,112,56], ["logo",308,276,60,60], ["el",440,345,56,56]] },
+      { name: "Centered minimalist", slots: [["num",320,392,160,230], ["txt",330,344,140,36], ["logo",365,274,70,64], ["el",350,628,100,24]] },
+      { name: "Dynamic athletic", slots: [["num",350,360,150,230], ["txt",310,600,180,40], ["logo",308,276,64,64], ["el",300,372,44,44], ["el",450,284,40,40], ["el",300,520,44,44]] },
+      { name: "Graphic focused", slots: [["img",320,318,160,210], ["txt",318,534,164,42], ["num",350,582,100,68], ["logo",310,272,54,40], ["el",440,272,54,40]] },
+    ],
+    "jersey:back": [
+      { name: "Traditional player", slots: [["txt",300,215,200,70], ["num",320,296,160,262], ["logo",365,575,70,70]] },
+      { name: "Number focused", slots: [["num",310,260,180,330], ["txt",310,212,180,44], ["el",320,598,60,48], ["el",420,598,60,48]] },
+      { name: "Balanced athletic", slots: [["txt",300,215,200,60], ["num",330,290,140,250], ["logo",310,570,70,70], ["logo",420,570,70,70]] },
+      { name: "Dynamic sports", slots: [["txt",300,212,200,50], ["num",350,290,150,270], ["el",300,300,44,44], ["el",300,520,44,44], ["el",350,572,100,60]] },
+      { name: "Minimalist", slots: [["logo",365,214,70,60], ["txt",320,282,160,34], ["num",320,326,160,240]] },
+    ],
+  };
 
-  function autoLayoutActive(getJSON) {
-    if (!persistAllowed()) {
-      setToolFeedback(
-        (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
-          "Editing is unavailable until the design finishes loading."
-      );
-      return false;
+  var GARMENT_LABELS = {
+    tee: "T-shirt",
+    polo: "Polo shirt",
+    hoodie: "Hoodie",
+    jersey: "Sleeveless",
+  };
+  var AL_MAX_UPSCALE = 6;
+  var AL_OVERLAP_OK = 0.15;
+  var garmentRounds = {}; // "tee:front" -> next layout index (8 independent counters)
+  var objectRounds = {}; // blytzId -> next individual layout index
+
+  function layoutKey(template, view) {
+    return String(template) + ":" + (view === "back" ? "back" : "front");
+  }
+
+  function layoutVariants(template, view) {
+    return GARMENT_LAYOUTS[layoutKey(template, view)] || null;
+  }
+
+  function alArea(it) {
+    return (it.width || 0) * (it.height || 0);
+  }
+
+  function alByAreaDesc(a, b) {
+    return alArea(b) - alArea(a) || (a.order || 0) - (b.order || 0);
+  }
+
+  /** A player / jersey number = text of 1-3 digits. */
+  function isNumberText(it) {
+    if (!it || it.kind !== "text" || !it.obj) return false;
+    var t = String(it.obj.text == null ? "" : it.obj.text).trim();
+    return /^\d{1,3}$/.test(t);
+  }
+
+  function placeInBox(it, slot) {
+    var bx = slot[1];
+    var by = slot[2];
+    var bw = slot[3];
+    var bh = slot[4];
+    var al = slot[5] || "c";
+    var f = autoLayoutScaleToFit(it.width, it.height, bw, bh, true);
+    if (f > AL_MAX_UPSCALE) f = AL_MAX_UPSCALE;
+    var nw = it.width * f;
+    var nh = it.height * f;
+    var cx = al === "l" ? bx + nw / 2 : al === "r" ? bx + bw - nw / 2 : bx + bw / 2;
+    return {
+      id: it.id,
+      cx: cx,
+      cy: by + bh / 2,
+      width: nw,
+      height: nh,
+      scale_factor: f,
+      align: al,
+    };
+  }
+
+  /** AUTO LAYOUT ALL: put every object into the slots of layout #index. */
+  function planGarmentLayout(items, variants, index) {
+    var n = variants.length;
+    var idx = ((index % n) + n) % n;
+    var variant = variants[idx];
+    var slots = variant.slots;
+    var images = [];
+    var elements = [];
+    var texts = [];
+    var numbers = [];
+    (items || []).forEach(function (it) {
+      if (it.kind === "image") images.push(it);
+      else if (it.kind === "shape") elements.push(it);
+      else if (it.kind === "text") (isNumberText(it) ? numbers : texts).push(it);
+    });
+    images.sort(alByAreaDesc);
+    elements.sort(alByAreaDesc);
+    texts.sort(alByAreaDesc);
+    numbers.sort(alByAreaDesc);
+
+    var slotItem = [];
+    var i;
+    var k;
+    var it;
+
+    // 1) image slots, in authored order: img takes the biggest, logo the smallest
+    for (i = 0; i < slots.length; i++) {
+      k = slots[i][0];
+      if (k !== "img" && k !== "logo") continue;
+      it = null;
+      if (images.length) it = k === "logo" ? images.pop() : images.shift();
+      else if (elements.length) it = elements.shift();
+      if (it) slotItem[i] = it;
     }
+    // 2) number slot gets the number text; text slots get the biggest texts
+    for (i = 0; i < slots.length; i++) {
+      if (slots[i][0] === "num" && numbers.length) slotItem[i] = numbers.shift();
+    }
+    var textPool = texts.concat(numbers).sort(alByAreaDesc);
+    for (i = 0; i < slots.length; i++) {
+      k = slots[i][0];
+      if ((k === "txt" || k === "num") && !slotItem[i] && textPool.length) {
+        slotItem[i] = textPool.shift();
+      }
+    }
+    // 3) elements (and extra images) go to the accent slots
+    var pool = images.concat(elements).sort(alByAreaDesc);
+    for (i = 0; i < slots.length; i++) {
+      if (slots[i][0] === "el" && pool.length) slotItem[i] = pool.shift();
+    }
+
+    var placements = [];
+    for (i = 0; i < slots.length; i++) {
+      if (slotItem[i]) placements.push(placeInBox(slotItem[i], slots[i]));
+    }
+    return {
+      ok: placements.length > 0,
+      placements: placements,
+      index: idx,
+      name: variant.name,
+      unmoved: pool.length + textPool.length,
+    };
+  }
+
+  function overlapRatio(pl, obstacles) {
+    var x0 = pl.cx - pl.width / 2;
+    var y0 = pl.cy - pl.height / 2;
+    var x1 = pl.cx + pl.width / 2;
+    var y1 = pl.cy + pl.height / 2;
+    var area = Math.max(1e-6, (x1 - x0) * (y1 - y0));
+    var sum = 0;
+    for (var i = 0; i < obstacles.length; i++) {
+      var o = obstacles[i];
+      var w = Math.min(x1, o[2]) - Math.max(x0, o[0]);
+      var h = Math.min(y1, o[3]) - Math.max(y0, o[1]);
+      if (w > 0 && h > 0) sum += w * h;
+    }
+    return Math.min(1, sum / area);
+  }
+
+  /** Slot in one layout that suits the selected object's category. */
+  function pickSelectedSlot(family, rank, targetIsNumber, hasNumber, slots) {
+    function of(kinds) {
+      return slots.filter(function (s) {
+        return kinds.indexOf(s[0]) >= 0;
+      });
+    }
+    if (family === "image") {
+      var big = of(["img"]);
+      var small = of(["logo"]);
+      if (rank === 0) return big[0] || small[0] || null;
+      if (small.length) return small[(rank - 1) % small.length];
+      return big.length ? big[rank % big.length] : null;
+    }
+    if (family === "text") {
+      var numSlots = of(["num"]);
+      if (targetIsNumber && numSlots.length) return numSlots[0];
+      var pool = hasNumber ? of(["txt"]) : of(["txt", "num"]);
+      if (!pool.length) pool = numSlots;
+      return pool.length ? pool[Math.min(rank, pool.length - 1)] : null;
+    }
+    var els = of(["el"]);
+    if (els.length) return els[rank % els.length];
+    var fb = of(["logo", "img"]);
+    return fb.length ? fb[fb.length - 1] : null;
+  }
+
+  /** INDIVIDUAL AUTO LAYOUT: next suitable spot for ONE object. */
+  function planSelectedLayout(targetItem, items, variants, start, obstacles) {
+    var n = variants.length;
+    var family =
+      targetItem.kind === "image" ? "image" : targetItem.kind === "text" ? "text" : "element";
+    var targetIsNumber = isNumberText(targetItem);
+    var hasNumber = (items || []).some(isNumberText);
+    var same = (items || [])
+      .filter(function (it) {
+        if (it.kind !== targetItem.kind) return false;
+        if (family !== "text") return true;
+        return targetIsNumber ? isNumberText(it) : !isNumberText(it);
+      })
+      .sort(alByAreaDesc);
+    var rank = 0;
+    for (var r = 0; r < same.length; r++) {
+      if (same[r].id === targetItem.id) rank = r;
+    }
+    var best = null;
+    for (var step = 0; step < n; step++) {
+      var idx = (((start + step) % n) + n) % n;
+      var slot = pickSelectedSlot(
+        family,
+        rank,
+        targetIsNumber,
+        hasNumber,
+        variants[idx].slots
+      );
+      if (!slot) continue;
+      var pl = placeInBox(targetItem, slot);
+      var ov = overlapRatio(pl, obstacles || []);
+      var cand = { idx: idx, name: variants[idx].name, placement: pl, overlap: ov };
+      if (ov <= AL_OVERLAP_OK) {
+        best = cand;
+        break;
+      }
+      if (!best || ov < best.overlap) best = cand;
+    }
+    return best;
+  }
+
+  function applyTextAlignForSlot(obj, align) {
+    if (!isTextObject(obj)) return;
+    var ta = align === "l" ? "left" : align === "r" ? "right" : "center";
+    if (obj.textAlign !== ta) obj.set("textAlign", ta);
+  }
+
+  function alSideLabel(template, view) {
+    return (GARMENT_LABELS[template] || template) + " " + (view === "back" ? "Back" : "Front");
+  }
+
+  function alPersistOk() {
+    if (persistAllowed()) return true;
+    setToolFeedback(
+      (global.BlytzEditor && global.BlytzEditor.getPersistBlockReason()) ||
+        "Editing is unavailable until the design finishes loading."
+    );
+    return false;
+  }
+
+  /** AUTO LAYOUT ALL (toolbar button). */
+  function autoLayoutActive(getJSON) {
+    if (!alPersistOk()) return false;
     var canvas = ensureCanvas(getJSON);
     if (!canvas) return false;
-    var panel = getActivePrimaryPrintPanel();
-    if (!panel) {
-      setToolFeedback("Print panel unavailable for auto layout.");
+    var template = garmentState.template;
+    var view = activeView;
+    var variants = layoutVariants(template, view);
+    if (!variants) {
+      setToolFeedback("Auto layout supports T-shirt, Polo, Hoodie and Sleeveless garments.");
       return false;
     }
     var items = collectAutoLayoutItems(canvas);
     if (!items.length) {
-      setToolFeedback("Nothing to layout — add unlocked images or text.");
+      setToolFeedback("Nothing to layout — add unlocked text, images or elements.");
       return false;
     }
-    var plan = planAutoLayout(items, panel);
-    if (!plan.ok || !plan.placements.length) {
-      setToolFeedback(
-        plan.reason === "empty"
-          ? "Nothing to layout — add unlocked images or text."
-          : "Auto layout could not place objects."
-      );
+    var key = layoutKey(template, view);
+    var plan = planGarmentLayout(items, variants, garmentRounds[key] || 0);
+    if (!plan.ok) {
+      setToolFeedback("Auto layout could not place objects.");
       return false;
     }
+    var panel = getActivePrimaryPrintPanel();
     var byId = {};
     var i;
-    for (i = 0; i < items.length; i++) {
-      byId[String(items[i].id)] = items[i].obj;
-    }
+    for (i = 0; i < items.length; i++) byId[String(items[i].id)] = items[i].obj;
     var skippedLocked = 0;
-    var allObjs = canvas.getObjects();
-    for (i = 0; i < allObjs.length; i++) {
-      var o = allObjs[i];
-      if (!o) continue;
+    var all = canvas.getObjects();
+    for (i = 0; i < all.length; i++) {
+      var o = all[i];
+      if (!o || o.visible === false || !isObjectLocked(o)) continue;
       var tk = typeKey(o);
-      if (tk !== "image" && !isTextObject(o)) continue;
-      if (o.visible === false) continue;
-      if (isObjectLocked(o)) skippedLocked += 1;
+      if (tk === "image" || isTextObject(o) || SMART_SHAPE_KEYS.indexOf(tk) >= 0) {
+        skippedLocked += 1;
+      }
     }
-    return commitEdit(
+    var ok = commitEdit(
       "auto-layout",
       function () {
         canvas.discardActiveObject();
         var moved = 0;
-        for (i = 0; i < plan.placements.length; i++) {
-          var pl = plan.placements[i];
+        for (var k = 0; k < plan.placements.length; k++) {
+          var pl = plan.placements[k];
           var target = byId[String(pl.id)];
           if (!target) continue;
-          if (applyAutoLayoutPlacement(target, pl)) moved += 1;
+          if (panel) {
+            var c = autoLayoutClampCenter(pl.cx, pl.cy, pl.width, pl.height, panel);
+            pl.cx = c.cx;
+            pl.cy = c.cy;
+          }
+          if (applyAutoLayoutPlacement(target, pl)) {
+            applyTextAlignForSlot(target, pl.align);
+            moved += 1;
+          }
         }
         if (!moved) return false;
         canvas.requestRenderAll();
         return true;
       },
       getJSON
-    )
-      ? (function () {
-          var parts = ["Auto layout applied."];
-          if (skippedLocked) {
-            parts.push(skippedLocked + " locked skipped.");
-          }
-          if (plan.notes) parts.push(plan.notes);
-          setToolFeedback(parts.join(" "));
-          return true;
-        })()
-      : false;
+    );
+    if (!ok) return false;
+    garmentRounds[key] = (plan.index + 1) % variants.length;
+    var parts = [
+      "Auto Layout All — " + alSideLabel(template, view) + ", layout " +
+        (plan.index + 1) + " of " + variants.length + ": " + plan.name + ".",
+    ];
+    if (skippedLocked) parts.push(skippedLocked + " locked skipped.");
+    if (plan.unmoved) parts.push(plan.unmoved + " extra object(s) left unmoved.");
+    setToolFeedback(parts.join(" "));
+    return true;
   }
 
+  function canAutoLayoutSelected() {
+    if (!persistAllowed() || !fabricCanvas) return false;
+    if (!layoutVariants(garmentState.template, activeView)) return false;
+    var obj = fabricCanvas.getActiveObject();
+    if (!obj || typeKey(obj) === "activeselection") return false;
+    if (obj.visible === false || isObjectLocked(obj)) return false;
+    var tk = typeKey(obj);
+    return tk === "image" || isTextObject(obj) || SMART_SHAPE_KEYS.indexOf(tk) >= 0;
+  }
+
+  /** INDIVIDUAL AUTO LAYOUT (properties panel): moves only the selected object. */
+  function autoLayoutSelected(getJSON) {
+    if (!alPersistOk()) return false;
+    var canvas = ensureCanvas(getJSON);
+    if (!canvas) return false;
+    var target = canvas.getActiveObject();
+    if (!target || typeKey(target) === "activeselection") {
+      setToolFeedback("Select one object to auto layout it.");
+      return false;
+    }
+    if (isObjectLocked(target)) {
+      setToolFeedback("Unlock this layer to auto layout it.");
+      return false;
+    }
+    var template = garmentState.template;
+    var view = activeView;
+    var variants = layoutVariants(template, view);
+    if (!variants) {
+      setToolFeedback("Auto layout supports T-shirt, Polo, Hoodie and Sleeveless garments.");
+      return false;
+    }
+    var items = collectAutoLayoutItems(canvas);
+    var targetItem = null;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].obj === target) targetItem = items[i];
+    }
+    if (!targetItem) {
+      setToolFeedback("Auto layout works on text, images and elements.");
+      return false;
+    }
+    var obstacles = [];
+    canvas.getObjects().forEach(function (o) {
+      if (!o || o === target || o.visible === false || o.blytzId == null) return;
+      var c = o.getCenterPoint();
+      var w = o.getScaledWidth();
+      var h = o.getScaledHeight();
+      obstacles.push([c.x - w / 2, c.y - h / 2, c.x + w / 2, c.y + h / 2]);
+    });
+    var id = target.blytzId != null ? String(target.blytzId) : "tmp";
+    var roundKey = id + ":" + layoutKey(template, view);
+
+    var plan = planSelectedLayout(
+      targetItem,
+      items,
+      variants,
+      objectRounds[roundKey] || 0,
+      obstacles
+    );
+    if (!plan) {
+      setToolFeedback("No suitable position found for this object on this garment.");
+      return false;
+    }
+    var panel = getActivePrimaryPrintPanel();
+    var ok = commitEdit(
+      "auto-layout-selected",
+      function () {
+        var pl = plan.placement;
+        if (panel) {
+          var c = autoLayoutClampCenter(pl.cx, pl.cy, pl.width, pl.height, panel);
+          pl.cx = c.cx;
+          pl.cy = c.cy;
+        }
+        if (!applyAutoLayoutPlacement(target, pl)) return false;
+        applyTextAlignForSlot(target, pl.align);
+        canvas.requestRenderAll();
+        return true;
+      },
+      getJSON
+    );
+    if (!ok) return false;
+    objectRounds[roundKey] = (plan.idx + 1) % variants.length;
+    setToolFeedback(
+      "Auto layout (this object) — " + alSideLabel(template, view) + ", position " +
+        (plan.idx + 1) + " of " + variants.length + ": " + plan.name + "."
+    );
+    return true;
+  }
   /**
    * Stacking reorder via Fabric 6.6.1 canvas methods.
    * bringObjectForward/sendObjectBackwards with intersecting=false → one list step.
@@ -4722,12 +5130,16 @@
     centerActiveImage: centerActiveImage,
     flipActive: flipActive,
     autoLayoutActive: autoLayoutActive,
+    autoLayoutSelected: autoLayoutSelected,
+    canAutoLayoutSelected: canAutoLayoutSelected,
     canAutoLayout: canAutoLayout,
     planAutoLayout: planAutoLayout,
     deriveAutoLayoutSlots: deriveAutoLayoutSlots,
     autoLayoutScaleToFit: autoLayoutScaleToFit,
     autoLayoutClampCenter: autoLayoutClampCenter,
     pickPrimaryPrintPanel: pickPrimaryPrintPanel,
+    getActivePrimaryPrintPanel: getActivePrimaryPrintPanel,
+    printPanelAabbBox: printPanelAabbBox,
     aabbDeltaAlign: aabbDeltaAlign,
     unionAabb: unionAabb,
     distributeAabbDeltas: distributeAabbDeltas,

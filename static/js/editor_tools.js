@@ -502,8 +502,38 @@
     var L = a && a.PROP_LIMITS;
     return L && L.layerNameMax != null ? L.layerNameMax : 60;
   }
+    /* ---- Layers panel icons (inline SVG, 24x24 outline) ---- */
+  var LAYER_ICONS = {
+    eye:
+      '<path d="M2.04 12.32a1 1 0 010-.64C3.42 7.51 7.36 4.5 12 4.5c4.64 0 8.57 3 9.96 7.18.07.2.07.43 0 .64C20.58 16.49 16.64 19.5 12 19.5c-4.64 0-8.57-3-9.96-7.18z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>',
+    eyeOff:
+      '<path d="M3.98 8.22A10.48 10.48 0 001.93 12C3.23 16.34 7.24 19.5 12 19.5c.99 0 1.95-.14 2.86-.4M6.23 6.23A10.45 10.45 0 0112 4.5c4.76 0 8.77 3.16 10.07 7.5a10.52 10.52 0 01-4.3 5.77M6.23 6.23L3 3m3.23 3.23l3.65 3.65m7.89 7.89L21 21m-3.23-3.23l-3.65-3.65m0 0a3 3 0 10-4.24-4.24m4.24 4.24L9.88 9.88"/>',
+    lock:
+      '<path d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>',
+    unlock:
+      '<path d="M13.5 10.5V6.75a4.5 4.5 0 119 0v3.75M3.75 21.75h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>',
+    rename:
+      '<path d="M16.86 4.49l1.69-1.69a1.88 1.88 0 112.65 2.65L10.58 16.07a4.5 4.5 0 01-1.9 1.13L6 18l.8-2.69a4.5 4.5 0 011.13-1.9l8.93-8.92zm0 0L19.5 7.13"/>',
+    duplicate:
+      '<path d="M15.75 17.25v3.38c0 .62-.5 1.12-1.13 1.12h-9.75a1.13 1.13 0 01-1.12-1.12V7.88c0-.62.5-1.13 1.12-1.13h1.88m8.99 10.5h3.38c.62 0 1.12-.5 1.12-1.13V4.88c0-.62-.5-1.13-1.12-1.13h-9.75c-.63 0-1.13.5-1.13 1.13v1.87m8.1 10.5H9.38"/>',
+    trash:
+      '<path d="M14.74 9l-.35 9m-4.79 0L9.26 9m9.97-3.21c.34.05.68.11 1.02.17m-1.02-.17L18.16 19.67a2.25 2.25 0 01-2.24 2.08H8.08a2.25 2.25 0 01-2.24-2.08L4.77 5.79m14.46 0a48.1 48.1 0 00-3.48-.4m-12 .57c.34-.06.68-.11 1.02-.17m0 0a48.1 48.1 0 013.48-.4m7.5 0v-.92c0-1.18-.91-2.16-2.09-2.2a51.96 51.96 0 00-3.32 0c-1.18.04-2.09 1.02-2.09 2.2v.92m7.5 0a48.67 48.67 0 00-7.5 0"/>',
+    front: '<path d="M5 4.5h14M12 20V8m0 0l-5 5m5-5l5 5"/>',
+    forward: '<path d="M12 19V6m0 0l-5 5m5-5l5 5"/>',
+    backward: '<path d="M12 5v13m0 0l-5-5m5 5l5-5"/>',
+    back: '<path d="M5 19.5h14M12 4v12m0 0l-5-5m5 5l5-5"/>',
+  };
 
-  function renderLayerRow(obj, selectedIds) {
+  function layerIcon(name) {
+    return (
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
+      (LAYER_ICONS[name] || "") +
+      "</svg>"
+    );
+  }
+
+    function renderLayerRow(obj, selectedIds) {
     var row = document.createElement("div");
     row.className = "editor-layer-row";
     row.setAttribute("data-layer-id", obj.blytzId || "");
@@ -511,41 +541,16 @@
     var pressed = !!(obj.blytzId && selectedIds[obj.blytzId]);
     row.setAttribute("aria-selected", pressed ? "true" : "false");
     if (pressed) row.classList.add("is-selected");
-    if (obj && obj.visible === false) row.classList.add("is-hidden");
-    if (obj && obj.blytzLocked) row.classList.add("is-locked");
 
-    var selectBtn = document.createElement("button");
-    selectBtn.type = "button";
-    selectBtn.className = "editor-layer-select";
-    selectBtn.setAttribute("data-layer-select", "1");
-    selectBtn.setAttribute("aria-pressed", pressed ? "true" : "false");
-    selectBtn.setAttribute(
-      "aria-label",
-      "Select layer " + layerLabel(obj)
-    );
+    var hidden = !!(obj && obj.visible === false);
+    var locked = !!(obj && obj.blytzLocked);
+    if (hidden) row.classList.add("is-hidden");
+    if (locked) row.classList.add("is-locked");
 
-    var glyph = document.createElement("span");
-    glyph.className = "editor-layer-glyph";
-    glyph.setAttribute("aria-hidden", "true");
-    glyph.textContent = typeGlyph(obj);
-
-    var lab = document.createElement("span");
-    lab.className = "editor-layer-label";
-    lab.setAttribute("data-layer-label", "1");
-    lab.textContent = layerLabel(obj);
-
-    selectBtn.appendChild(glyph);
-    selectBtn.appendChild(lab);
-
-    var actions = document.createElement("div");
-    actions.className = "editor-layer-row-actions";
-    actions.setAttribute("role", "group");
-    actions.setAttribute("aria-label", "Layer actions for " + layerLabel(obj));
-
-    function iconBtn(action, label, pressedState, text) {
+    function iconBtn(action, label, pressedState, icon, extraClass) {
       var b = document.createElement("button");
       b.type = "button";
-      b.className = "editor-layer-icon-btn";
+      b.className = "editor-layer-icon-btn" + (extraClass ? " " + extraClass : "");
       b.setAttribute("data-layer-row-action", action);
       b.setAttribute("aria-label", label);
       b.title = label;
@@ -553,31 +558,70 @@
         b.setAttribute("aria-pressed", pressedState ? "true" : "false");
         if (pressedState) b.classList.add("is-active");
       }
-      b.textContent = text;
+      b.innerHTML = layerIcon(icon);
       return b;
     }
+    
 
-    var hidden = !!(obj && obj.visible === false);
-    var locked = !!(obj && obj.blytzLocked);
-    actions.appendChild(
-      iconBtn(
-        "visibility",
-        hidden ? "Show layer" : "Hide layer",
-        !hidden,
-        hidden ? "○" : "◉"
-      )
+    // Eye (always visible, left side)
+    var eyeBtn = iconBtn(
+      "visibility",
+      hidden ? "Show layer" : "Hide layer",
+      !hidden,
+      hidden ? "eyeOff" : "eye",
+      "editor-layer-icon-btn--eye"
     );
+
+    // Select area: type chip + name + small type line
+    var selectBtn = document.createElement("button");
+    selectBtn.type = "button";
+    selectBtn.className = "editor-layer-select";
+    selectBtn.setAttribute("data-layer-select", "1");
+    selectBtn.setAttribute("aria-pressed", pressed ? "true" : "false");
+    selectBtn.setAttribute("aria-label", "Select layer " + layerLabel(obj));
+
+    var glyph = document.createElement("span");
+    glyph.className = "editor-layer-glyph";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = typeGlyph(obj);
+
+    var textWrap = document.createElement("span");
+    textWrap.className = "editor-layer-text";
+
+    var lab = document.createElement("span");
+    lab.className = "editor-layer-label";
+    lab.setAttribute("data-layer-label", "1");
+    lab.textContent = layerLabel(obj);
+
+    var sub = document.createElement("span");
+    sub.className = "editor-layer-sub";
+    sub.textContent =
+      typeFallbackLabel(obj) + (hidden ? " · Hidden" : "") + (locked ? " · Locked" : "");
+
+    textWrap.appendChild(lab);
+    textWrap.appendChild(sub);
+    selectBtn.appendChild(glyph);
+    selectBtn.appendChild(textWrap);
+
+    // Right-side actions: lock always visible, rename/duplicate on hover/selected
+    var actions = document.createElement("div");
+    actions.className = "editor-layer-row-actions";
+    actions.setAttribute("role", "group");
+    actions.setAttribute("aria-label", "Layer actions for " + layerLabel(obj));
+
     actions.appendChild(
       iconBtn(
         "lock",
         locked ? "Unlock layer" : "Lock layer",
         locked,
-        locked ? "▣" : "□"
+        locked ? "lock" : "unlock",
+        "editor-layer-icon-btn--lock"
       )
     );
-    actions.appendChild(iconBtn("rename", "Rename layer", null, "✎"));
-    actions.appendChild(iconBtn("duplicate", "Duplicate layer", null, "⧉"));
+    actions.appendChild(iconBtn("rename", "Rename layer", null, "rename", "is-reveal"));
+    actions.appendChild(iconBtn("duplicate", "Duplicate layer", null, "duplicate", "is-reveal"));
 
+    row.appendChild(eyeBtn);
     row.appendChild(selectBtn);
     row.appendChild(actions);
     return row;
@@ -658,31 +702,68 @@
     return global.BlytzEditor && global.BlytzEditor.getCanvasJSON();
   }
 
-  function renderLayersBody(body) {
+    function renderLayersBody(body) {
     while (body.firstChild) body.removeChild(body.firstChild);
 
+    // Header: layer count + hint
+    var head = document.createElement("div");
+    head.className = "editor-layers-head";
+    var count = document.createElement("span");
+    count.className = "editor-layers-count";
+    count.setAttribute("data-layers-count", "");
+    var hint = document.createElement("span");
+    hint.className = "editor-layers-hint";
+    hint.textContent = "Top layer = in front";
+    head.appendChild(count);
+    head.appendChild(hint);
+    body.appendChild(head);
+
+    // Icon toolbar
     var toolbar = document.createElement("div");
     toolbar.className = "editor-layers-toolbar";
     toolbar.setAttribute("role", "toolbar");
     toolbar.setAttribute("aria-label", "Layer order");
 
-    function layerActionBtn(action, label) {
+    function layerActionBtn(action, label, icon, extraClass) {
       var b = document.createElement("button");
       b.type = "button";
-      b.className = "editor-layers-action";
+      b.className = "editor-layers-action" + (extraClass ? " " + extraClass : "");
       b.setAttribute("data-layer-action", action);
       b.setAttribute("aria-label", label);
       b.title = label;
-      b.textContent = label;
+      b.innerHTML = layerIcon(icon);
       return b;
     }
+    function group(buttons) {
+      var g = document.createElement("div");
+      g.className = "editor-layers-group";
+      buttons.forEach(function (b) {
+        g.appendChild(b);
+      });
+      return g;
+    }
+    function sep() {
+      var s = document.createElement("span");
+      s.className = "editor-layers-sep";
+      s.setAttribute("aria-hidden", "true");
+      return s;
+    }
 
-    toolbar.appendChild(layerActionBtn("front", "Bring to Front"));
-    toolbar.appendChild(layerActionBtn("forward", "Bring Forward"));
-    toolbar.appendChild(layerActionBtn("backward", "Send Backward"));
-    toolbar.appendChild(layerActionBtn("back", "Send to Back"));
-    toolbar.appendChild(layerActionBtn("duplicate", "Duplicate"));
-    toolbar.appendChild(layerActionBtn("delete", "Delete"));
+    toolbar.appendChild(
+      group([
+        layerActionBtn("front", "Bring to Front", "front"),
+        layerActionBtn("forward", "Bring Forward", "forward"),
+        layerActionBtn("backward", "Send Backward", "backward"),
+        layerActionBtn("back", "Send to Back", "back"),
+      ])
+    );
+    toolbar.appendChild(sep());
+    toolbar.appendChild(
+      group([
+        layerActionBtn("duplicate", "Duplicate", "duplicate"),
+        layerActionBtn("delete", "Delete", "trash", "editor-layers-action--danger"),
+      ])
+    );
     body.appendChild(toolbar);
 
     var list = document.createElement("div");
@@ -694,7 +775,7 @@
     syncLayerActionState(toolbar);
   }
 
-  function fillLayersList(list) {
+    function fillLayersList(list) {
     if (!list) list = document.querySelector("[data-layers-list]");
     if (!list) return;
     var t0 =
@@ -705,10 +786,16 @@
     // FRONTMOST at the TOP — reverse Fabric bottom→top order.
     objects.reverse();
     var selected = selectedIdMap();
+
+    var countEl = document.querySelector("[data-layers-count]");
+    if (countEl) {
+      countEl.textContent = objects.length + (objects.length === 1 ? " layer" : " layers");
+    }
+
     if (!objects.length) {
       var empty = document.createElement("p");
       empty.className = "editor-layers-empty";
-      empty.textContent = "No layers yet.";
+      empty.textContent = "No layers yet. Add text, an image or a shape to get started.";
       list.appendChild(empty);
     } else {
       objects.forEach(function (obj) {
@@ -824,15 +911,91 @@
       "Choose image</button>";
   }
 
-  function shapeButton(id, label, mark) {
+  // function shapeButton(id, label, mark) {
+  //   return (
+  //     '<button type="button" class="editor-panel-tile" data-insert-shape="' +
+  //     id +
+  //     '" aria-label="' +
+  //     label +
+  //     '">' +
+  //     '<span class="editor-panel-tile-mark" aria-hidden="true">' +
+  //     mark +
+  //     "</span>" +
+  //     '<span class="editor-panel-tile-label">' +
+  //     label +
+  //     "</span></button>"
+  //   );
+  // }
+
+  // function renderElementsBody(body) {
+  //   var html = '<section class="editor-panel-section"><h3 class="editor-panel-h">Basic shapes</h3>';
+  //   html += '<div class="editor-panel-grid">';
+  //   html += shapeButton("rect", "Rectangle", "▭");
+  //   html += shapeButton("ellipse", "Ellipse", "◯");
+  //   html += shapeButton("line", "Line", "／");
+  //   html += "</div></section>";
+  //   html += '<section class="editor-panel-section"><h3 class="editor-panel-h">Graphics</h3>';
+  //   html += '<div class="editor-panel-grid">';
+  //   Object.keys(GRAPHICS_DEFS).forEach(function (key) {
+  //     var def = GRAPHICS_DEFS[key];
+  //     var mark =
+  //       key === "star"
+  //         ? "★"
+  //         : key === "arrow"
+  //           ? "→"
+  //           : key === "badge"
+  //             ? "⛨"
+  //             : key === "heart"
+  //               ? "♥"
+  //               : key === "lightning"
+  //                 ? "⚡"
+  //                 : "✸";
+  //     html += shapeButton(key, def.label, mark);
+  //   });
+  //   html += "</div></section>";
+  //   body.innerHTML = html;
+  // }
+    /* ---- Elements panel previews (24x24, filled with currentColor) ---- */
+  function elIcon(inner, extra) {
+    return (
+      '<svg viewBox="0 0 24 24" fill="currentColor" ' + (extra || "") +
+      ' aria-hidden="true" focusable="false">' + inner + "</svg>"
+    );
+  }
+
+  var ELEMENT_ICONS = {
+    rect: elIcon('<rect x="3" y="6" width="18" height="12" rx="1.5"/>'),
+    ellipse: elIcon('<ellipse cx="12" cy="12" rx="9" ry="6.5"/>'),
+    line: elIcon(
+      '<path d="M4 12h16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>'
+    ),
+    star: elIcon(
+      '<polygon points="12,2.5 14.8,9 21.8,9.6 16.5,14.2 18.1,21 12,17.4 5.9,21 7.5,14.2 2.2,9.6 9.2,9"/>'
+    ),
+    arrow: elIcon('<polygon points="3,10 13,10 13,6 21,12 13,18 13,14 3,14"/>'),
+    badge: elIcon('<polygon points="5,4 19,4 19,13 12,21 5,13"/>'),
+    heart: elIcon(
+      '<path d="M12 20.5l-1.4-1.3C5.4 14.5 2.5 11.9 2.5 8.7 2.5 6.1 4.5 4.2 7 4.2c1.9 0 3.7 1 5 2.6 1.3-1.6 3.1-2.6 5-2.6 2.5 0 4.5 1.9 4.5 4.5 0 3.2-2.9 5.8-8.1 10.5z"/>'
+    ),
+    lightning: elIcon('<polygon points="13,2 5,13.5 11,13.5 9.5,22 19,10 13,10"/>'),
+    starburst: elIcon(
+      '<polygon points="12,2 13.9,7.4 19.07,4.93 16.62,10.09 22,12 16.62,13.91 19.07,19.07 13.91,16.62 12,22 10.09,16.62 4.93,19.07 7.38,13.91 2,12 7.38,10.09 4.93,4.93 10.09,7.38"/>'
+    ),
+  };
+
+  function shapeButton(id, label) {
     return (
       '<button type="button" class="editor-panel-tile" data-insert-shape="' +
       id +
-      '" aria-label="' +
+      '" data-element-label="' +
+      label.toLowerCase() +
+      '" aria-label="Add ' +
+      label +
+      '" title="Add ' +
       label +
       '">' +
       '<span class="editor-panel-tile-mark" aria-hidden="true">' +
-      mark +
+      (ELEMENT_ICONS[id] || "") +
       "</span>" +
       '<span class="editor-panel-tile-label">' +
       label +
@@ -841,32 +1004,52 @@
   }
 
   function renderElementsBody(body) {
-    var html = '<section class="editor-panel-section"><h3 class="editor-panel-h">Basic shapes</h3>';
-    html += '<div class="editor-panel-grid">';
-    html += shapeButton("rect", "Rectangle", "▭");
-    html += shapeButton("ellipse", "Ellipse", "◯");
-    html += shapeButton("line", "Line", "／");
+    var html =
+      '<div class="editor-elements-search">' +
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 21l-4.35-4.35M17 10.5a6.5 6.5 0 11-13 0 6.5 6.5 0 0113 0z"/></svg>' +
+      '<input type="search" data-elements-search placeholder="Search elements" aria-label="Search elements" autocomplete="off">' +
+      "</div>" +
+      '<p class="editor-elements-lead">Tap a shape to add it to the canvas.</p>';
+
+    html +=
+      '<section class="editor-panel-section" data-elements-section>' +
+      '<h3 class="editor-panel-h">Basic shapes</h3><div class="editor-panel-grid">';
+    html += shapeButton("rect", "Rectangle");
+    html += shapeButton("ellipse", "Ellipse");
+    html += shapeButton("line", "Line");
     html += "</div></section>";
-    html += '<section class="editor-panel-section"><h3 class="editor-panel-h">Graphics</h3>';
-    html += '<div class="editor-panel-grid">';
+
+    html +=
+      '<section class="editor-panel-section" data-elements-section>' +
+      '<h3 class="editor-panel-h">Graphics</h3><div class="editor-panel-grid">';
     Object.keys(GRAPHICS_DEFS).forEach(function (key) {
-      var def = GRAPHICS_DEFS[key];
-      var mark =
-        key === "star"
-          ? "★"
-          : key === "arrow"
-            ? "→"
-            : key === "badge"
-              ? "⛨"
-              : key === "heart"
-                ? "♥"
-                : key === "lightning"
-                  ? "⚡"
-                  : "✸";
-      html += shapeButton(key, def.label, mark);
+      html += shapeButton(key, GRAPHICS_DEFS[key].label);
     });
     html += "</div></section>";
+
+    html += '<p class="editor-elements-empty" data-elements-empty hidden>No elements match your search.</p>';
     body.innerHTML = html;
+
+    // Live search filter
+    var input = body.querySelector("[data-elements-search]");
+    if (input) {
+      input.addEventListener("input", function () {
+        var q = input.value.trim().toLowerCase();
+        var any = false;
+        body.querySelectorAll("[data-elements-section]").forEach(function (sec) {
+          var visible = 0;
+          sec.querySelectorAll("[data-element-label]").forEach(function (tile) {
+            var show = !q || tile.getAttribute("data-element-label").indexOf(q) !== -1;
+            tile.hidden = !show;
+            if (show) visible++;
+          });
+          sec.hidden = visible === 0;
+          if (visible) any = true;
+        });
+        var empty = body.querySelector("[data-elements-empty]");
+        if (empty) empty.hidden = any;
+      });
+    }
   }
 
   function openPanel(id, trigger) {
@@ -882,6 +1065,7 @@
     }
     lastTrigger = trigger || lastTrigger;
     openPanelId = id;
+    panel.setAttribute("data-panel-kind", id);   // <-- NEW (lets CSS widen only the Layers panel)
     title.textContent =
       id === "upload"
         ? "Upload image"

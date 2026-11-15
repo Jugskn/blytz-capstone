@@ -360,7 +360,441 @@ border-radius: 14px;
     linear-gradient(180deg, #0F0F0F 0%, #0B0B0B 100%);}
 
 
+/* =====================================================================
+   LAYERS PANEL — REDESIGN
+   ===================================================================== */
 
+/* Slightly wider panel only for Layers (desktop); full width on phones */
+#editor-tool-panel[data-panel-kind="layers"]{width:min(20rem,calc(100% - 1.5rem))}
+@media (max-width:1023px){
+  #editor-tool-panel[data-panel-kind="layers"]{width:100%}
+}
+
+/* ---- Header (count + hint) ---- */
+.blytz-dark .editor-layers-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin:0 0 .5rem;padding:0 .125rem}
+.blytz-dark .editor-layers-count{
+  font-size:.7rem;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--text-secondary)}
+.blytz-dark .editor-layers-hint{font-size:.68rem;color:var(--text-muted)}
+
+/* ---- Icon toolbar ---- */
+.blytz-dark .editor-layers-toolbar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:.25rem;
+  padding:.25rem;margin:0 0 .75rem;
+  background:var(--bg-secondary);
+  border:1px solid var(--border-default);border-radius:.75rem}
+.blytz-dark .editor-layers-group{display:flex;gap:.125rem}
+.blytz-dark .editor-layers-sep{
+  width:1px;align-self:stretch;margin:.25rem .25rem;background:var(--border-default)}
+.blytz-dark .editor-layers-toolbar .editor-layers-action{
+  flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:2.25rem;height:2.25rem;min-width:2.25rem;padding:0;
+  border:1px solid transparent!important;border-radius:.5rem;
+  background:transparent!important;color:var(--text-secondary)!important;
+  cursor:pointer;transition:background .15s,color .15s}
+.blytz-dark .editor-layers-toolbar .editor-layers-action svg{width:1.125rem;height:1.125rem;display:block}
+.blytz-dark .editor-layers-toolbar .editor-layers-action:hover:not(:disabled){
+  background:var(--bg-elevated)!important;color:#fff!important}
+.blytz-dark .editor-layers-toolbar .editor-layers-action--danger:hover:not(:disabled){
+  color:var(--danger)!important}
+.blytz-dark .editor-layers-toolbar .editor-layers-action:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+.blytz-dark .editor-layers-toolbar .editor-layers-action:disabled,
+.blytz-dark .editor-layers-toolbar .editor-layers-action[aria-disabled="true"]{
+  opacity:.3;cursor:not-allowed}
+
+/* ---- List + rows ---- */
+.blytz-dark .editor-layers-list{display:flex;flex-direction:column;gap:.375rem}
+.blytz-dark .editor-layer-row{
+  position:relative;display:flex;align-items:center;gap:.125rem;
+  padding:.25rem .375rem .25rem .25rem;
+  background:var(--bg-secondary);
+  border:1px solid var(--border-default);border-radius:.625rem;
+  color:#fff;transition:background .15s,border-color .15s}
+.blytz-dark .editor-layer-row:hover{
+  background:var(--bg-elevated);border-color:var(--border-strong)}
+.blytz-dark .editor-tool-panel-body .editor-layer-row.is-selected,
+.blytz-dark .editor-tool-panel-body .editor-layer-row[aria-selected="true"]{
+  background:rgba(212,175,55,.08)!important;
+  border-color:var(--accent-gold)!important;
+  color:#fff!important;
+  box-shadow:0 0 0 1px rgba(212,175,55,.2)}
+.blytz-dark .editor-layer-row.is-hidden .editor-layer-select{opacity:.4}
+
+/* Select area (chip + text) */
+.blytz-dark .editor-tool-panel-body .editor-layer-select{
+  display:flex;align-items:center;gap:.5rem;flex:1 1 auto;min-width:0;
+  padding:.25rem .25rem;
+  border:0!important;background:transparent!important;color:#fff!important;
+  border-radius:.5rem;text-align:left;cursor:pointer}
+.blytz-dark .editor-layer-select:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+.blytz-dark .editor-layer-glyph{
+  flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:1.875rem;height:1.875rem;border-radius:.5rem;
+  background:var(--bg-elevated);border:1px solid var(--border-default);
+  color:var(--text-secondary);font-size:.85rem;line-height:1}
+.blytz-dark .editor-layer-row.is-selected .editor-layer-glyph{
+  background:var(--accent-gold);border-color:var(--accent-gold);color:#000}
+.blytz-dark .editor-layer-text{
+  display:flex;flex-direction:column;min-width:0;flex:1 1 auto;line-height:1.25}
+.blytz-dark .editor-layer-label{
+  font-size:.8125rem;font-weight:500;color:#fff;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.blytz-dark .editor-layer-sub{
+  font-size:.68rem;color:var(--text-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* old " · locked" suffix is now shown in the sub line */
+.blytz-dark .editor-layer-row.is-locked .editor-layer-label::after{content:none!important}
+/* hide the sub line while renaming */
+.blytz-dark .editor-layer-row:has(.editor-layer-rename-input) .editor-layer-sub{display:none}
+.blytz-dark .editor-tool-panel-body .editor-layer-rename-input{
+  flex:1 1 auto;min-width:0;width:100%;min-height:1.875rem;padding:.25rem .5rem;
+  font-size:.8125rem}
+.blytz-dark .editor-tool-panel-body .editor-layer-rename-input:focus{
+  border-color:var(--accent-gold)!important;outline:none}
+
+/* Icon buttons (eye / lock / rename / duplicate) */
+.blytz-dark .editor-layer-row-actions{display:flex;align-items:center;gap:.0625rem;flex:0 0 auto}
+.blytz-dark .editor-tool-panel-body .editor-layer-icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:1.75rem;height:1.75rem;min-width:1.75rem;min-height:1.75rem;padding:0;
+  border:0!important;border-radius:.5rem;
+  background:transparent!important;color:var(--text-muted)!important;
+  cursor:pointer;transition:background .15s,color .15s}
+.blytz-dark .editor-layer-icon-btn svg{width:1rem;height:1rem;display:block}
+.blytz-dark .editor-tool-panel-body .editor-layer-icon-btn:hover{
+  background:var(--bg-elevated)!important;color:#fff!important}
+.blytz-dark .editor-layer-icon-btn:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+/* eye: white when visible, dim when hidden */
+.blytz-dark .editor-tool-panel-body .editor-layer-icon-btn--eye[aria-pressed="true"]{
+  color:var(--text-secondary)!important}
+/* lock: gold when locked */
+.blytz-dark .editor-tool-panel-body .editor-layer-icon-btn--lock[aria-pressed="true"]{
+  color:var(--accent-gold)!important}
+.blytz-dark .editor-tool-panel-body .editor-layer-row.is-selected .editor-layer-icon-btn--eye[aria-pressed="true"]{
+  color:#fff!important}
+
+/* Rename + duplicate only appear on hover / focus / selected (always on touch) */
+.blytz-dark .editor-layer-icon-btn.is-reveal{display:none}
+.blytz-dark .editor-layer-row:hover .editor-layer-icon-btn.is-reveal,
+.blytz-dark .editor-layer-row:focus-within .editor-layer-icon-btn.is-reveal,
+.blytz-dark .editor-layer-row.is-selected .editor-layer-icon-btn.is-reveal{display:inline-flex}
+@media (hover:none){
+  .blytz-dark .editor-layer-icon-btn.is-reveal{display:inline-flex}
+}
+
+/* Empty state */
+.blytz-dark .editor-layers-empty{
+  margin:.25rem 0;padding:1.5rem .75rem;text-align:center;
+  border:1px dashed var(--border-strong);border-radius:.75rem;
+  color:var(--text-muted);font-size:.8125rem;line-height:1.4}
+
+
+/* =====================================================================
+   ELEMENTS PANEL — REDESIGN
+   ===================================================================== */
+
+/* [hidden] must win over display:flex on tiles/sections */
+.blytz-dark .editor-panel-tile[hidden],
+.blytz-dark [data-elements-section][hidden]{display:none!important}
+
+/* ---- Search ---- */
+.blytz-dark .editor-elements-search{
+  position:relative;margin:0 0 .5rem}
+.blytz-dark .editor-elements-search svg{
+  position:absolute;left:.65rem;top:50%;transform:translateY(-50%);
+  width:1rem;height:1rem;color:var(--text-muted);pointer-events:none}
+.blytz-dark .editor-tool-panel-body .editor-elements-search input{
+  width:100%;min-height:2.25rem;padding:.4rem .75rem .4rem 2.1rem;
+  border-radius:9999px;font-size:.8125rem}
+.blytz-dark .editor-tool-panel-body .editor-elements-search input:focus{
+  border-color:var(--accent-gold)!important;outline:none}
+.blytz-dark .editor-elements-lead{
+  margin:0 0 .75rem;padding:0 .125rem;font-size:.72rem;color:var(--text-muted)}
+
+/* ---- Sections ---- */
+.blytz-dark .editor-panel-section + .editor-panel-section{margin-top:1.1rem}
+.blytz-dark .editor-panel-section .editor-panel-h{
+  display:flex;align-items:center;gap:.5rem;
+  margin:0 0 .5rem;font-size:.68rem;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary)}
+.blytz-dark .editor-panel-section .editor-panel-h::after{
+  content:"";flex:1;height:1px;background:var(--border-default)}
+
+/* ---- Grid + tiles ---- */
+.blytz-dark .editor-panel-grid{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem}
+.blytz-dark .editor-tool-panel-body .editor-panel-tile{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:.4rem;aspect-ratio:1/1;min-width:0;padding:.5rem .25rem;
+  background:var(--bg-secondary);
+  border:1px solid var(--border-default);border-radius:.75rem;
+  color:var(--text-secondary);cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s,transform .1s,box-shadow .15s}
+.blytz-dark .editor-tool-panel-body .editor-panel-tile:hover{
+  background:var(--bg-elevated);border-color:var(--accent-gold);color:var(--accent-gold);
+  box-shadow:0 0 12px rgba(212,175,55,.15)}
+.blytz-dark .editor-tool-panel-body .editor-panel-tile:active{transform:scale(.96)}
+.blytz-dark .editor-panel-tile:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:2px}
+.blytz-dark .editor-panel-tile-mark{
+  display:flex;align-items:center;justify-content:center;
+  width:2rem;height:2rem;line-height:1}
+.blytz-dark .editor-panel-tile-mark svg{width:1.75rem;height:1.75rem;display:block}
+.blytz-dark .editor-panel-tile-label{
+  font-size:.68rem;font-weight:500;color:inherit;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---- Empty search result ---- */
+.blytz-dark .editor-elements-empty{
+  margin:.75rem 0 0;padding:1.25rem .75rem;text-align:center;
+  border:1px dashed var(--border-strong);border-radius:.75rem;
+  color:var(--text-muted);font-size:.8125rem}
+.blytz-dark .editor-elements-empty[hidden]{display:none!important}
+
+/* =====================================================================
+   PROPERTIES PANEL — REDESIGN  (text + shapes + images)
+   ===================================================================== */
+
+/* ---- MOVE DOWN so it no longer covers Auto Layout / Select / Multi / Delete ----
+   Change 5rem if your pill bar is taller or shorter. */
+@media (min-width:1280px){
+  .blytz-dark .editor-properties-panel{
+    top:5rem;
+    right:.75rem;
+    width:17rem;
+    max-height:calc(100% - 5.75rem);
+  }
+}
+
+/* ---- Shell ---- */
+.blytz-dark .editor-properties-panel{
+  background:var(--bg-panel);
+  border:1px solid var(--border-default);
+  border-radius:.875rem;
+  box-shadow:0 12px 32px rgba(0,0,0,.65)}
+.blytz-dark .editor-properties-chrome{background:transparent!important;box-shadow:none!important}
+
+/* ---- Header ---- */
+.blytz-dark .editor-properties-header{
+  padding:.6rem .75rem;
+  border-bottom:1px solid var(--border-default);
+  background:linear-gradient(180deg,rgba(255,255,255,.035),transparent)}
+.blytz-dark .editor-properties-title{
+  display:flex;align-items:center;gap:.5rem;font-size:1.15rem}
+.blytz-dark .editor-properties-title::before{
+  content:"";width:.4rem;height:.4rem;border-radius:9999px;
+  background:var(--accent-gold);box-shadow:0 0 8px rgba(212,175,55,.6)}
+@media (min-width:1280px) and (pointer:fine){
+  .blytz-dark .editor-properties-icon-btn{
+    min-width:2rem;min-height:2rem;width:2rem;height:2rem;border-radius:.5rem}
+}
+
+/* ---- Body: stack of cards ---- */
+.blytz-dark .editor-properties-body{
+  display:flex;flex-direction:column;gap:.75rem;padding:.75rem}
+.blytz-dark .editor-props-section,
+.blytz-dark .editor-props-align,
+.blytz-dark .editor-props-curve{
+  margin:0;padding:.75rem;
+  background:var(--bg-secondary);
+  border:1px solid var(--border-default);
+  border-radius:.75rem}
+.blytz-dark .editor-props-readonly{
+  margin:0;padding:.5rem .65rem;border-radius:.5rem;
+  background:var(--accent-gold-soft);
+  border:1px solid rgba(212,175,55,.25);
+  color:var(--accent-gold);font-size:.75rem}
+
+/* Card titles */
+.blytz-dark .editor-props-section-title,
+.blytz-dark .editor-props-align-heading{
+  display:flex;align-items:center;gap:.4rem;margin:0 0 .6rem;
+  font-size:.66rem;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text-secondary)}
+.blytz-dark .editor-props-section-title::before{
+  content:"";width:3px;height:.85em;border-radius:2px;background:var(--accent-gold)}
+.blytz-dark .editor-props-align-heading:not(:first-child){margin-top:.85rem}
+
+/* ---- Rows and labels ---- */
+.blytz-dark .editor-props-row{
+  display:flex;flex-direction:column;gap:.3rem;margin:0 0 .75rem}
+.blytz-dark .editor-props-row:last-child{margin-bottom:0}
+.blytz-dark .editor-props-label,
+.blytz-dark .editor-props-mini-label{
+  font-size:.72rem;font-weight:500;color:var(--text-secondary)}
+.blytz-dark .editor-props-hint{font-size:.66rem;color:var(--text-muted)}
+
+/* ---- Inputs (the base look already comes from the dark theme above) ---- */
+.blytz-dark .editor-properties-body .editor-props-input:focus,
+.blytz-dark .editor-properties-body .editor-props-textarea:focus{
+  border-color:var(--accent-gold)!important;outline:none;
+  box-shadow:0 0 0 3px rgba(212,175,55,.15)}
+.blytz-dark .editor-properties-body .editor-props-textarea{
+  min-height:4.5rem;resize:vertical;font-size:.8125rem;line-height:1.4}
+@media (min-width:1280px){
+  .blytz-dark .editor-properties-body .editor-props-input{
+    min-height:2.25rem;font-size:.8125rem}
+}
+
+/* number field with unit inside */
+.blytz-dark .editor-props-field{position:relative;display:flex;align-items:center;min-width:0}
+.blytz-dark .editor-props-field .editor-props-input{width:100%;padding-right:1.9rem}
+.blytz-dark .editor-props-unit{
+  position:absolute;right:.6rem;font-size:.68rem;color:var(--text-muted);pointer-events:none}
+.blytz-dark .editor-properties-body input[type="number"]{-moz-appearance:textfield}
+.blytz-dark .editor-properties-body input[type="number"]::-webkit-inner-spin-button,
+.blytz-dark .editor-properties-body input[type="number"]::-webkit-outer-spin-button{
+  -webkit-appearance:none;margin:0}
+
+/* X/Y and W/H side by side */
+.blytz-dark .editor-props-pair{
+  display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:0 0 .75rem}
+.blytz-dark .editor-props-pair>:only-child{grid-column:1/-1}
+.blytz-dark .editor-props-mini{display:flex;flex-direction:column;gap:.3rem;min-width:0}
+.blytz-dark .editor-props-rot-wrap{display:flex;align-items:center;gap:.4rem}
+.blytz-dark .editor-props-rot-wrap .editor-props-field{flex:1;min-width:0}
+
+/* ---- Sliders ---- */
+.blytz-dark .editor-props-range-wrap{display:flex;align-items:center;gap:.6rem}
+.blytz-dark .editor-properties-body input[type="range"]{
+  -webkit-appearance:none;appearance:none;flex:1;min-width:0;
+  height:1.5rem;min-height:1.5rem!important;padding:0;
+  background:transparent!important;border:0!important;cursor:pointer}
+.blytz-dark .editor-properties-body input[type="range"]::-webkit-slider-runnable-track{
+  height:4px;border-radius:9999px;background:var(--border-strong)}
+.blytz-dark .editor-properties-body input[type="range"]::-moz-range-track{
+  height:4px;border-radius:9999px;background:var(--border-strong)}
+.blytz-dark .editor-properties-body input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:16px;height:16px;margin-top:-6px;border-radius:50%;
+  background:var(--accent-gold)!important;border:2px solid #111!important;
+  box-shadow:0 0 8px rgba(212,175,55,.4)}
+.blytz-dark .editor-properties-body input[type="range"]::-moz-range-thumb{
+  width:12px;height:12px;border-radius:50%;
+  background:var(--accent-gold)!important;border:2px solid #111!important}
+.blytz-dark .editor-props-range-val{
+  min-width:2rem;text-align:right;font-size:.72rem;color:var(--text-secondary)}
+.blytz-dark .editor-props-range-val[data-prop-out="opacity"]{display:none}
+.blytz-dark .editor-props-opacity-field{width:4.5rem;flex:0 0 auto}
+
+/* ---- Colour picker + swatches ---- */
+.blytz-dark .editor-props-color{display:flex;align-items:flex-start;gap:.6rem}
+.blytz-dark .editor-properties-body input[type="color"]{
+  flex:0 0 auto;width:2.25rem;height:2.25rem;min-height:0!important;padding:0;
+  border:2px solid var(--border-strong)!important;border-radius:9999px!important;
+  background:transparent!important;cursor:pointer;overflow:hidden}
+.blytz-dark .editor-properties-body input[type="color"]::-webkit-color-swatch-wrapper{padding:0}
+.blytz-dark .editor-properties-body input[type="color"]::-webkit-color-swatch{border:0;border-radius:9999px}
+.blytz-dark .editor-properties-body input[type="color"]::-moz-color-swatch{border:0;border-radius:9999px}
+.blytz-dark .editor-props-swatches{display:flex;flex-wrap:wrap;gap:.35rem;margin:0;flex:1}
+.blytz-dark .editor-properties-body .editor-props-swatch{
+  width:1.5rem;height:1.5rem;padding:0;border:1px solid rgba(255,255,255,.2);
+  border-radius:9999px;cursor:pointer;transition:transform .1s,border-color .15s}
+.blytz-dark .editor-properties-body .editor-props-swatch:hover{
+  transform:scale(1.15);border-color:var(--accent-gold)}
+@media not all and (min-width:1280px){
+  .blytz-dark .editor-properties-body .editor-props-swatch{width:2rem;height:2rem}
+}
+
+/* ---- Toggle switch (aspect ratio lock, curve enable) ---- */
+.blytz-dark .editor-props-check-label{
+  display:flex;align-items:center;gap:.6rem;min-height:2rem;
+  font-size:.78rem;color:var(--text-secondary);cursor:pointer}
+.blytz-dark .editor-properties-body input[type="checkbox"]{
+  -webkit-appearance:none;appearance:none;position:relative;flex:0 0 auto;
+  width:2.1rem;height:1.2rem;min-height:0!important;padding:0;
+  border:0!important;border-radius:9999px!important;
+  background:var(--border-strong)!important;cursor:pointer;transition:background .15s}
+.blytz-dark .editor-properties-body input[type="checkbox"]::before{
+  content:"";position:absolute;top:2px;left:2px;
+  width:calc(1.2rem - 4px);height:calc(1.2rem - 4px);border-radius:50%;
+  background:#fff;transition:transform .15s}
+.blytz-dark .editor-properties-body input[type="checkbox"]:checked{
+  background:var(--accent-gold)!important}
+.blytz-dark .editor-properties-body input[type="checkbox"]:checked::before{
+  transform:translateX(.9rem);background:#000}
+
+/* ---- Button groups (align, style, flip, image placement, curve) ---- */
+.blytz-dark .editor-props-align-row{display:flex;flex-wrap:wrap;gap:.35rem;margin:0 0 .4rem}
+.blytz-dark .editor-props-align-row:last-child{margin-bottom:0}
+.blytz-dark .editor-properties-body .editor-props-align-btn{
+  flex:1 1 auto;min-width:3rem;padding:.4rem .5rem;
+  background:var(--bg-elevated);border:1px solid var(--border-default);
+  border-radius:.5rem;color:var(--text-secondary);
+  font-size:.72rem;font-weight:500;line-height:1.2;cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s}
+.blytz-dark .editor-properties-body .editor-props-align-btn:hover:not(:disabled){
+  border-color:var(--border-strong);color:#fff}
+.blytz-dark .editor-properties-body .editor-props-align-btn:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+.blytz-dark .editor-properties-body .editor-props-align-btn.is-active,
+.blytz-dark .editor-properties-body .editor-props-align-btn[aria-pressed="true"]{
+  background:var(--accent-gold);border-color:var(--accent-gold);
+  color:#000!important;font-weight:700}
+.blytz-dark .editor-properties-body .editor-props-align-btn:disabled{opacity:.35;cursor:not-allowed}
+.blytz-dark .editor-props-style-row .editor-props-style-btn{
+  flex:1 1 0;font-size:.85rem;font-weight:700}
+
+/* Auto layout: gold outline so it stands out */
+.blytz-dark .editor-properties-body [data-auto-layout]{
+  width:100%;border-color:rgba(212,175,55,.5);color:var(--accent-gold)}
+.blytz-dark .editor-properties-body [data-auto-layout]:hover:not(:disabled){
+  background:var(--accent-gold-soft);border-color:var(--accent-gold);color:var(--accent-gold)}
+
+/* Curve text card */
+.blytz-dark .editor-props-curve-status{margin:.15rem 0 .6rem;font-size:.72rem;color:var(--text-muted)}
+.blytz-dark .editor-props-curve-actions{display:flex;gap:.35rem}
+.blytz-dark .editor-properties-body .editor-props-curve-apply:not(:disabled){
+  background:var(--accent-gold);border-color:var(--accent-gold);
+  color:#000!important;font-weight:700}
+
+/* =====================================================================
+   BORDER: line styles + weight + corner rounding
+   ===================================================================== */
+
+/* hidden rows must really hide (rows are display:flex) */
+.blytz-dark .editor-props-row[hidden]{display:none!important}
+
+/* ---- Line style buttons ---- */
+.blytz-dark .editor-props-strokestyle{
+  display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);
+  gap:.35rem;margin:0 0 .85rem}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn{
+  display:flex;align-items:center;justify-content:center;
+  height:2.5rem;min-width:0;padding:0;
+  background:var(--bg-elevated);
+  border:1px solid var(--border-default);border-radius:.625rem;
+  color:var(--text-secondary);cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
+.blytz-dark .editor-props-strokestyle-btn svg{width:1.6rem;height:1.6rem;display:block}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn:hover:not(:disabled){
+  border-color:var(--border-strong);color:#fff}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn.is-active,
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn[aria-pressed="true"]{
+  background:var(--accent-gold-soft);
+  border-color:var(--accent-gold);
+  color:var(--accent-gold)!important;
+  box-shadow:0 0 0 1px rgba(212,175,55,.25)}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn:disabled{
+  opacity:.35;cursor:not-allowed}
+
+/* ---- Weight / corner number box next to the slider ---- */
+.blytz-dark .editor-props-weight-num{
+  width:4.25rem;flex:0 0 auto;padding:.3rem .4rem;text-align:center}
+
+/* ---- Gold filled part of the slider (like the purple fill in your sample) ---- */
+.blytz-dark .editor-properties-body input[type="range"].editor-props-range--filled::-webkit-slider-runnable-track{
+  background:linear-gradient(to right,
+    var(--accent-gold) var(--fill,0%),
+    var(--border-strong) var(--fill,0%))}
+.blytz-dark .editor-properties-body input[type="range"].editor-props-range--filled::-moz-range-progress{
+  height:4px;border-radius:9999px;background:var(--accent-gold)}
 /* ---- Scrollbars ---- */
 .blytz-dark ::-webkit-scrollbar{width:6px;height:6px}
 .blytz-dark ::-webkit-scrollbar-track{background:var(--bg-panel)}
@@ -369,11 +803,11 @@ border-radius: 14px;
 </style>
 
 <script src="{% static 'vendor/fabric/fabric.min.js' %}?v=stage-h1"></script>
-<script src="{% static 'js/editor_canvas.js' %}?v=stage-r4"></script>
+<script src="{% static 'js/editor_canvas.js' %}?v=stage-r5"></script>
 <script src="{% static 'js/editor_garments.js' %}?v=stage-h1"></script>
-<script src="{% static 'js/editor_tools.js' %}?v=stage-h1"></script>
+<script src="{% static 'js/editor_tools.js' %}?v=stage-h2"></script>
 <script src="{% static 'js/remove_bg_client.js' %}?v=stage-r2"></script>
-<script src="{% static 'js/editor_properties.js' %}?v=stage-r3"></script>
+<script src="{% static 'js/editor_properties.js' %}?v=stage-r5"></script>
 <script src="{% static 'js/editor_contract.js' %}?v=stage-h1"></script>
 <script src="{% static 'js/editor_chrome.js' %}?v=stage-h1"></script>
 <script src="{% static 'js/ai_chat.js' %}?v=stage-h1" defer></script>
