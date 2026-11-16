@@ -46,8 +46,11 @@ def _wants_json(request) -> bool:
 @customer_required
 def dashboard(request):
     designs = Design.objects.filter(owner=request.user).order_by("-updated_at")
-    orders = Order.objects.filter(customer=request.user).select_related("design")
-
+    orders = (
+        Order.objects.filter(customer=request.user)
+        .select_related("design")
+        .prefetch_related("payments")
+    )
     designs_list = list(designs)
     submitted_ids = set(
         Order.objects.filter(design_id__in=[d.pk for d in designs_list]).values_list(

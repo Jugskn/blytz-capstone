@@ -64,7 +64,14 @@
   // ── STEP 4: Accept → open payment modal ──
   if (approvalAcceptBtn) {
     approvalAcceptBtn.addEventListener('click', function() {
-      openPaymentModal();
+      closeApprovalModal();
+      if (typeof window.BlytzEditorBeginPayment === 'function') {
+        // Prepares the design data, opens the payment modal and starts the
+        // payment window timer (this fills window_started_at).
+        window.BlytzEditorBeginPayment();
+      } else {
+        openPaymentModal();
+      }
     });
   }
 

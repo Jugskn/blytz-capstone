@@ -110,14 +110,10 @@
         <td data-label="Balance" class="font-mono text-gray-700 {% if order.balance and order.balance > 0 %}text-orange-600 font-semibold{% endif %}">{% if order.balance is not None %}₱{{ order.balance }}{% else %}—{% endif %}</td>
         <td data-label="Status">
           <div class="flex flex-col items-start gap-1">
-            {% if order.payment_status == "Fully Paid" %}
-              <span class="blytz-pill blytz-pill--green">{{ order.payment_status }}</span>
-            {% else %}
-              <span class="blytz-pill blytz-pill--gold">{{ order.payment_status }}</span>
-            {% endif %}
-            {% if order.pending_payment %}
-              <span class="blytz-pill blytz-pill--gold">Payment awaiting review</span>
-            {% endif %}
+          {% include "partials/payment_pill.html" %}
+          {% if order.pending_payment %}
+            <span class="blytz-pill blytz-pill--blue">Payment awaiting review</span>
+          {% endif %}
           </div>
         </td>
       </tr>

@@ -29,11 +29,7 @@
         <h1 class="font-display text-3xl"><span style="background-color: #D4AF37 !important; color: #000000 !important; padding: 6px 12px !important; border-radius: 6px !important; display: inline-block !important;">{{ order.order_id }}</span></h1>
         <p class="mt-1 text-ink-muted">{{ order.get_status_display }} · {{ order.design.title }}</p>
         <div class="mt-2 flex flex-wrap items-center gap-2">
-          {% if order.payment_status == "Fully Paid" %}
-            {% include "components/badge.html" with label=order.payment_status variant="success" %}
-          {% else %}
-            {% include "components/badge.html" with label=order.payment_status variant="warning" %}
-          {% endif %}
+          {% include "orders/_payment_badge.html" %}
           {% if order.pending_payment %}
             {% include "components/badge.html" with label="Payment awaiting review" variant="warning" %}
           {% endif %}
@@ -48,8 +44,17 @@
         {% else %}
         <form method="post"
               action="{% url 'advance_order_phase' order.order_id %}"
+              class="flex flex-wrap items-end gap-2"
               {% if needs_final_design_confirm %}onsubmit="return confirm('No final design has been uploaded. Move to Production anyway?');"{% endif %}>
           {% csrf_token %}
+          {% if next_status == "completed" %}
+          <div>
+            <label for="balance-due" class="mb-1 block text-xs font-medium text-ink">Remaining balance (₱)</label>
+            <input type="number" id="balance-due" name="balance_due" min="0" step="0.01"
+                   inputmode="decimal" required
+                   class="min-h-9 w-40 rounded-md border border-border px-2 py-1.5 font-mono text-sm">
+          </div>
+          {% endif %}
           {% include "components/button.html" with label=advance_label type="submit" variant="primary" %}
         </form>
         {% endif %}
@@ -138,9 +143,13 @@
                     {% if payment.reviewed_at %} · {{ payment.reviewed_at|date:"Y-m-d H:i" }}{% endif %}
                   </p>
                   {% endif %}
-                  {% if payment.rejection_reason %}
-                  <p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>
-                  {% endif %}
+                {% if payment.rejection_reason %}
+                <p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>
+                {% endif %}
+                <p class="mt-1 text-xs text-text-muted">Type: <strong>{{ payment.get_purpose_display }}</strong></p>
+                {% if payment.requested_amount %}
+                <p class="mt-1 text-xs text-ink">Requested exact amount: <span class="font-mono">₱{{ payment.requested_amount }}</span></p>
+                {% endif %}
                 </div>
                 <p class="font-mono text-ink">₱{{ payment.amount_claimed }}</p>
               </div>
@@ -163,27 +172,7 @@
                 {% endwith %}
               </div>
               {% endif %}
-              {% if payment.status == "pending" %}
-              <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
-                <form method="post" action="{% url 'review_payment' order.order_id payment.pk %}" class="inline">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="accept">
-                  {% include "components/button.html" with label="Accept" type="submit" variant="primary" size="sm" %}
-                </form>
-                <form method="post" action="{% url 'review_payment' order.order_id payment.pk %}" class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-                  {% csrf_token %}
-                  <input type="hidden" name="action" value="reject">
-                  <label class="sr-only" for="reject-reason-pe-{{ payment.pk }}">Rejection reason</label>
-                  <input type="text"
-                        id="reject-reason-pe-{{ payment.pk }}"
-                        name="rejection_reason"
-                        maxlength="255"
-                        placeholder="Reason (optional)"
-                        class="min-h-9 w-full min-w-0 flex-1 rounded-md border border-border px-2 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-                  {% include "components/button.html" with label="Reject" type="submit" variant="danger" size="sm" %}
-                </form>
-              </div>
-              {% endif %}
+              {% include "orders/_payment_review_actions.html" %}
             </li>
             {% endfor %}
           </ul>
@@ -634,6 +623,10 @@
                 {% if payment.rejection_reason %}
                 <p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>
                 {% endif %}
+                <p class="mt-1 text-xs text-text-muted">Type: <strong>{{ payment.get_purpose_display }}</strong></p>
+                {% if payment.requested_amount %}
+                <p class="mt-1 text-xs text-ink">Requested exact amount: <span class="font-mono">₱{{ payment.requested_amount }}</span></p>
+                {% endif %}
               </div>
               <p class="font-mono text-ink">₱{{ payment.amount_claimed }}</p>
             </div>
@@ -656,27 +649,7 @@
               {% endwith %}
             </div>
             {% endif %}
-            {% if payment.status == "pending" %}
-            <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
-              <form method="post" action="{% url 'review_payment' order.order_id payment.pk %}" class="inline">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="accept">
-                {% include "components/button.html" with label="Accept" type="submit" variant="primary" size="sm" %}
-              </form>
-              <form method="post" action="{% url 'review_payment' order.order_id payment.pk %}" class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
-                {% csrf_token %}
-                <input type="hidden" name="action" value="reject">
-                <label class="sr-only" for="reject-reason-{{ payment.pk }}">Rejection reason</label>
-                <input type="text"
-                      id="reject-reason-{{ payment.pk }}"
-                      name="rejection_reason"
-                      maxlength="255"
-                      placeholder="Reason (optional)"
-                      class="min-h-9 w-full min-w-0 flex-1 rounded-md border border-border px-2 py-1.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-                {% include "components/button.html" with label="Reject" type="submit" variant="danger" size="sm" %}
-              </form>
-            </div>
-            {% endif %}
+              {% include "orders/_payment_review_actions.html" %}
           </li>
           {% endfor %}
         </ul>

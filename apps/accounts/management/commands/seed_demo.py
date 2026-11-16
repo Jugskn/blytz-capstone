@@ -61,6 +61,74 @@ def placeholder_proof(label: str, *, channel: str, amount, reference: str) -> Co
     return ContentFile(buffer.getvalue(), name=f"{label}-proof.png")
 
 
+# --- Payment workflow constants (mirror the live flow) -----------------------
+PENDING = Payment.Status.PENDING
+ACCEPTED = Payment.Status.ACCEPTED
+REJECTED = Payment.Status.REJECTED
+DOWN = Payment.Purpose.DOWNPAYMENT
+BAL = Payment.Purpose.BALANCE
+
+
+def pay(amount, status, purpose=DOWN, hours=3, requested=None, reason=""):
+    """One payment claim. `hours` = how long after the order was created."""
+    return {
+        "amount": amount,
+        "status": status,
+        "purpose": purpose,
+        "hours": hours,
+        "requested": requested,
+        "reason": reason,
+    }
+
+
+# One scenario per demo order. Rules the data follows:
+#   * Pending Edit / Production always have an ACCEPTED downpayment.
+#   * Completed orders carry the staff-entered balance_due.
+#   * Payment status is never stored; it is derived from these payments.
+SCENARIOS = [
+    # 1. Job Request: downpayment submitted, waiting for staff
+    {"status": Order.Status.JOB_REQUEST, "total": "1500.00", "balance_due": None,
+     "payments": [pay("500.00", PENDING)]},
+    # 2. Job Request: another pending claim
+    {"status": Order.Status.JOB_REQUEST, "total": "2000.00", "balance_due": None,
+     "payments": [pay("1000.00", PENDING)]},
+    # 3. Job Request: downpayment accepted -> ready to move to Pending Edit
+    {"status": Order.Status.JOB_REQUEST, "total": "1800.00", "balance_due": None,
+     "payments": [pay("900.00", ACCEPTED)]},
+    # 4. Pending Edit: Downpayment Paid
+    {"status": Order.Status.PENDING_EDIT, "total": "2200.00", "balance_due": None,
+     "payments": [pay("1100.00", ACCEPTED)]},
+    # 5. Pending Edit: wrong amount rejected (exact amount requested), then paid correctly
+    {"status": Order.Status.PENDING_EDIT, "total": "1600.00", "balance_due": None,
+     "payments": [
+         pay("300.00", REJECTED, hours=3, requested="800.00", reason="Wrong amount"),
+         pay("800.00", ACCEPTED, hours=20),
+     ]},
+    # 6. Production: Downpayment Paid
+    {"status": Order.Status.PRODUCTION, "total": "2500.00", "balance_due": None,
+     "payments": [pay("1250.00", ACCEPTED)]},
+    # 7. Production: Downpayment Paid
+    {"status": Order.Status.PRODUCTION, "total": "1800.00", "balance_due": None,
+     "payments": [pay("900.00", ACCEPTED)]},
+    # 8. Completed: staff set the final balance, customer has not paid yet ("Pay Here")
+    {"status": Order.Status.COMPLETED, "total": "3000.00", "balance_due": "1500.00",
+     "payments": [pay("1500.00", ACCEPTED)]},
+    # 9. Completed: final payment rejected with an exact amount ("Pay Exact Amount")
+    {"status": Order.Status.COMPLETED, "total": "1200.00", "balance_due": "600.00",
+     "payments": [
+         pay("600.00", ACCEPTED, hours=3),
+         pay("500.00", REJECTED, BAL, hours=90, requested="600.00",
+             reason="Amount does not match the balance"),
+     ]},
+    # 10. Completed: final balance paid -> Fully Paid
+    {"status": Order.Status.COMPLETED, "total": "2750.00", "balance_due": "1375.00",
+     "payments": [
+         pay("1375.00", ACCEPTED, hours=3),
+         pay("1375.00", ACCEPTED, BAL, hours=90),
+     ]},
+]
+
+
 class Command(BaseCommand):
     help = "Seed idempotent demo users, channels, designs, orders, leads, and activity logs."
 
@@ -151,32 +219,6 @@ class Command(BaseCommand):
                 defaults={},
             )
 
-        # First 10 designs get orders (submitted); last 2 stay unsubmitted drafts
-        statuses = [
-            Order.Status.JOB_REQUEST,
-            Order.Status.JOB_REQUEST,
-            Order.Status.PENDING_EDIT,
-            Order.Status.PENDING_EDIT,
-            Order.Status.PRODUCTION,
-            Order.Status.PRODUCTION,
-            Order.Status.COMPLETED,
-            Order.Status.COMPLETED,
-            Order.Status.PENDING_EDIT,
-            Order.Status.PRODUCTION,
-        ]
-        # agreed totals: some fully paid, some outstanding, one unset
-        pricing = [
-            ("1500.00", "1500.00"),  # fully paid
-            ("2000.00", "500.00"),  # outstanding
-            ("1800.00", "1800.00"),  # fully
-            ("2200.00", "1000.00"),  # outstanding
-            ("1600.00", "1600.00"),  # fully
-            ("2500.00", "0.00"),  # outstanding (no payment yet beyond 0)
-            ("3000.00", "3000.00"),  # fully
-            ("1200.00", "400.00"),  # outstanding
-            (None, "300.00"),  # no agreed total yet — outstanding
-            ("2750.00", "2750.00"),  # fully
-        ]
         lead_stages = [
             Lead.Stage.NEW_LEAD,
             Lead.Stage.ORDER_CONFIRMED,
@@ -190,22 +232,27 @@ class Command(BaseCommand):
             Lead.Stage.APPROVED,
         ]
 
+        # First 10 designs get orders (submitted); last 2 stay unsubmitted drafts
         for idx, design in enumerate(designs[:10]):
+            sc = SCENARIOS[idx]
+
             order, created = Order.objects.get_or_create(
                 design=design,
                 defaults={
                     "customer": design.owner,
                     "canvas_json_snapshot": design.canvas_json,
-                    "status": statuses[idx],
-                    "agreed_total": pricing[idx][0],
+                    "status": sc["status"],
+                    "agreed_total": sc["total"],
+                    "balance_due": sc["balance_due"],
                     "notes": f"Demo order for {design.title}",
                 },
             )
             if not created:
                 order.customer = design.owner
                 order.canvas_json_snapshot = design.canvas_json
-                order.status = statuses[idx]
-                order.agreed_total = pricing[idx][0]
+                order.status = sc["status"]
+                order.agreed_total = sc["total"]
+                order.balance_due = sc["balance_due"]
                 order.notes = f"Demo order for {design.title}"
                 order.save()
 
@@ -258,93 +305,34 @@ class Command(BaseCommand):
                     kind=ActivityLog.Kind.ORDER_CONFIRMED,
                 )
 
-            claimed = pricing[idx][1]
-            channel = channels[idx % len(channels)]
+            # Payments: rebuilt from the scenario so the derived payment status
+            # (Outstanding / Downpayment Paid / Fully Paid) matches the live flow.
             Payment.objects.filter(order=order).delete()
-            # Mix accepted / pending / rejected claims for demo review flows.
-            # Orders past Job Request always get an accepted payment so gates stay valid.
-            # Payment created_at is backdated within the last 60 days for charts.
-            def _add_payment(*, amount, status, channel_obj, days_offset=0, **extra):
-                # Demo proof of payment + reference number for every claim.
-                n = Payment.objects.filter(order=order).count() + 1
-                reference = str(8100000000000 + order.pk * 100 + n)  # 13-digit, e-wallet style
-                extra.setdefault("reference_number", reference)
-                extra.setdefault(
-                    "proof_file",
-                    placeholder_proof(
-                        f"{order.order_id}-{n}",
-                        channel=channel_obj.display_name,
-                        amount=amount,
-                        reference=extra["reference_number"],
-                    ),
-                )
+            for n, spec in enumerate(sc["payments"], start=1):
+                channel_obj = channels[(idx + n) % len(channels)]
+                reference = str(8100000000000 + order.pk * 100 + n)  # e-wallet style
                 payment = Payment.objects.create(
                     order=order,
                     channel=channel_obj,
-                    amount_claimed=amount,
-                    status=status,
-                    **extra,
+                    amount_claimed=spec["amount"],
+                    status=spec["status"],
+                    purpose=spec["purpose"],
+                    requested_amount=spec["requested"],
+                    rejection_reason=spec["reason"],
+                    reference_number=reference,
+                    proof_file=placeholder_proof(
+                        f"{order.order_id}-{n}",
+                        channel=channel_obj.display_name,
+                        amount=spec["amount"],
+                        reference=reference,
+                    ),
                 )
-                pay_days = max(0, order_days_ago - days_offset)
-                pay_created = now - timedelta(days=pay_days, hours=(idx + days_offset) % 20)
-                Payment.objects.filter(pk=payment.pk).update(created_at=pay_created)
-                if status == Payment.Status.ACCEPTED:
-                    Payment.objects.filter(pk=payment.pk).update(
-                        reviewed_at=pay_created + timedelta(hours=2),
-                        reviewed_by=staff_edit,
-                    )
-                return payment
-
-            if claimed and claimed != "0.00":
-                if order.status == Order.Status.JOB_REQUEST and idx == 1:
-                    # Outstanding job request with only a pending claim
-                    _add_payment(
-                        amount=claimed,
-                        status=Payment.Status.PENDING,
-                        channel_obj=channel,
-                    )
-                elif idx == 3:
-                    # Accepted partial + a second pending top-up
-                    _add_payment(
-                        amount=claimed,
-                        status=Payment.Status.ACCEPTED,
-                        channel_obj=channel,
-                        days_offset=2,
-                    )
-                    _add_payment(
-                        amount="200.00",
-                        status=Payment.Status.PENDING,
-                        channel_obj=channels[(idx + 1) % len(channels)],
-                    )
-                elif idx == 7:
-                    # Rejected claim plus an accepted partial
-                    _add_payment(
-                        amount="100.00",
-                        status=Payment.Status.REJECTED,
-                        channel_obj=channel,
-                        days_offset=4,
-                        rejection_reason="Unreadable proof",
-                    )
-                    _add_payment(
-                        amount=claimed,
-                        status=Payment.Status.ACCEPTED,
-                        channel_obj=channel,
-                        days_offset=1,
-                    )
-                else:
-                    _add_payment(
-                        amount=claimed,
-                        status=Payment.Status.ACCEPTED,
-                        channel_obj=channel,
-                        days_offset=1,
-                    )
-            elif idx == 5:
-                # No accepted payment yet; pending claim only (still Job Request / Production demo)
-                _add_payment(
-                    amount="500.00",
-                    status=Payment.Status.PENDING,
-                    channel_obj=channel,
-                )
+                created_at = order_created + timedelta(hours=spec["hours"])
+                updates = {"created_at": created_at}
+                if spec["status"] in (ACCEPTED, REJECTED):
+                    updates["reviewed_at"] = created_at + timedelta(hours=2)
+                    updates["reviewed_by"] = staff_edit
+                Payment.objects.filter(pk=payment.pk).update(**updates)
 
             Lead.objects.update_or_create(
                 order=order,
@@ -360,11 +348,26 @@ class Command(BaseCommand):
             if stage not in stages_present:
                 self.stderr.write(self.style.WARNING(f"Missing lead stage: {stage}"))
 
+        # Quick self-check: show the derived payment status mix
+        mix = {}
+        for o in Order.objects.prefetch_related("payments"):
+            mix[o.payment_status] = mix.get(o.payment_status, 0) + 1
+        waiting = Payment.objects.filter(status=PENDING).count()
+
         self.stdout.write(self.style.SUCCESS("Demo data seeded (idempotent)."))
         self.stdout.write(
             f"Admin: {admin.email} / Staff: {staff_edit.email}, {staff_view.email} "
             f"/ Customers: {len(customers)} / Designs: {Design.objects.count()} "
             f"/ Orders: {Order.objects.count()} / Channels: {PaymentChannel.objects.filter(is_active=True).count()}"
+        )
+        self.stdout.write(
+            "Payment status mix: "
+            + ", ".join(f"{k}: {v}" for k, v in sorted(mix.items()))
+            + f" / Payments awaiting review: {waiting}"
+        )
+        self.stdout.write(
+            "Try: customer3 (Pay Here), customer4 (Pay Exact Amount), "
+            "customer5 (Fully Paid + rejected history)."
         )
         self.stdout.write(f"Password for all demo users: {DEMO_PASSWORD}")
 

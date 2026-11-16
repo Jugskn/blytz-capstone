@@ -2,7 +2,7 @@
 
 {% block title %}Accounting · {{ order.order_id }} — Blytz{% endblock %}
 
-{% block content %}
+{% block staff_content %}
 <section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
   <p class="text-sm text-ink-muted">
     <a href="{% url 'accounting_list' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Accounting</a>
@@ -21,12 +21,8 @@
       {% endif %}
     </div>
     <div class="text-right text-sm">
-      <p class="font-mono">Paid ₱{{ order.total_paid }}{% if order.balance is not None %} · Bal ₱{{ order.balance }}{% endif %}</p>
-      {% if order.payment_status == "Fully Paid" %}
-        {% include "components/badge.html" with label=order.payment_status variant="success" %}
-      {% else %}
-        {% include "components/badge.html" with label=order.payment_status variant="warning" %}
-      {% endif %}
+      <p class="font-mono">Paid ₱{{ order.total_paid }}{% if order.outstanding_amount is not None %} · Bal ₱{{ order.outstanding_amount }}{% endif %}</p>
+      {% include "orders/_payment_badge.html" %}
     </div>
   </div>
 
@@ -44,6 +40,7 @@
               </p>
               <p class="text-xs text-ink-muted">
                 {{ payment.created_at|date:"Y-m-d H:i" }}
+                · <strong>{{ payment.get_purpose_display }}</strong>
                 {% if payment.recorded_by %} · by {{ payment.recorded_by.get_short_name }}{% endif %}
               </p>
               <div class="mt-1">
@@ -57,7 +54,7 @@
               </div>
               {% if payment.note %}<p class="mt-1 text-ink-muted">{{ payment.note }}</p>{% endif %}
               {% if payment.rejection_reason %}<p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>{% endif %}
-            </div>
+              {% if payment.requested_amount %}<p class="mt-1 text-xs text-ink">Requested exact amount: <span class="font-mono">₱{{ payment.requested_amount }}</span></p>{% endif %}            </div>
             <p class="font-mono">₱{{ payment.amount_claimed }}</p>
           </div>
           {% if payment.proof_file %}

@@ -1,0 +1,18 @@
+{% with status=order.payment_status %}
+  <span class="cp-pill {% if status == 'Fully Paid' %}is-paid{% elif status == 'Downpayment Paid' %}is-down{% else %}is-out{% endif %}"
+        data-tip="{{ order.payment_tooltip }}" tabindex="0">{{ status }}</span>
+{% endwith %}
+{% if order.pending_payment %}
+  <p class="cp-pay-note">Awaiting staff review</p>
+{% endif %}
+{% if order.rejected_request %}
+  <p class="cp-pay-note is-bad">Payment rejected</p>
+{% endif %}
+{% with due=order.amount_due %}
+  {% if due %}
+  <p class="cp-pay-due">Amount due <strong>₱{{ due }}</strong></p>
+  <a href="{% url 'order_detail' order.order_id %}?pay=1" class="cp-btn cp-btn-gold cp-btn-sm">
+    {% if order.rejected_request %}Pay Exact Amount{% else %}Pay Here{% endif %}
+  </a>
+  {% endif %}
+{% endwith %}

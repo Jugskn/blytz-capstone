@@ -32,6 +32,8 @@ ORDERS_EXPORT_HEADERS = [
     "payment_status",
     "agreed_total",
     "total_paid",
+    "downpayment_paid",
+    "final_balance_paid",
     "balance",
     "payment_awaiting_review",
 ]
@@ -148,7 +150,11 @@ def accounting_list(request):
     )
     total_collected = sum((o.total_paid for o in orders), Decimal("0.00"))
     total_outstanding = sum(
-        (o.balance for o in orders if o.balance is not None and o.balance > 0),
+        (
+            o.outstanding_amount
+            for o in orders
+            if o.outstanding_amount is not None and o.outstanding_amount > 0
+        ),
         Decimal("0.00"),
     )
     collected_chart = collected_vs_outstanding_chart(orders)
@@ -209,6 +215,8 @@ def accounting_export_csv(request):
                 order.payment_status,
                 _format_money(order.agreed_total),
                 _format_money(order.total_paid),
+                _format_money(order.total_paid - order.balance_paid),
+                _format_money(order.balance_paid),                
                 _format_money(order.balance),
                 "yes" if order.pending_payment else "no",
             ]
@@ -259,7 +267,11 @@ def accounting_detail(request, order_id):
                     amount_claimed=payment_form.cleaned_data["amount_claimed"],
                     proof_file=payment_form.cleaned_data.get("proof_file"),
                     is_manual_adjustment=True,
-                    note=payment_form.cleaned_data.get("note") or "Manual adjustment",
+                    purpose=(
+                        Payment.Purpose.BALANCE
+                        if order.balance_due is not None
+                        else Payment.Purpose.DOWNPAYMENT
+                    ),                    note=payment_form.cleaned_data.get("note") or "Manual adjustment",
                     recorded_by=request.user,
                     status=Payment.Status.ACCEPTED,
                     reviewed_by=request.user,

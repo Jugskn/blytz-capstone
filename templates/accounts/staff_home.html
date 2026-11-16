@@ -3,162 +3,166 @@
 {% block title %}Staff Dashboard — Blytz{% endblock %}
 
 {% block staff_content %}
-{# Header row #}
-<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-  <div>
-    <h1 class="text-3xl font-bold text-text-primary mb-1">Dashboard</h1>
-    <p class="text-sm text-text-muted">Overview of your business, orders, and production status.</p>
-  </div>
-  <div>
-    <button class="inline-flex items-center gap-2 px-4 py-2 bg-bg-elevated border border-border rounded-lg text-sm text-text-muted hover:border-accent transition-colors">
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-      </svg>
-      <span>Oct 1, 2026 - Oct 31, 2026</span>
-      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-      </svg>
-    </button>
-  </div>
-</div>
+<style>
+  .sd-head{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:1rem;margin-bottom:1.5rem}
+  .sd-eyebrow{margin:0;font-size:.72rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#6b7280}
+  .sd-h1{margin:.25rem 0 0;font-size:1.75rem;font-weight:700;color:#1a1a1a}
+  .sd-sub{margin:.3rem 0 0;font-size:.9rem;color:#6b7280}
+  .sd-cta{display:inline-flex;align-items:center;min-height:2.75rem;padding:.5rem 1.25rem;border-radius:9999px;
+    background:#1a1a1a;color:#fff;font-size:.85rem;font-weight:600;transition:background .15s,color .15s}
+  .sd-cta:hover{background:#D4AF37;color:#1a1a1a!important}
+  .sd-h2{margin:0 0 .75rem;font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280}
 
-{# Row 1: KPI Cards #}
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-  {% include "partials/kpi_card.html" with icon="orders" label="Total Orders" value=total_orders caption="+12% vs last month" color="gray" %}
-  {% include "partials/kpi_card.html" with icon="pending" label="Pending Review" value=pending_review_count caption="Needs approval" color="gold" %}
-  {% include "partials/kpi_card.html" with icon="production" label="In Production" value=in_production_count caption="Active orders" color="blue" %}
-  {% include "partials/kpi_card.html" with icon="completed" label="Completed" value=completed_count caption="+24% This month" color="green" %}
-  {% include "partials/kpi_card.html" with icon="sales" label="Total Sales" value=total_sales caption="This month" color="gold" %}
-</div>
+  /* Attention cards */
+  .sd-attn{display:grid;gap:.85rem;grid-template-columns:repeat(1,minmax(0,1fr));margin-bottom:1.75rem}
+  @media (min-width:700px){.sd-attn{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  .sd-card{display:flex;flex-direction:column;gap:.2rem;padding:1rem 1.15rem;border-radius:.9rem;background:#fff;
+    border:1px solid #e5e7eb;transition:transform .15s,border-color .15s,box-shadow .15s}
+  .sd-card:hover{transform:translateY(-2px);border-color:#D4AF37;box-shadow:0 10px 24px rgba(0,0,0,.08)}
+  .sd-card.is-hot{border-color:#D4AF37;background:#fffbea}
+  .sd-num{font-size:2rem;font-weight:700;line-height:1;color:#1a1a1a}
+  .sd-lab{font-size:.9rem;font-weight:600;color:#1a1a1a}
+  .sd-hint{font-size:.78rem;color:#6b7280}
+  .sd-go{margin-top:.4rem;font-size:.78rem;font-weight:600;color:#8a6a00}
 
-{# Row 2: Charts (2/3 + 1/3) #}
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-  
-  {# Orders Overview (2/3 width) #}
-  <div class="lg:col-span-2 blytz-panel p-6">
-    <div class="flex justify-between items-center mb-6">
-      <h2 class="text-lg font-semibold text-text-primary">Orders Overview</h2>
-      <div class="flex items-center gap-4 text-xs">
-        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-accent"></span><span class="text-text-muted">Total Orders</span></span>
-        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-success"></span><span class="text-text-muted">Completed</span></span>
-        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-info"></span><span class="text-text-muted">In Production</span></span>
-        <span class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-warning"></span><span class="text-text-muted">Pending</span></span>
+  /* Layout */
+  .sd-main{display:grid;gap:1.5rem}
+  @media (min-width:1100px){.sd-main{grid-template-columns:minmax(0,2fr) minmax(0,1fr);align-items:start}}
+  .sd-stack{display:flex;flex-direction:column;gap:1.5rem;min-width:0}
+  .sd-panel-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;padding:1rem 1.25rem;border-bottom:1px solid #e5e7eb}
+  .sd-panel-title{margin:0;font-size:1rem;font-weight:600;color:#1a1a1a}
+  .sd-link{font-size:.8rem;font-weight:600;color:#8a6a00}
+  .sd-link:hover{text-decoration:underline}
+  .sd-empty{padding:1.75rem 1.25rem;text-align:center;font-size:.88rem;color:#6b7280}
+  .sd-btn{display:inline-flex;align-items:center;padding:.3rem .8rem;border-radius:.5rem;border:1px solid #D4AF37;
+    color:#8a6a00;font-size:.75rem;font-weight:600;white-space:nowrap;transition:background .15s}
+  .sd-btn:hover{background:rgba(212,175,55,.12)}
+  .sd-mono{font-family:ui-monospace,Menlo,monospace}
+
+  /* Pipeline bars */
+  .sd-phase{display:block;padding:.75rem 1.25rem;border-bottom:1px solid #f0f0f0}
+  .sd-phase:last-child{border-bottom:0}
+  .sd-phase:hover{background:#fffdf5}
+  .sd-phase-row{display:flex;align-items:center;justify-content:space-between;font-size:.85rem;color:#1a1a1a;font-weight:600}
+  .sd-bar{height:.4rem;margin-top:.45rem;border-radius:9999px;background:#eef0f2;overflow:hidden}
+  .sd-bar span{display:block;height:100%;border-radius:9999px;background:#D4AF37}
+  .sd-stat{display:flex;align-items:center;justify-content:space-between;padding:.7rem 1.25rem;border-bottom:1px solid #f0f0f0;font-size:.85rem;color:#6b7280}
+  .sd-stat:last-child{border-bottom:0}
+  .sd-stat strong{font-size:1rem;color:#1a1a1a}
+</style>
+
+{# ── Header ───────────────────────────────────────────── #}
+<header class="sd-head">
+  <div>
+    <p class="sd-eyebrow">{% now "l, F j" %}</p>
+    <h1 class="sd-h1">Welcome back, {{ user.get_short_name }}</h1>
+    
+  </div>
+</header>
+
+{# ── 2. Work + context ────────────────────────────────── #}
+<div class="sd-main">
+
+  {# LEFT: work queue, then history #}
+  <div class="sd-stack">
+
+    <section class="blytz-panel" aria-labelledby="sd-pay-title">
+      <div class="sd-panel-head">
+        <h2 id="sd-pay-title" class="sd-panel-title">Payments awaiting review</h2>
+        {% if payments_to_review_count > 5 %}
+        <a href="{% url 'jobs_pipeline' %}?pending_review=1" class="sd-link">View all {{ payments_to_review_count }} →</a>
+        {% endif %}
       </div>
-    </div>
-    <div class="h-64 bg-bg-elevated rounded-lg flex items-center justify-center border border-border">
-      <p class="text-text-subtle text-sm">Chart.js line chart will be added in Step 4</p>
-    </div>
+      {% if payments_to_review %}
+      <div class="overflow-x-auto">
+        <table class="w-full blytz-table">
+          <thead>
+            <tr><th>Order</th><th>Customer</th><th>Amount</th><th>Channel</th><th>Waiting</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for p in payments_to_review %}
+            <tr>
+              <td class="sd-mono font-medium text-text-primary"><span data-tip="{{ p.order.design.title|default:'Custom design' }}">{{ p.order.order_id }}</span></td>              <td>{{ p.order.customer.get_full_name|default:p.order.customer.email }}</td>
+              <td class="sd-mono"><span data-tip="Reference: {{ p.reference_number|default:'none' }}&#10;Channel: {{ p.channel.display_name|default:'—' }}">₱{{ p.amount_claimed }}</span></td>              <td>{{ p.channel.display_name|default:"—" }}</td>
+              <td>{{ p.created_at|timesince }}</td>
+              <td><a href="{% url 'staff_order_detail' p.order.order_id %}" class="sd-btn">Review</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="sd-empty">No payments waiting. Nice work.</p>
+      {% endif %}
+    </section>
+
+    <section class="blytz-panel" aria-labelledby="sd-ord-title">
+      <div class="sd-panel-head">
+        <h2 id="sd-ord-title" class="sd-panel-title">Recent orders</h2>
+        <a href="{% url 'jobs_pipeline' %}" class="sd-link">View all →</a>
+      </div>
+      {% if recent_orders %}
+      <div class="overflow-x-auto">
+        <table class="w-full blytz-table">
+          <thead>
+            <tr><th>Order</th><th>Customer</th><th>Job</th><th>Payment</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for order in recent_orders %}
+            <tr>
+              <td class="sd-mono font-medium text-text-primary">{{ order.order_id }}</td>
+              <td>{{ order.customer.get_full_name|default:order.customer.email }}</td>
+              <td>{% include "partials/status_badge.html" with status=order.status %}</td>
+              <td>{% include "partials/payment_pill.html" %}</td>
+              <td><a href="{% url 'staff_order_detail' order.order_id %}" class="sd-btn">Open</a></td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="sd-empty">No orders yet.</p>
+      {% endif %}
+    </section>
   </div>
 
-  {# Order Status (1/3 width) #}
-  <div class="blytz-panel p-6">
-    <h2 class="text-lg font-semibold text-text-primary mb-6">Order Status</h2>
-    <div class="h-64 bg-bg-elevated rounded-lg flex items-center justify-center border border-border">
-      <p class="text-text-subtle text-sm">Chart.js donut chart will be added in Step 4</p>
-    </div>
-  </div>
+  {# RIGHT: context #}
+  <div class="sd-stack">
 
-</div>
+    <section class="blytz-panel" aria-labelledby="sd-pipe-title">
+      <div class="sd-panel-head"><h2 id="sd-pipe-title" class="sd-panel-title">Pipeline</h2></div>
+      {% for row in phase_rows %}
+      <a href="{% url 'jobs_pipeline' %}#pipeline-phase-{{ row.status }}" class="sd-phase">
+        <div class="sd-phase-row"><span>{{ row.label }}</span><span class="sd-mono">{{ row.count }}</span></div>
+        <div class="sd-bar"><span style="width:{{ row.pct }}%"></span></div>
+      </a>
+      {% endfor %}
+    </section>
 
-{# Row 3: Tables (2/3 + 1/3) #}
-<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-  
-  {# Recent Orders (2/3 width) #}
-  <div class="lg:col-span-2 blytz-panel">
-    <div class="flex justify-between items-center p-6 border-b border-border">
-      <h2 class="text-lg font-semibold text-text-primary">Recent Orders</h2>
-      <a href="{% url 'jobs_pipeline' %}" class="text-sm text-accent hover:text-accent-hover transition-colors">View All →</a>
-    </div>
-    <div class="overflow-x-auto">
-      <table class="w-full blytz-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Customer</th>
-            <th>Product</th>
-            <th>Status</th>
-            <th>Submitted</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for order in recent_orders %}
-          <tr>
-            <td class="font-medium text-text-primary">#{{ order.order_id }}</td>
-            <td>
-              <div class="flex items-center gap-2">
-                <div class="w-8 h-8 rounded-full bg-bg-elevated border border-border flex items-center justify-center">
-                  <span class="text-xs text-text-muted">{{ order.customer.get_short_name|first|upper }}</span>
-                </div>
-                <span>{{ order.customer.get_full_name }}</span>
-              </div>
-            </td>
-            <td>{{ order.design.title|default:"Custom Design" }}</td>
-            <td>{% include "partials/status_badge.html" with status=order.status %}</td>
-            <td>{{ order.created_at|date:"M d, Y" }}</td>
-            <td>
-              <div class="flex items-center gap-2">
-                <a href="{% url 'staff_order_detail' order.order_id %}" class="px-3 py-1 text-xs border border-accent text-accent rounded hover:bg-accent/10 transition-colors">View</a>
-                <button class="text-text-muted hover:text-text-primary">⋮</button>
-              </div>
-            </td>
-          </tr>
-          {% empty %}
-          <tr>
-            <td colspan="6" class="text-center py-8 text-text-subtle">No recent orders</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-  </div>
+    <section class="blytz-panel" aria-labelledby="sd-month-title">
+      <div class="sd-panel-head"><h2 id="sd-month-title" class="sd-panel-title">At a glance</h2></div>
+      <div class="sd-stat"><span>Sales this month</span><strong class="sd-mono">₱{{ sales_total|floatformat:2 }}</strong></div>
+      <div class="sd-stat"><span>Total orders</span><strong>{{ total_orders }}</strong></div>
+      <div class="sd-stat"><span>In production</span><strong>{{ in_production_count }}</strong></div>
+      <div class="sd-stat"><span>Completed</span><strong>{{ completed_count }}</strong></div>
+    </section>
 
-  {# Recent Leads (1/3 width) #}
-  <div class="blytz-panel">
-    <div class="flex justify-between items-center p-6 border-b border-border">
-      <h2 class="text-lg font-semibold text-text-primary">Recent Leads</h2>
-      <a href="{% url 'sales_pipeline' %}" class="text-sm text-accent hover:text-accent-hover transition-colors">View All →</a>
-    </div>
-    <div class="overflow-x-auto">
-      <table class="w-full blytz-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Product</th>
-            <th>Status</th>
-            <th>Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for lead in recent_leads %}
-          <tr>
-            <td>{{ lead.customer.get_full_name }}</td>
-            <td>{{ lead.order.design.title|default:"Custom" }}</td>
-            <td>
-              {% if lead.stage == 'new_lead' %}
-                <span class="blytz-pill blytz-pill--blue">New</span>
-              {% elif lead.stage == 'order_confirmed' %}
-                <span class="blytz-pill blytz-pill--gray">Contacted</span>
-              {% elif lead.stage == 'design_review' %}
-                <span class="blytz-pill blytz-pill--red">Interested</span>
-              {% elif lead.stage == 'completed' %}
-                <span class="blytz-pill blytz-pill--green">Converted</span>
-              {% else %}
-                <span class="blytz-pill blytz-pill--gray">{{ lead.get_stage_display }}</span>
-              {% endif %}
-            </td>
-            <td>{{ lead.created_at|date:"M d" }}</td>
-          </tr>
-          {% empty %}
-          <tr>
-            <td colspan="4" class="text-center py-8 text-text-subtle">No recent leads</td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
+    <section class="blytz-panel" aria-labelledby="sd-lead-title">
+      <div class="sd-panel-head">
+        <h2 id="sd-lead-title" class="sd-panel-title">Recent leads</h2>
+        <a href="{% url 'sales_pipeline' %}" class="sd-link">View all →</a>
+      </div>
+      {% for lead in recent_leads %}
+      <div class="sd-stat">
+        <span>{{ lead.customer.get_full_name|default:lead.customer.email }}<br>
+          <small>{{ lead.order.design.title|default:"Custom" }}</small></span>
+        <small>{{ lead.created_at|date:"M d" }}</small>
+      </div>
+      {% empty %}
+      <p class="sd-empty">No leads yet.</p>
+      {% endfor %}
+    </section>
   </div>
 
 </div>
-
 {% endblock %}

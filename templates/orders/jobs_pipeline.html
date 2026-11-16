@@ -12,15 +12,19 @@
     <p class="mt-1 text-sm text-text-muted">Move orders forward one phase at a time.</p>
   </div>
 
-  {% if pending_review %}
   <div class="flex flex-wrap items-center gap-3">
+    {% if pending_review %}
     <span class="blytz-pill blytz-pill--gold">Showing orders with payment awaiting review</span>
     <a href="{% url 'jobs_pipeline' %}"
        class="text-sm text-accent transition-colors hover:text-accent-hover">
       Clear filter
     </a>
+    {% elif staff_pending_payments_count %}
+    <a href="{% url 'jobs_pipeline' %}?pending_review=1" class="blytz-pill blytz-pill--gold">
+      {{ staff_pending_payments_count }} payment{{ staff_pending_payments_count|pluralize }} to review →
+    </a>
+    {% endif %}
   </div>
-  {% endif %}
 </header>
 
 {# ── Filters ─────────────────────────────────────────────── #}

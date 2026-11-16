@@ -1,0 +1,51 @@
+<details class="relative group z-50">
+  <summary class="list-none cursor-pointer focus:outline-none relative flex h-10 w-10 items-center justify-center rounded-full border border-border text-text-muted transition-colors hover:text-accent"
+           aria-label="Notifications">
+    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/>
+    </svg>
+    {% if customer_notification_count %}
+    <span style="position:absolute;top:-3px;right:-3px;display:flex;align-items:center;justify-content:center;min-width:1.1rem;height:1.1rem;padding:0 .25rem;border-radius:9999px;background:#D4AF37;color:#0a0a0a;font-size:.65rem;font-weight:700">{{ customer_notification_count }}</span>
+    {% endif %}
+  </summary>
+
+  <div class="absolute right-0 mt-3 overflow-hidden rounded-xl border border-border bg-bg-surface shadow-2xl"
+       style="width:21rem;max-width:calc(100vw - 2rem)">
+    <div class="border-b border-border p-4 bg-bg-elevated/50">
+      <p class="text-sm font-semibold text-text-primary">Notifications</p>
+    </div>
+
+    <div style="max-height:22rem;overflow-y:auto">
+      {% for a in customer_actions %}
+      <a href="{% url 'order_detail' a.order.order_id %}?pay=1"
+         class="flex gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-bg-elevated">
+        <span style="flex:0 0 auto;margin-top:.4rem;width:.5rem;height:.5rem;border-radius:9999px;background:#D4AF37"></span>
+        <span class="min-w-0 flex-1">
+          {% if a.kind == "rejected" %}
+          <span class="block text-sm font-semibold text-text-primary">Payment rejected: pay exactly ₱{{ a.amount }}</span>
+          {% if a.reason %}<span class="block text-xs text-text-muted">{{ a.reason }}</span>{% endif %}
+          {% else %}
+          <span class="block text-sm font-semibold text-text-primary">Balance due: ₱{{ a.amount }}</span>
+          {% endif %}
+          <span class="block text-xs text-text-muted">{{ a.order.order_id }} · {{ a.order.design.title }}</span>
+        </span>
+      </a>
+      {% endfor %}
+
+      {% for u in customer_updates %}
+      <a href="{% url 'order_detail' u.order.order_id %}"
+         class="flex gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-bg-elevated">
+        <span style="flex:0 0 auto;margin-top:.4rem;width:.5rem;height:.5rem;border-radius:9999px;background:#3fa35f"></span>
+        <span class="min-w-0 flex-1">
+          <span class="block text-sm font-semibold text-text-primary">Payment accepted · ₱{{ u.payment.amount_claimed }}</span>
+          <span class="block text-xs text-text-muted">{{ u.order.order_id }} · {{ u.payment.reviewed_at|timesince }} ago</span>
+        </span>
+      </a>
+      {% endfor %}
+
+      {% if not customer_actions and not customer_updates %}
+      <p class="px-4 py-6 text-center text-sm text-text-muted">You're all caught up.</p>
+      {% endif %}
+    </div>
+  </div>
+</details>

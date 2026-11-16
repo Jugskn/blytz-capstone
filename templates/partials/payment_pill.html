@@ -1,0 +1,4 @@
+{% with status=order.payment_status %}
+<span class="blytz-pill {% if status == 'Fully Paid' %}blytz-pill--green{% elif status == 'Downpayment Paid' %}blytz-pill--gold{% else %}blytz-pill--red{% endif %}"
+      data-tip="{{ order.payment_tooltip }}" tabindex="0">{{ status }}</span>
+{% endwith %}

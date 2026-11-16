@@ -39,6 +39,20 @@ class PaymentRejectForm(forms.Form):
         required=False,
         strip=True,
     )
+    requested_amount = forms.DecimalField(
+        required=False,
+        min_value=Decimal("0.01"),
+        max_digits=10,
+        decimal_places=2,
+    )
+
+
+class CompleteOrderForm(forms.Form):
+    balance_due = forms.DecimalField(
+        min_value=Decimal("0.00"),
+        max_digits=10,
+        decimal_places=2,
+    )
 
 
 class FinalDesignUploadForm(forms.Form):

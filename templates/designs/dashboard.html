@@ -3,70 +3,179 @@
 {% block title %}Dashboard — Blytz{% endblock %}
 
 {% block content %}
-<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-  <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-    <div>
-      <h1 class="font-display text-3xl text-ink">Hello, {{ user.get_short_name }}</h1>
-      <p class="mt-1 text-ink-muted">Your designs and orders in one place.</p>
+{% include "components/_customer_theme.html" %}
+<style>
+  .dx-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin:0 0 .85rem}
+  .dx-head h2{margin:0;font-family:'Playfair Display',Georgia,serif;font-size:1.25rem;color:#0a0a0a}
+  .dx-list{display:flex;flex-direction:column;gap:.65rem;margin:0;padding:0;list-style:none}
+
+  /* Card: very thin border, lifts and turns gold on hover */
+  .dx-item{position:relative;display:flex;align-items:center;gap:.85rem;padding:.9rem 1rem;
+    border-radius:.9rem;background:#fff;border:1px solid rgba(10,10,10,.10);
+    transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease,background .18s ease}
+  .dx-item:hover,.dx-item:focus-within{transform:translateY(-3px);border-color:#D4AF37;background:#fffdf5;
+    box-shadow:0 14px 30px rgba(10,10,10,.10),0 0 0 1px rgba(212,175,55,.35)}
+  .dx-link{position:absolute;inset:0;z-index:1;border-radius:inherit}
+  .dx-link:focus-visible{outline:2px solid #D4AF37;outline-offset:2px}
+  .dx-item .cp-glyph{transition:background .18s,color .18s,transform .18s}
+  .dx-item:hover .cp-glyph{background:#D4AF37;color:#0a0a0a;transform:rotate(-6deg) scale(1.05)}
+
+  .dx-main{min-width:0;flex:1}
+  .dx-title{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.95rem;font-weight:700;color:#0a0a0a}
+  .dx-id{margin:0;font-family:ui-monospace,Menlo,monospace;font-size:.72rem;font-weight:700;letter-spacing:.08em;color:#8a6a00}
+  .dx-sub{margin:.15rem 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;color:#3b3a33}
+  .dx-meta{margin:.15rem 0 0;font-size:.72rem;color:#6b6759}
+  .dx-meta .cp-mono{color:#0a0a0a;font-weight:700}
+
+  .dx-side{display:flex;flex-direction:column;align-items:flex-end;gap:.4rem;flex:0 0 auto;text-align:right}
+  .dx-arrow{font-size:.75rem;font-weight:700;color:#8a6a00;opacity:0;transform:translateX(-6px);
+    transition:opacity .18s,transform .18s}
+  .dx-item:hover .dx-arrow,.dx-item:focus-within .dx-arrow{opacity:1;transform:translateX(0)}
+
+  /* Order card has a second row for payment */
+  .dx-order{align-items:flex-start;flex-wrap:wrap}
+  .dx-order-top{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;width:100%}
+  .dx-order-bottom{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;width:100%;
+    margin-top:.65rem;padding-top:.65rem;border-top:1px solid rgba(10,10,10,.07)}
+  .dx-col-label{display:block;margin:0 0 .3rem;font-size:.62rem;font-weight:700;letter-spacing:.1em;
+    text-transform:uppercase;color:#9a9482}
+  /* keep the Pay button clickable above the full-card link */
+  .dx-pay{position:relative;z-index:2;pointer-events:none}
+  .dx-pay a{pointer-events:auto}
+
+  .dx-empty{display:flex;flex-direction:column;align-items:center;gap:.5rem;padding:1.75rem 1.25rem;text-align:center;
+    border-radius:.9rem;background:#fff;border:1px dashed #cdbf8f}
+  .dx-empty h3{margin:.25rem 0 0;font-family:'Playfair Display',Georgia,serif;font-size:1.05rem;color:#0a0a0a}
+  .dx-empty p{margin:0 0 .4rem;font-size:.84rem;color:#6b6759;max-width:22rem}
+</style>
+<div class="cp-page">
+<section class="cp-wrap">
+
+  <header class="cp-hero">
+    <div class="cp-hero-row">
+      <div>
+        <p class="cp-eyebrow">Customer dashboard</p>
+        <h1 class="cp-h1">Hello, {{ user.get_short_name }}</h1>
+        <p class="cp-lead">Your designs and orders in one place.</p>
+      </div>
+      <form method="post" action="{% url 'design_create' %}">
+        {% csrf_token %}
+        <button type="submit" class="cp-btn cp-btn-gold">+ Start new design</button>
+      </form>
     </div>
-    <form method="post" action="{% url 'design_create' %}">
-      {% csrf_token %}
-      {% include "components/button.html" with label="Start new design" type="submit" variant="primary" %}
-    </form>
+  </header>
+
+  <div class="cp-stats">
+    <div class="cp-stat">
+      <span class="cp-stat-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 3h-3l-1 2h-4l-1-2H4l-2 5 4 2v11h12V10l4-2-2-5z"/></svg></span>
+      <span class="cp-stat-label">Designs</span>
+      <span class="cp-stat-value">{{ stat_designs }}</span>
+    </div>
+    <div class="cp-stat">
+      <span class="cp-stat-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.4-9.4a2 2 0 112.8 2.8L11.8 15H9v-2.8l8.6-8.6z"/></svg></span>
+      <span class="cp-stat-label">Drafts</span>
+      <span class="cp-stat-value">{{ stat_drafts }}</span>
+    </div>
+    <div class="cp-stat">
+      <span class="cp-stat-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg></span>
+      <span class="cp-stat-label">Submitted</span>
+      <span class="cp-stat-value">{{ stat_submitted }}</span>
+    </div>
+    <div class="cp-stat is-accent">
+      <span class="cp-stat-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg></span>
+      <span class="cp-stat-label">Orders</span>
+      <span class="cp-stat-value">{{ stat_orders }}</span>
+    </div>
   </div>
 
-  <div class="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-    {% include "components/stat_tile.html" with label="Designs" value=stat_designs %}
-    {% include "components/stat_tile.html" with label="Drafts" value=stat_drafts %}
-    {% include "components/stat_tile.html" with label="Submitted" value=stat_submitted %}
-    {% include "components/stat_tile.html" with label="Orders" value=stat_orders accent=True %}
-  </div>
+  <div class="cp-grid2">
 
-  <div class="mt-12 grid gap-10 lg:grid-cols-2">
+    <!-- Recent designs -->
     <div>
-      <div class="mb-4 flex items-center justify-between">
-        <h2 class="font-display text-xl text-ink">Recent designs</h2>
-        <a href="{% url 'design_list' %}" class="text-sm text-ink-muted underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">View all</a>
+      <div class="dx-head">
+        <h2>Recent designs</h2>
+        <a href="{% url 'design_list' %}" class="cp-link">View all</a>
       </div>
       {% if designs %}
-      <ul class="divide-y divide-border rounded-lg border border-border bg-canvas">
+      <ul class="dx-list">
         {% for design in designs %}
-        <li class="flex items-center justify-between gap-3 px-4 py-3">
-          <a href="{% url 'design_editor' design.pk %}" class="min-w-0 font-medium text-ink hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">{{ design.title }}</a>
-          {% if design.pk in submitted_ids %}
-            {% include "components/badge.html" with label="Submitted" variant="success" %}
-          {% else %}
-            {% include "components/badge.html" with label="Draft" variant="muted" %}
-          {% endif %}
+        <li class="dx-item">
+          <a href="{% url 'design_editor' design.pk %}" class="dx-link" aria-label="Open {{ design.title }}"></a>
+          <span class="cp-glyph" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 3h-3l-1 2h-4l-1-2H4l-2 5 4 2v11h12V10l4-2-2-5z"/></svg></span>
+          <div class="dx-main">
+            <p class="dx-title">{{ design.title }}</p>
+            <p class="dx-sub">{{ design.garment_template|default:"—"|title }} · {{ design.garment_color|default:"—"|title }}</p>
+            <p class="dx-meta">Updated {{ design.updated_at|date:"M j, Y · H:i" }}</p>
+          </div>
+          <div class="dx-side">
+            {% if design.pk in submitted_ids %}
+              <span class="cp-pill is-paid">Submitted</span>
+            {% else %}
+              <span class="cp-pill is-draft">Draft</span>
+            {% endif %}
+            <span class="dx-arrow">{% if design.pk in submitted_ids %}View{% else %}Continue{% endif %} →</span>
+          </div>
         </li>
         {% endfor %}
       </ul>
       {% else %}
-        {% include "components/empty_state.html" with title="No designs yet" description="Start a new design to mock up your first shirt." action_label="Start new design" action_href="/app/designs/" %}
+      <div class="dx-empty">
+        <span class="cp-empty-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 3h-3l-1 2h-4l-1-2H4l-2 5 4 2v11h12V10l4-2-2-5z"/></svg></span>
+        <h3>No designs yet</h3>
+        <p>Start a new design to mock up your first shirt.</p>
+        <a href="{% url 'design_list' %}" class="cp-btn cp-btn-dark cp-btn-sm">Go to designs</a>
+      </div>
       {% endif %}
     </div>
 
+    <!-- Recent orders -->
     <div>
-      <div class="mb-4 flex items-center justify-between">
-        <h2 class="font-display text-xl text-ink">Recent orders</h2>
-        <a href="{% url 'order_list' %}" class="text-sm text-ink-muted underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">View all</a>
+      <div class="dx-head">
+        <h2>Recent orders</h2>
+        <a href="{% url 'order_list' %}" class="cp-link">View all</a>
       </div>
       {% if orders %}
-      <ul class="divide-y divide-border rounded-lg border border-border bg-canvas">
+      <ul class="dx-list">
         {% for order in orders %}
-        <li class="flex items-center justify-between gap-3 px-4 py-3">
-          <div class="min-w-0">
-            <a href="{% url 'order_detail' order.order_id %}" class="font-mono text-sm font-medium text-ink hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">{{ order.order_id }}</a>
-            <p class="truncate text-sm text-ink-muted">{{ order.design.title }}</p>
+        <li class="dx-item dx-order">
+          <a href="{% url 'order_detail' order.order_id %}" class="dx-link" aria-label="Open order {{ order.order_id }}"></a>
+
+          <div class="dx-order-top">
+            <div class="cp-row-main" style="min-width:0">
+              <span class="cp-glyph" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg></span>
+              <div class="dx-main">
+                <p class="dx-id">{{ order.order_id }}</p>
+                <p class="dx-title">{{ order.design.title }}</p>
+                <p class="dx-meta">
+                  Paid <span class="cp-mono">₱{{ order.total_paid }}</span>{% if order.agreed_total %} of <span class="cp-mono">₱{{ order.agreed_total }}</span>{% endif %}
+                </p>
+              </div>
+            </div>
+            <div class="dx-side">
+              <span class="cp-pill is-job">{{ order.get_status_display }}</span>
+              <span class="dx-arrow">View →</span>
+            </div>
           </div>
-          {% include "components/badge.html" with label=order.get_status_display variant="muted" %}
+
+          <div class="dx-order-bottom">
+            <div class="dx-pay">
+              <span class="dx-col-label">Payment</span>
+              {% include "orders/_payment_cell.html" %}
+            </div>
+          </div>
         </li>
         {% endfor %}
       </ul>
       {% else %}
-        {% include "components/empty_state.html" with title="No orders yet" description="Submit a design to create your first job request." %}
+      <div class="dx-empty">
+        <span class="cp-empty-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg></span>
+        <h3>No orders yet</h3>
+        <p>Submit a design to create your first job request.</p>
+      </div>
       {% endif %}
     </div>
+
   </div>
 </section>
+</div>
 {% endblock %}
