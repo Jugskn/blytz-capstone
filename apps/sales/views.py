@@ -11,8 +11,10 @@ from .models import Lead
 @staff_required
 def sales_pipeline(request):
     tab = request.GET.get("tab", "leads")
-    leads = Lead.objects.select_related("customer", "order", "order__design").order_by(
-        "-created_at"
+    leads = (
+        Lead.objects.select_related("customer", "order", "order__design")
+        .prefetch_related("order__payments")
+        .order_by("-created_at")
     )
 
     stages = []

@@ -4,8 +4,8 @@
 <div class="min-h-screen bg-bg-white">
 
   {# Top bar only — sidebar removed #}
-  {% include "partials/topbar.html" %}
-
+  {% include "partials/topbar.html" with show_logo=True %}
+  
   {# Main content area — no sidebar offset #}
   <main class="pt-16">
     <div class="p-6">

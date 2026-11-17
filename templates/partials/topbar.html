@@ -1,5 +1,12 @@
 {# Blytz Staff Dashboard Top Bar #}
-<header class="fixed top-0 left-60 right-0 h-16 bg-bg-page border-b border-border z-30 flex items-center justify-end px-6">
+<header class="fixed top-0 {% if show_logo %}left-0 justify-between{% else %}left-60 justify-end{% endif %} right-0 h-16 bg-bg-page border-b border-border z-30 flex items-center px-6">
+
+  {% if show_logo %}
+  <div class="topbar-logo">
+    <style>.topbar-logo .blytz-logo__sub{color:#6b7280}</style>
+    {% include "partials/logo.html" with size="sm" %}
+  </div>
+  {% endif %}
 
   <div class="flex items-center gap-4">
 
