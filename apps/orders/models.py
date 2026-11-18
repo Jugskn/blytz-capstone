@@ -77,6 +77,13 @@ class Order(models.Model):
         blank=True,
         help_text="Set by admin/accounting. Null until priced.",
     )
+    agreed_downpayment = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Downpayment agreed with the customer outside the site (documentation).",
+    )
     balance_due = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -196,7 +203,12 @@ class Order(models.Model):
         if self.balance_due is not None:
             return self.balance_remaining
         return self.balance
-    
+    @property
+    def agreed_balance(self) -> Decimal | None:
+        """Agreed total minus agreed downpayment (documentation only)."""
+        if self.agreed_total is None or self.agreed_downpayment is None:
+            return None
+        return self.agreed_total - self.agreed_downpayment
     @property
     def downpayment_paid(self) -> Decimal:
         """Accepted money that was NOT a final-balance payment."""
@@ -272,6 +284,14 @@ class Order(models.Model):
             return None
         return self.payments.filter(status=Payment.Status.PENDING).first()
 
+    @property
+    def latest_payment(self):
+        """Most recent payment of any status (shows the latest review outcome)."""
+        payments = sorted(
+            self.payments.all(), key=lambda p: (p.created_at, p.pk), reverse=True
+        )
+        return payments[0] if payments else None
+
     def can_accept_additional_payment(self) -> bool:
         """True when a customer may upload another payment proof."""
         if self.pending_payment is not None:
@@ -292,12 +312,21 @@ class Order(models.Model):
         name = (getattr(self.final_design, "name", "") or "").lower()
         return name.endswith((".png", ".jpg", ".jpeg"))
 
+    @property
+    def customer_approved_current_design(self) -> bool:
+        """True when the customer approved the latest uploaded final design version."""
+        return (
+            self.final_design_version > 0
+            and self.approved_version == self.final_design_version
+        )
+
     def can_approve_final_design(self) -> bool:
         """True when the owning customer may approve the current final design."""
         return (
             self.status == self.Status.PENDING_EDIT
             and bool(self.final_design)
             and self.final_design_version > 0
+            and not self.customer_approved_current_design
         )
 
 

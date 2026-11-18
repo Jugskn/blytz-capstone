@@ -137,22 +137,40 @@ class PaymentWorkflowTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.PENDING_EDIT)
 
-    def test_complete_requires_balance_and_sets_it(self):
+    def test_request_final_payment_sets_balance(self):
         order = self.make_order(status=Order.Status.PRODUCTION)
         self.pay(order, "500.00", ACCEPTED)
         self.client.force_login(self.staff)
-        url = reverse("advance_order_phase", args=[order.order_id])
+        self.client.post(
+            reverse("request_final_payment", args=[order.order_id]),
+            {"balance_due": "500"},
+        )
+        order = Order.objects.get(pk=order.pk)
+        self.assertEqual(order.balance_due, Decimal("500.00"))
+        self.assertEqual(order.payment_status, Order.OUTSTANDING)
+        self.assertEqual(order.amount_due, Decimal("500.00"))
 
-        self.client.post(url)  # no balance entered
+    def test_cannot_complete_until_fully_paid(self):
+        order = self.make_order(status=Order.Status.PRODUCTION)
+        self.pay(order, "500.00", ACCEPTED)
+        order.balance_due = Decimal("500.00")
+        order.save()
+        self.client.force_login(self.staff)
+        self.client.post(reverse("advance_order_phase", args=[order.order_id]))
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.PRODUCTION)
 
-        self.client.post(url, {"balance_due": "500"})
+    def test_can_complete_when_fully_paid(self):
+        order = self.make_order(status=Order.Status.PRODUCTION)
+        self.pay(order, "500.00", ACCEPTED)
+        order.balance_due = Decimal("500.00")
+        order.save()
+        self.pay(order, "500.00", ACCEPTED, purpose=BAL)
+        self.client.force_login(self.staff)
+        self.client.post(reverse("advance_order_phase", args=[order.order_id]))
         order.refresh_from_db()
         self.assertEqual(order.status, Order.Status.COMPLETED)
-        self.assertEqual(order.balance_due, Decimal("500.00"))
-        self.assertEqual(order.payment_status, Order.OUTSTANDING)
-
+        
     def test_downpayment_and_balance_split(self):
         order = self.make_order(
             status=Order.Status.COMPLETED, balance_due=Decimal("500.00")
@@ -185,3 +203,41 @@ class PaymentWorkflowTests(TestCase):
         ctx = blytz(request)
         self.assertEqual(ctx["customer_notification_count"], 1)
         self.assertEqual(ctx["customer_actions"][0]["amount"], Decimal("800.00"))
+
+    def test_customer_approval_does_not_move_to_production(self):
+        order = self.make_order(status=Order.Status.PENDING_EDIT)
+        self.pay(order, "500.00", ACCEPTED)
+        order.final_design = "final_designs/test.png"
+        order.final_design_version = 1
+        order.save()
+        self.client.force_login(self.customer)
+        self.client.post(
+            reverse("approve_final_design", args=[order.order_id]),
+            {"version": "1"},
+        )
+        order.refresh_from_db()
+        self.assertEqual(order.status, Order.Status.PENDING_EDIT)
+        self.assertEqual(order.approved_version, 1)
+        self.assertTrue(order.customer_approved_current_design)
+
+    def test_new_final_design_version_needs_new_approval(self):
+        order = self.make_order(status=Order.Status.PENDING_EDIT)
+        order.final_design = "final_designs/test.png"
+        order.final_design_version = 2
+        order.approved_version = 1
+        order.save()
+        self.assertFalse(order.customer_approved_current_design)
+        self.assertTrue(order.can_approve_final_design())
+
+    def test_staff_bell_includes_approved_design(self):
+        from django.test import RequestFactory
+        from apps.core.context_processors import blytz
+
+        order = self.make_order(status=Order.Status.PENDING_EDIT)
+        order.final_design = "final_designs/test.png"
+        order.final_design_version = 1
+        order.approved_version = 1
+        order.save()
+        request = RequestFactory().get("/")
+        request.user = self.staff
+        self.assertEqual(blytz(request)["staff_approved_designs_count"], 1)

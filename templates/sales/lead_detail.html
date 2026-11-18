@@ -3,75 +3,129 @@
 {% block title %}Lead · {{ lead.customer.get_full_name }} — Blytz{% endblock %}
 
 {% block staff_content %}
-<style>
-  .ld-name{margin:0;font-size:1.9rem;line-height:1.2;font-weight:700!important;color:#000!important}
-  .ld-update{display:inline-flex;align-items:center;justify-content:center;min-height:2.4rem;padding:.4rem 1.1rem;
-    border-radius:.6rem;border:1px solid #1a1a1a;background:#fff;color:#1a1a1a;font-size:.85rem;font-weight:600;
-    cursor:pointer;transition:background .15s,color .15s,border-color .15s}
-  .ld-update:hover{background:#1a1a1a;color:#fff!important;border-color:#1a1a1a}
-  .ld-update:focus-visible{outline:2px solid #D4AF37;outline-offset:2px}
-</style>
+{% include "orders/_staff_detail_styles.html" %}
 
-<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-  <p class="flex items-center gap-2 text-sm text-ink-muted">
-    <a href="{% url 'sales_pipeline' %}"
-       aria-label="Back to Sales"
-       class="inline-flex items-center justify-center rounded-full p-1 transition-colors hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+<section class="so-wrap">
+
+  {# ── Breadcrumb ─────────────────────────────────────── #}
+  <p class="so-crumbs">
+    <a href="{% url 'sales_pipeline' %}" aria-label="Back to Sales" class="so-back">
       <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
       </svg>
     </a>
-    <a href="{% url 'sales_pipeline' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Sales</a>
+    <a href="{% url 'sales_pipeline' %}" style="text-decoration:underline">Sales</a>
     <span>/</span>
-    <span>{{ lead.customer.get_full_name }}</span>
+    <span>{{ lead.customer.get_full_name|default:lead.customer.email }}</span>
   </p>
 
-  <div class="mt-4 flex flex-wrap items-end justify-between gap-4">
+  {# ── Header ─────────────────────────────────────────── #}
+  <header class="so-head">
     <div>
-      <h1 class="ld-name">{{ lead.customer.get_full_name }}</h1>
-      <p class="mt-1 text-ink-muted">{{ lead.customer.email }} · {{ lead.customer.phone|default:"No phone" }}</p>
-      <p class="mt-2">{% include "components/badge.html" with label=lead.get_stage_display variant="muted" %}</p>
+      <h1 class="so-name">{{ lead.customer.get_full_name|default:lead.customer.email }}</h1>
+      <p class="so-title">{{ lead.customer.email }} · {{ lead.customer.phone|default:"No phone" }}</p>
+      <div class="so-pills">
+        <span class="so-stage s-{{ lead.stage }}">{{ lead.get_stage_display }}</span>
+        {% if lead.order %}
+          {% include "partials/status_badge.html" with status=lead.order.status %}
+          {% include "partials/payment_pill.html" with order=lead.order %}
+        {% endif %}
+      </div>
     </div>
-    <form method="post" action="{% url 'update_lead_stage' lead.pk %}" class="flex items-center gap-2">
+
+    <form method="post" action="{% url 'update_lead_stage' lead.pk %}" class="so-action">
       {% csrf_token %}
       <input type="hidden" name="next" value="{% url 'lead_detail' lead.pk %}">
-      <select name="stage" aria-label="Lead stage"
-              class="rounded-md border border-border px-3 py-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+      <select name="stage" aria-label="Lead stage" class="so-input" style="width:auto;min-width:11rem">
         {% for value, label in stage_choices %}
         <option value="{{ value }}" {% if lead.stage == value %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
-      <button type="submit" class="ld-update">Update stage</button>
+      <button type="submit" class="so-update">Update stage</button>
     </form>
-  </div>
+  </header>
 
-  <div class="mt-8 grid gap-6 lg:grid-cols-2">
-    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <h2 class="font-display text-xl text-ink">Linked order</h2>
-      <p class="mt-3 font-mono text-lg">
-        <a href="{% url 'staff_order_detail' lead.order.order_id %}" class="underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">{{ lead.order.order_id }}</a>
-      </p>
-      <p class="mt-2 text-sm text-ink-muted">{{ lead.order.design.title }} · {{ lead.order.get_status_display }}</p>
-      <div class="mt-3">{% include "partials/payment_pill.html" with order=lead.order %}</div>
-    </div>
+  <div class="so-grid">
 
-    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <h2 class="font-display text-xl text-ink">Activity timeline</h2>
-      <ol class="mt-4 space-y-3">
-        {% for log in timeline %}
-        <li class="rounded-md border border-border px-3 py-2 text-sm">
-          <p class="font-medium text-ink">{{ log.get_kind_display }}</p>
-          <p class="text-xs text-ink-muted">
-            {{ log.created_at|date:"Y-m-d H:i" }}
-            {% if log.order %} · {{ log.order.order_id }}{% endif %}
-            {% if log.design %} · {{ log.design.title }}{% endif %}
+    {# ══════════ MAIN COLUMN ══════════ #}
+    <div class="so-col">
+
+      <section class="so-card" aria-labelledby="ld-order-title">
+        <div class="so-card-head">
+          <h2 id="ld-order-title">Linked order</h2>
+          {% if lead.order %}<a href="{% url 'staff_order_detail' lead.order.order_id %}" class="so-link">Open order →</a>{% endif %}
+        </div>
+        <div class="so-body">
+          {% if lead.order %}
+          <p style="margin:0">
+            <a href="{% url 'staff_order_detail' lead.order.order_id %}" class="so-mono" style="font-size:1.1rem;font-weight:700;color:#8a6a00">{{ lead.order.order_id }}</a>
           </p>
-        </li>
-        {% empty %}
-        <li class="text-sm text-ink-muted">No activity yet.</li>
-        {% endfor %}
-      </ol>
+          <p class="so-muted" style="margin-top:.25rem;font-size:.85rem">{{ lead.order.design.title }}</p>
+          <div class="so-pills">
+            {% include "partials/payment_review_badge.html" with order=lead.order %}
+          </div>
+          <dl class="so-dl" style="margin-top:.9rem">
+            <div><dt>Job status</dt><dd>{{ lead.order.get_status_display }}</dd></div>
+            <div><dt>Agreed total</dt><dd class="so-mono">{% if lead.order.agreed_total is not None %}₱{{ lead.order.agreed_total }}{% else %}Not set{% endif %}</dd></div>
+            <div><dt>Total received</dt><dd class="so-mono">₱{{ lead.order.total_paid }}</dd></div>
+            {% if lead.order.outstanding_amount is not None %}
+            <div><dt>Remaining to collect</dt><dd class="so-mono is-strong">₱{{ lead.order.outstanding_amount }}</dd></div>
+            {% endif %}
+          </dl>
+          {% else %}
+          <p class="so-muted" style="font-size:.85rem">No linked order.</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <section class="so-card" aria-labelledby="ld-time-title">
+        <div class="so-card-head"><h2 id="ld-time-title">Activity timeline</h2></div>
+        <div class="so-body">
+          {% if timeline %}
+          <ol class="so-hist">
+            {% for log in timeline %}
+            <li>
+              <div>
+                <span style="font-weight:600;color:#1a1a1a">{{ log.get_kind_display }}</span>
+                <p class="so-muted">
+                  {% if log.order %}{{ log.order.order_id }}{% endif %}
+                  {% if log.design %}{% if log.order %} · {% endif %}{{ log.design.title }}{% endif %}
+                </p>
+              </div>
+              <time class="so-muted">{{ log.created_at|date:"Y-m-d H:i" }}</time>
+            </li>
+            {% endfor %}
+          </ol>
+          {% else %}
+          <p class="so-muted" style="font-size:.85rem">No activity yet.</p>
+          {% endif %}
+        </div>
+      </section>
     </div>
+
+    {# ══════════ SIDE COLUMN ══════════ #}
+    <aside class="so-col">
+      <section class="so-card" aria-labelledby="ld-cust-title">
+        <div class="so-card-head"><h2 id="ld-cust-title">Customer</h2></div>
+        <div class="so-body">
+          <dl class="so-dl">
+            <div><dt>Name</dt><dd>{{ lead.customer.get_full_name|default:"—" }}</dd></div>
+            <div><dt>Email</dt><dd>{{ lead.customer.email }}</dd></div>
+            <div><dt>Phone</dt><dd>{{ lead.customer.phone|default:"—" }}</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      <section class="so-card" aria-labelledby="ld-lead-title">
+        <div class="so-card-head"><h2 id="ld-lead-title">Lead</h2></div>
+        <div class="so-body">
+          <dl class="so-dl">
+            <div><dt>Stage</dt><dd><span class="so-stage s-{{ lead.stage }}">{{ lead.get_stage_display }}</span></dd></div>
+            <div><dt>Added</dt><dd>{{ lead.created_at|date:"Y-m-d H:i" }}</dd></div>
+          </dl>
+        </div>
+      </section>
+    </aside>
   </div>
 </section>
 {% endblock %}

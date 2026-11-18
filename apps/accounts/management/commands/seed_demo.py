@@ -1,5 +1,6 @@
 from datetime import timedelta
 from io import BytesIO
+from decimal import Decimal
 
 from django.core.files.base import ContentFile
 from django.core.management.base import BaseCommand
@@ -110,15 +111,14 @@ SCENARIOS = [
     # 7. Production: Downpayment Paid
     {"status": Order.Status.PRODUCTION, "total": "1800.00", "balance_due": None,
      "payments": [pay("900.00", ACCEPTED)]},
-    # 8. Completed: staff set the final balance, customer has not paid yet ("Pay Here")
-    {"status": Order.Status.COMPLETED, "total": "3000.00", "balance_due": "1500.00",
+    # 8. Production: final payment requested, customer has not paid yet ("Pay Here")
+    {"status": Order.Status.PRODUCTION, "total": "3000.00", "balance_due": "1500.00",
      "payments": [pay("1500.00", ACCEPTED)]},
-    # 9. Completed: final payment rejected with an exact amount ("Pay Exact Amount")
-    {"status": Order.Status.COMPLETED, "total": "1200.00", "balance_due": "600.00",
+    # 9. Production: final payment submitted, waiting for staff review
+    {"status": Order.Status.PRODUCTION, "total": "1200.00", "balance_due": "600.00",
      "payments": [
          pay("600.00", ACCEPTED, hours=3),
-         pay("500.00", REJECTED, BAL, hours=90, requested="600.00",
-             reason="Amount does not match the balance"),
+         pay("600.00", PENDING, BAL, hours=90),
      ]},
     # 10. Completed: final balance paid -> Fully Paid
     {"status": Order.Status.COMPLETED, "total": "2750.00", "balance_due": "1375.00",
@@ -128,7 +128,13 @@ SCENARIOS = [
      ]},
 ]
 
-
+def agreed_downpayment_for(scenario):
+    amounts = [
+        Decimal(p["amount"])
+        for p in scenario["payments"]
+        if p["purpose"] == DOWN and p["status"] != REJECTED
+    ]
+    return max(amounts) if amounts else None
 class Command(BaseCommand):
     help = "Seed idempotent demo users, channels, designs, orders, leads, and activity logs."
 
@@ -243,6 +249,7 @@ class Command(BaseCommand):
                     "canvas_json_snapshot": design.canvas_json,
                     "status": sc["status"],
                     "agreed_total": sc["total"],
+                    "agreed_downpayment": agreed_downpayment_for(sc),
                     "balance_due": sc["balance_due"],
                     "notes": f"Demo order for {design.title}",
                 },
@@ -252,6 +259,7 @@ class Command(BaseCommand):
                 order.canvas_json_snapshot = design.canvas_json
                 order.status = sc["status"]
                 order.agreed_total = sc["total"]
+                order.agreed_downpayment = agreed_downpayment_for(sc)
                 order.balance_due = sc["balance_due"]
                 order.notes = f"Demo order for {design.title}"
                 order.save()
@@ -333,7 +341,19 @@ class Command(BaseCommand):
                     updates["reviewed_at"] = created_at + timedelta(hours=2)
                     updates["reviewed_by"] = staff_edit
                 Payment.objects.filter(pk=payment.pk).update(**updates)
-
+            
+            if idx == 3:  # Pending Edit order: customer already approved the final design
+                order.final_design.save(
+                    f"{order.order_id}-final-v1.png",
+                    placeholder_preview(f"{order.order_id}-final", (230, 230, 235)),
+                    save=False,
+                )
+                order.final_design_version = 1
+                order.final_design_uploaded_at = order_created + timedelta(days=1)
+                order.approved_version = 1
+                order.approved_at = order_created + timedelta(days=2)
+                order.save()
+                
             Lead.objects.update_or_create(
                 order=order,
                 defaults={
@@ -366,7 +386,7 @@ class Command(BaseCommand):
             + f" / Payments awaiting review: {waiting}"
         )
         self.stdout.write(
-            "Try: customer3 (Pay Here), customer4 (Pay Exact Amount), "
+            "Try: customer3 (Pay Here), customer4 (final payment waiting for review), "
             "customer5 (Fully Paid + rejected history)."
         )
         self.stdout.write(f"Password for all demo users: {DEMO_PASSWORD}")

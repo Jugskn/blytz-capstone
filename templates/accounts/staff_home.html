@@ -113,7 +113,12 @@
               <td class="sd-mono font-medium text-text-primary">{{ order.order_id }}</td>
               <td>{{ order.customer.get_full_name|default:order.customer.email }}</td>
               <td>{% include "partials/status_badge.html" with status=order.status %}</td>
-              <td>{% include "partials/payment_pill.html" %}</td>
+              <td>
+                <div style="display:flex;flex-direction:column;align-items:flex-start;gap:.35rem">
+                  {% include "partials/payment_pill.html" %}
+                  {% include "partials/payment_review_badge.html" %}
+                </div>
+              </td>              
               <td><a href="{% url 'staff_order_detail' order.order_id %}" class="sd-btn">Open</a></td>
             </tr>
             {% endfor %}

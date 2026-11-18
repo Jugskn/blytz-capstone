@@ -6,6 +6,7 @@
 {% block extra_head %}
 <script src="{% static 'js/payment_details.js' %}" defer></script>
 <script src="{% static 'js/payment_upload.js' %}" defer></script>
+<script src="{% static 'js/staff_preview_viewer.js' %}" defer></script>
 {% endblock %}
 
 {% block content %}
@@ -65,6 +66,30 @@
   .od-send h3{margin:0;font-family:'Playfair Display',Georgia,serif;font-size:1.05rem;color:#0a0a0a}
   .od-send .cp-btn{margin-top:.9rem;width:100%}
   @media (min-width:640px){.od-send .cp-btn{width:auto}}
+
+  /* Front / Back previews */
+  .od-previews{display:grid;gap:.75rem;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .od-prev-label{margin:0 0 .35rem;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b6759}
+  .od-prev-btn{display:block;width:100%;padding:.3rem;border:1px solid #e7e2d3;border-radius:.9rem;background:#faf8f3;
+    cursor:zoom-in;transition:border-color .15s,box-shadow .15s}
+  .od-prev-btn:hover{border-color:#D4AF37;box-shadow:0 8px 20px rgba(10,10,10,.10)}
+  .od-prev-btn img{display:block;width:100%;height:11rem;object-fit:contain}
+  .od-previews .od-preview-empty{height:11rem}
+
+  /* Full-screen viewer */
+  .pv{position:fixed;inset:0;z-index:90;flex-direction:column;align-items:center;justify-content:center;padding:1rem;
+    background:rgba(10,10,10,.92);backdrop-filter:blur(4px)}
+  .pv-backdrop{position:absolute;inset:0}
+  .pv-bar{position:absolute;top:.75rem;left:.75rem;right:.75rem;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+  .pv-switch{display:inline-flex;gap:.35rem;padding:.25rem;border-radius:9999px;background:rgba(255,255,255,.1);border:1px solid rgba(212,175,55,.4)}
+  .pv-switch button{padding:.35rem .9rem;border-radius:9999px;border:0;background:transparent;color:#fff;font-size:.8rem;font-weight:600;cursor:pointer}
+  .pv-switch button.is-on{background:#D4AF37;color:#0a0a0a}
+  .pv-close{padding:.45rem 1rem;border-radius:9999px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);color:#fff;font-size:.8rem;font-weight:600;cursor:pointer}
+  .pv-close:hover{background:#D4AF37;border-color:#D4AF37;color:#0a0a0a}
+  .pv-stage{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;width:100%;max-width:56rem}
+  .pv-label{margin:0 0 .5rem;font-size:.85rem;color:#fff}
+  .pv-img{max-height:72dvh;max-width:100%;object-fit:contain;transform-origin:center;user-select:none}
+  .pv-hint{margin:.6rem 0 0;font-size:.72rem;color:rgba(255,255,255,.6)}
 </style>
 
 <div class="cp-page">
@@ -140,14 +165,23 @@
         </p>
       </div>
       {% if can_approve_final_design %}
-      <form method="post" action="{% url 'approve_final_design' order.order_id %}">
+      <form method="post" action="{% url 'approve_final_design' order.order_id %}"
+            onsubmit="return confirm('Approve this version? Our staff will then move your order to Production.');">
         {% csrf_token %}
         <input type="hidden" name="version" value="{{ order.final_design_version }}">
-        <button type="submit" class="cp-btn cp-btn-gold cp-btn-sm">Approve final design</button>
+        <button type="submit" class="cp-btn cp-btn-gold cp-btn-sm">Approve this revision</button>
       </form>
+      {% elif order.customer_approved_current_design and order.status == "pending_edit" %}
+      <span class="cp-pill is-down">Approved · waiting for staff</span>
       {% endif %}
     </div>
     <div class="od-body">
+      {% if order.customer_approved_current_design and order.status == "pending_edit" %}
+      <p class="od-sub" style="margin:0 0 .75rem">
+        You approved version {{ order.approved_version }}{% if order.approved_at %} on {{ order.approved_at|date:"M j, Y g:i A" }}{% endif %}.
+        Our staff will review it and move your order to Production.
+      </p>
+      {% endif %}
       {% if order.final_design_is_pdf %}
       <a href="{{ order.final_design.url }}" target="_blank" rel="noopener" class="cp-btn cp-btn-ghost cp-btn-sm">Download final design (PDF)</a>
       {% elif order.final_design_is_image %}
@@ -165,13 +199,35 @@
     <div class="cp-card">
       <div class="cp-card-head"><h2 class="cp-card-title">Mock-up preview</h2></div>
       <div class="od-body">
-        {% if order.preview_image %}
-        <img src="{{ order.preview_image.url }}" alt="Order preview" class="od-preview">
-        {% elif order.design.preview_image %}
-        <img src="{{ order.design.preview_image.url }}" alt="Design preview" class="od-preview">
-        {% else %}
-        <div class="od-preview-empty">Preview placeholder</div>
-        {% endif %}
+        <div class="od-previews">
+          <div>
+            <p class="od-prev-label">Front</p>
+            {% if order.preview_image %}
+            <button type="button" class="od-prev-btn" data-preview-open
+                    data-preview-src="{{ order.preview_image.url }}" data-preview-label="Front mock-up">
+              <img src="{{ order.preview_image.url }}" alt="Front mock-up">
+            </button>
+            {% elif order.design.preview_image %}
+            <button type="button" class="od-prev-btn" data-preview-open
+                    data-preview-src="{{ order.design.preview_image.url }}" data-preview-label="Front mock-up">
+              <img src="{{ order.design.preview_image.url }}" alt="Front mock-up">
+            </button>
+            {% else %}
+            <div class="od-preview-empty">No front preview</div>
+            {% endif %}
+          </div>
+          <div>
+            <p class="od-prev-label">Back</p>
+            {% if order.preview_back_image %}
+            <button type="button" class="od-prev-btn" data-preview-open
+                    data-preview-src="{{ order.preview_back_image.url }}" data-preview-label="Back mock-up">
+              <img src="{{ order.preview_back_image.url }}" alt="Back mock-up">
+            </button>
+            {% else %}
+            <div class="od-preview-empty">No back preview</div>
+            {% endif %}
+          </div>
+        </div>
 
         <dl class="od-tiles">
           <div class="od-tile">
@@ -427,4 +483,42 @@
   </script>
 </section>
 </div>
+
+<div id="preview-lightbox" class="pv hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Mock-up preview">
+  <div class="pv-backdrop" data-lightbox-close tabindex="-1"></div>
+  <div class="pv-bar">
+    <div class="pv-switch" role="group" aria-label="Choose side">
+      {% if order.preview_image or order.design.preview_image %}<button type="button" data-pv-switch="Front mock-up">Front</button>{% endif %}
+      {% if order.preview_back_image %}<button type="button" data-pv-switch="Back mock-up">Back</button>{% endif %}
+    </div>
+    <button type="button" class="pv-close" data-lightbox-close>Close</button>
+  </div>
+  <div class="pv-stage" data-lightbox-stage style="touch-action:none">
+    <p class="pv-label" data-lightbox-label></p>
+    <img data-lightbox-img alt="" class="pv-img" draggable="false" style="touch-action:none">
+    <p class="pv-hint">Pinch or scroll to zoom · drag when zoomed</p>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var overlay = document.getElementById("preview-lightbox");
+    if (!overlay) return;
+    var label = overlay.querySelector("[data-lightbox-label]");
+    var buttons = [].slice.call(overlay.querySelectorAll("[data-pv-switch]"));
+    function sync() {
+      var t = label ? label.textContent : "";
+      buttons.forEach(function (b) { b.classList.toggle("is-on", b.getAttribute("data-pv-switch") === t); });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () {
+        var target = document.querySelector('[data-preview-open][data-preview-label="' + b.getAttribute("data-pv-switch") + '"]');
+        if (target) { target.click(); setTimeout(sync, 0); }
+      });
+    });
+    document.querySelectorAll("[data-preview-open]").forEach(function (btn) {
+      btn.addEventListener("click", function () { setTimeout(sync, 0); });
+    });
+  })();
+</script>
 {% endblock %}

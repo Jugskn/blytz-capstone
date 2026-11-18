@@ -53,15 +53,28 @@
           </a>
           {% endif %}
 
-          {% if staff_ready_to_move_count %}
+          {% for o in staff_approved_designs %}
+          <a href="{% url 'staff_order_detail' o.order_id %}"
+             style="display:flex;gap:.75rem;padding:.7rem 1rem;border-bottom:1px solid #f0f0f0">
+            <span style="flex:0 0 auto;margin-top:.35rem;width:.5rem;height:.5rem;border-radius:9999px;background:#16a34a"></span>
+            <span style="min-width:0;flex:1">
+              <span style="display:block;font-size:.85rem;font-weight:600;color:#1a1a1a">Customer approved the final design</span>
+              <span style="display:block;font-size:.75rem;color:#6b7280">
+                {{ o.order_id }} · {{ o.customer.get_full_name|default:o.customer.email }} · ready to move to Production
+              </span>
+            </span>
+          </a>
+          {% endfor %}
+
+          {% if staff_ready_to_move_count %}          
           <a href="{% url 'jobs_pipeline' %}#pipeline-phase-job_request"
              style="display:flex;gap:.75rem;padding:.7rem 1rem;border-bottom:1px solid #f0f0f0">
             <span style="flex:0 0 auto;margin-top:.35rem;width:.5rem;height:.5rem;border-radius:9999px;background:#2563eb"></span>
             <span style="min-width:0;flex:1">
               <span style="display:block;font-size:.85rem;font-weight:600;color:#1a1a1a">
-                {{ staff_ready_to_move_count }} job request{{ staff_ready_to_move_count|pluralize }} ready for Pending Edit
+                {{ staff_ready_to_move_count }} order{{ staff_ready_to_move_count|pluralize }} ready to move forward
               </span>
-              <span style="display:block;font-size:.75rem;color:#6b7280">Downpayment accepted</span>
+              <span style="display:block;font-size:.75rem;color:#6b7280">Payment cleared for the next phase</span>
             </span>
           </a>
           {% endif %}

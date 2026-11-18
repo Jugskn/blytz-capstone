@@ -12,19 +12,39 @@ def _staff_notifications():
     pending_list = list(
         pending_qs.select_related("order", "order__customer").order_by("created_at")[:5]
     )
-    job_requests = Order.objects.filter(
-        status=Order.Status.JOB_REQUEST
-    ).prefetch_related("payments")
-    ready_count = sum(
-        1 for o in job_requests if o.payment_status == Order.DOWNPAYMENT_PAID
+
+    candidates = (
+        Order.objects.filter(
+            status__in=[
+                Order.Status.JOB_REQUEST,
+                Order.Status.PENDING_EDIT,
+                Order.Status.PRODUCTION,
+            ]
+        )
+        .select_related("customer")
+        .prefetch_related("payments")
     )
+    approved_designs = []
+    ready_count = 0
+    for o in candidates:
+        if o.status == Order.Status.JOB_REQUEST:
+            if o.payment_status == Order.DOWNPAYMENT_PAID:
+                ready_count += 1
+        elif o.status == Order.Status.PENDING_EDIT:
+            if o.customer_approved_current_design:
+                approved_designs.append(o)
+        elif o.status == Order.Status.PRODUCTION:
+            if o.payment_status == Order.FULLY_PAID:
+                ready_count += 1
+
     return {
         "staff_pending_payments": pending_list,
         "staff_pending_payments_count": pending_count,
+        "staff_approved_designs": approved_designs[:5],
+        "staff_approved_designs_count": len(approved_designs),
         "staff_ready_to_move_count": ready_count,
-        "staff_notification_count": pending_count + ready_count,
+        "staff_notification_count": pending_count + ready_count + len(approved_designs),
     }
-
 
 def _customer_notifications(user):
     from apps.orders.models import Order, Payment

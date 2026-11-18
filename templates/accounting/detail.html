@@ -1,49 +1,67 @@
-{% extends "base_staff.html" %}
+{% extends "base_staff_nosidebar.html" %}
 
 {% block title %}Accounting · {{ order.order_id }} — Blytz{% endblock %}
 
 {% block staff_content %}
-<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-  <p class="text-sm text-ink-muted">
-    <a href="{% url 'accounting_list' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Accounting</a>
-    <span class="mx-1">/</span>
-    <span class="font-mono">{{ order.order_id }}</span>
+{% include "orders/_staff_detail_styles.html" %}
+
+<section class="so-wrap">
+
+  {# ── Breadcrumb ─────────────────────────────────────── #}
+  <p class="so-crumbs">
+    <a href="{% url 'accounting_list' %}" aria-label="Back to Accounting" class="so-back">
+      <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+    </a>
+    <a href="{% url 'accounting_list' %}" style="text-decoration:underline">Accounting</a>
+    <span>/</span>
+    <span class="so-mono">{{ order.order_id }}</span>
   </p>
 
-  <div class="mt-4 flex flex-wrap items-end justify-between gap-4">
+  {# ── Header ─────────────────────────────────────────── #}
+  <header class="so-head">
     <div>
-      <h1 class="font-display text-3xl text-ink">{{ order.order_id }}</h1>
-      <p class="mt-1 text-ink-muted">{{ order.customer.get_full_name }} · {{ order.customer.email }}</p>
+      <h1 style="margin:0"><span class="so-idchip">{{ order.order_id }}</span></h1>
+      <p class="so-title">{{ order.design.title }} · {{ order.customer.get_full_name|default:order.customer.email }}</p>
+      <div class="so-pills">
+        {% include "partials/status_badge.html" with status=order.status %}
+        {% include "partials/payment_pill.html" %}
+        {% include "partials/payment_review_badge.html" %}
+      </div>
       {% if order.accounting_edited_by and order.accounting_edited_at %}
-      <p class="mt-2 text-xs text-ink-subtle">
+      <p class="so-muted" style="margin-top:.6rem">
         Last edited by {{ order.accounting_edited_by.get_full_name }} · {{ order.accounting_edited_at|date:"Y-m-d H:i" }}
       </p>
       {% endif %}
     </div>
-    <div class="text-right text-sm">
-      <p class="font-mono">Paid ₱{{ order.total_paid }}{% if order.outstanding_amount is not None %} · Bal ₱{{ order.outstanding_amount }}{% endif %}</p>
-      {% include "orders/_payment_badge.html" %}
+    <div class="so-action">
+      <a href="{% url 'staff_order_detail' order.order_id %}" class="so-update">Open order →</a>
     </div>
-  </div>
+  </header>
 
-  <div class="mt-8 grid gap-6 lg:grid-cols-2">
-    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <h2 class="font-display text-xl text-ink">Payment records</h2>
-      {% if payments %}
-      <ul class="mt-4 divide-y divide-border rounded-md border border-border">
-        {% for payment in payments %}
-        <li class="px-3 py-3 text-sm">
-          <div class="flex justify-between gap-3">
-            <div>
-              <p class="font-medium text-ink">
-                {% if payment.is_manual_adjustment %}Manual adjustment{% elif payment.channel %}{{ payment.channel.display_name }}{% else %}Payment{% endif %}
-              </p>
-              <p class="text-xs text-ink-muted">
-                {{ payment.created_at|date:"Y-m-d H:i" }}
-                · <strong>{{ payment.get_purpose_display }}</strong>
-                {% if payment.recorded_by %} · by {{ payment.recorded_by.get_short_name }}{% endif %}
-              </p>
-              <div class="mt-1">
+  <div class="so-grid">
+
+    {# ══════════ MAIN COLUMN ══════════ #}
+    <div class="so-col">
+      <section class="so-card" aria-labelledby="ac-pay-title">
+        <div class="so-card-head"><h2 id="ac-pay-title">Payment records</h2></div>
+        {% if payments %}
+        <ul style="margin:0;padding:0;list-style:none">
+          {% for payment in payments %}
+          <li class="so-pay {% if payment.status == 'pending' %}is-pending{% endif %}">
+            <div class="so-pay-top">
+              <div>
+                <p class="so-pay-ch">
+                  {% if payment.is_manual_adjustment %}Manual adjustment{% elif payment.channel %}{{ payment.channel.display_name }}{% else %}Payment{% endif %}
+                </p>
+                <p class="so-muted">
+                  {{ payment.created_at|date:"Y-m-d H:i" }} · <strong>{{ payment.get_purpose_display }}</strong>
+                  {% if payment.recorded_by %} · by {{ payment.recorded_by.get_short_name }}{% endif %}
+                </p>
+              </div>
+              <div class="so-pay-right">
+                <span class="so-amt">₱{{ payment.amount_claimed }}</span>
                 {% if payment.status == "accepted" %}
                   {% include "components/badge.html" with label="Accepted" variant="success" %}
                 {% elif payment.status == "rejected" %}
@@ -52,70 +70,109 @@
                   {% include "components/badge.html" with label="Pending" variant="warning" %}
                 {% endif %}
               </div>
-              {% if payment.note %}<p class="mt-1 text-ink-muted">{{ payment.note }}</p>{% endif %}
-              {% if payment.rejection_reason %}<p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>{% endif %}
-              {% if payment.requested_amount %}<p class="mt-1 text-xs text-ink">Requested exact amount: <span class="font-mono">₱{{ payment.requested_amount }}</span></p>{% endif %}            </div>
-            <p class="font-mono">₱{{ payment.amount_claimed }}</p>
-          </div>
-          {% if payment.proof_file %}
-          <a href="{{ payment.proof_file.url }}" class="mt-2 inline-block text-xs underline" target="_blank" rel="noopener">Open proof file</a>
-          {% endif %}
-        </li>
-        {% endfor %}
-      </ul>
-      {% else %}
-      <p class="mt-4 text-sm text-ink-muted">No payments yet.</p>
-      {% endif %}
+            </div>
+            {% if payment.note %}<p class="so-line">{{ payment.note }}</p>{% endif %}
+            {% if payment.reference_number %}
+            <p class="so-line">Reference No: <span class="so-mono" style="color:#000">{{ payment.reference_number }}</span></p>
+            {% endif %}
+            {% if payment.rejection_reason %}<p class="so-line is-bad">{{ payment.rejection_reason }}</p>{% endif %}
+            {% if payment.requested_amount %}
+            <p class="so-line">Requested exact amount: <span class="so-mono" style="color:#000">₱{{ payment.requested_amount }}</span></p>
+            {% endif %}
+            {% if payment.proof_file %}
+            <p style="margin:.6rem 0 0"><a href="{{ payment.proof_file.url }}" class="so-link" target="_blank" rel="noopener">Open proof file</a></p>
+            {% endif %}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="so-empty">No payments yet.</p>
+        {% endif %}
+      </section>
     </div>
 
-    <div class="space-y-6">
+    {# ══════════ SIDE COLUMN ══════════ #}
+    <aside class="so-col">
+
+      <section class="so-card" aria-labelledby="ac-sum-title">
+        <div class="so-card-head"><h2 id="ac-sum-title">Payment summary</h2></div>
+        <div class="so-body">
+          <dl class="so-dl">
+            <div><dt>Agreed total</dt><dd class="so-mono is-strong">{% if order.agreed_total is not None %}₱{{ order.agreed_total }}{% else %}Not set{% endif %}</dd></div>
+            <div><dt>Agreed downpayment</dt><dd class="so-mono">{% if order.agreed_downpayment is not None %}₱{{ order.agreed_downpayment }}{% else %}Not set{% endif %}</dd></div>
+            <div><dt>Downpayment received</dt><dd class="so-mono">₱{{ order.downpayment_paid }}</dd></div>
+            {% if order.balance_due is not None %}
+            <div><dt>Final balance (requested)</dt><dd class="so-mono">₱{{ order.balance_due }}</dd></div>
+            <div><dt>Final payment received</dt><dd class="so-mono">₱{{ order.balance_paid }}</dd></div>
+            {% endif %}
+            <div><dt>Total received</dt><dd class="so-mono is-strong">₱{{ order.total_paid }}</dd></div>
+            {% if order.outstanding_amount is not None %}
+            <div><dt>Remaining to collect</dt><dd class="so-mono is-strong">₱{{ order.outstanding_amount }}</dd></div>
+            {% endif %}
+          </dl>
+        </div>
+      </section>
+
       {% if can_edit %}
-      <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-        <h2 class="font-display text-xl text-ink">Set agreed total</h2>
-        <form method="post" class="mt-4 flex flex-col gap-3">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="set_total">
-          <label class="text-sm font-medium" for="id_agreed_total">Agreed total (₱)</label>
-          <input type="number" step="0.01" min="0" name="agreed_total" id="id_agreed_total"
-                 value="{{ total_form.agreed_total.value|default_if_none:'' }}"
-                 class="rounded-md border border-border px-3 py-2.5 font-mono text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-          {% if total_form.agreed_total.errors %}<p class="text-sm text-danger">{{ total_form.agreed_total.errors|striptags }}</p>{% endif %}
-          {% include "components/button.html" with label="Save agreed total" type="submit" variant="primary" %}
-        </form>
-      </div>
+      <section class="so-card" aria-labelledby="ac-total-title">
+        <div class="so-card-head"><h2 id="ac-total-title">Set agreed total</h2></div>
+        <div class="so-body">
+          <form method="post" class="so-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="set_total">
+            <div class="so-field">
+              <label for="id_agreed_total">Agreed total (₱)</label>
+              <input type="number" step="0.01" min="0" name="agreed_total" id="id_agreed_total"
+                     value="{{ total_form.agreed_total.value|default_if_none:'' }}"
+                     class="so-input is-mono">
+              {% if total_form.agreed_total.errors %}<p class="so-error">{{ total_form.agreed_total.errors|striptags }}</p>{% endif %}
+            </div>
+            <div><button type="submit" class="so-save">Save agreed total</button></div>
+          </form>
+        </div>
+      </section>
 
-      <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-        <h2 class="font-display text-xl text-ink">Manual payment adjustment</h2>
-        <form method="post" enctype="multipart/form-data" class="mt-4 flex flex-col gap-3">
-          {% csrf_token %}
-          <input type="hidden" name="action" value="add_payment">
-          <label class="text-sm font-medium" for="id_amount_claimed">Amount (₱)</label>
-          <input type="number" step="0.01" name="amount_claimed" id="id_amount_claimed" required
-                 class="rounded-md border border-border px-3 py-2.5 font-mono text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-          <label class="text-sm font-medium" for="id_note">Note</label>
-          <input type="text" name="note" id="id_note"
-                 class="rounded-md border border-border px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-          <label class="text-sm font-medium" for="id_channel">Channel (optional)</label>
-          <select name="channel" id="id_channel"
-                  class="rounded-md border border-border px-3 py-2.5 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-            <option value="">—</option>
-            {% for ch in payment_form.fields.channel.queryset %}
-            <option value="{{ ch.pk }}">{{ ch.display_name }}</option>
-            {% endfor %}
-          </select>
-          <label class="text-sm font-medium" for="id_proof_file">Proof (optional)</label>
-          <input type="file" name="proof_file" id="id_proof_file"
-                 class="rounded-md border border-border px-3 py-2 text-sm">
-          {% include "components/button.html" with label="Add adjustment" type="submit" variant="secondary" %}
-        </form>
-      </div>
+      <section class="so-card" aria-labelledby="ac-manual-title">
+        <div class="so-card-head"><h2 id="ac-manual-title">Manual payment adjustment</h2></div>
+        <div class="so-body">
+          <form method="post" enctype="multipart/form-data" class="so-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="add_payment">
+            <div class="so-field">
+              <label for="id_amount_claimed">Amount (₱)</label>
+              <input type="number" step="0.01" name="amount_claimed" id="id_amount_claimed" required class="so-input is-mono">
+            </div>
+            <div class="so-field">
+              <label for="id_note">Note</label>
+              <input type="text" name="note" id="id_note" class="so-input">
+            </div>
+            <div class="so-field">
+              <label for="id_channel">Channel (optional)</label>
+              <select name="channel" id="id_channel" class="so-input">
+                <option value="">—</option>
+                {% for ch in payment_form.fields.channel.queryset %}
+                <option value="{{ ch.pk }}">{{ ch.display_name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="so-field">
+              <label for="id_proof_file">Proof (optional)</label>
+              <input type="file" name="proof_file" id="id_proof_file" class="so-file">
+            </div>
+            <p class="so-help">Recorded as a Downpayment before the final balance is requested, and as a Final balance after it.</p>
+            <div><button type="submit" class="so-save">Add adjustment</button></div>
+          </form>
+        </div>
+      </section>
       {% else %}
-      <div class="rounded-lg border border-border bg-surface p-4 sm:p-6">
-        <h2 class="font-display text-xl text-ink">Read only</h2>
-        <p class="mt-2 text-sm text-ink-muted">You can view payment data but cannot edit. Agreed total: {% if order.agreed_total %}₱{{ order.agreed_total }}{% else %}not set{% endif %}.</p>
-      </div>
+      <section class="so-card">
+        <div class="so-card-head"><h2>Read only</h2></div>
+        <div class="so-body">
+          <p class="so-help" style="font-size:.85rem">You can view payment data but cannot edit.</p>
+        </div>
+      </section>
       {% endif %}
-    </div>
+    </aside>
   </div>
 </section>
 {% endblock %}

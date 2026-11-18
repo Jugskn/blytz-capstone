@@ -8,9 +8,10 @@
     <p class="font-mono text-sm font-medium text-ink">{{ order.order_id }}</p>
     {% include "orders/_payment_badge.html" %}
   </div>
-  {% if order.pending_payment %}
+  {% if order.latest_payment and order.payment_status != "Fully Paid" %}
+
   <div class="mt-2">
-    {% include "components/badge.html" with label="Payment awaiting review" variant="warning" %}
+    {% include "partials/payment_review_badge.html" %}
   </div>
   {% endif %}
   <p class="mt-2 truncate text-sm text-ink">{{ order.customer.get_full_name }}</p>

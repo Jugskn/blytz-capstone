@@ -64,3 +64,28 @@ class FinalDesignUploadForm(forms.Form):
 
 class ApproveFinalDesignForm(forms.Form):
     version = forms.IntegerField(min_value=1)
+
+class OrderPricingForm(forms.Form):
+    agreed_total = forms.DecimalField(
+        required=False,
+        min_value=Decimal("0.00"),
+        max_digits=10,
+        decimal_places=2,
+    )
+    agreed_downpayment = forms.DecimalField(
+        required=False,
+        min_value=Decimal("0.00"),
+        max_digits=10,
+        decimal_places=2,
+    )
+
+    def clean(self):
+        data = super().clean()
+        total = data.get("agreed_total")
+        down = data.get("agreed_downpayment")
+        if total is not None and down is not None and down > total:
+            self.add_error(
+                "agreed_downpayment",
+                "The downpayment cannot be higher than the agreed total.",
+            )
+        return data

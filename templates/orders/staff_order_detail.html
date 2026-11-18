@@ -1,60 +1,67 @@
-{% extends "base_staff_nosidebar.html" %}    
+{% extends "base_staff_nosidebar.html" %}
 {% load static %}
 
 {% block title %}{{ order.order_id }} — Staff{% endblock %}
 
 {% block staff_content %}
-<style>
-  h1, h2, h3, h4, h5, h6 {
-    color: #000000 !important;
-  }
-</style>
-  <section class="mx-auto w-full max-w-screen-2xl px-4 py-10 sm:px-6 lg:px-8">
-    <p class="flex items-center gap-2 text-sm text-ink-muted">
-      <a href="{% url 'jobs_pipeline' %}"
-        aria-label="Back to Jobs"
-        class="inline-flex items-center justify-center rounded-full p-1 transition-colors hover:bg-surface-raised focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-        <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
-        </svg>
-      </a>
-      <a href="{% url 'jobs_pipeline' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Jobs</a>
-      <span>/</span>
-      <span class="font-mono">{{ order.order_id }}</span>
-    </p>
+{% include "orders/_staff_detail_styles.html" %}
 
-    <div class="mt-4 flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <!-- <h1 class="font-display text-3xl"><span class="bg-[#D4AF37] px-3 py-1 rounded" style="color: #000000 !important;">{{ order.order_id }}</span></h1> -->
-        <h1 class="font-display text-3xl"><span style="background-color: #D4AF37 !important; color: #000000 !important; padding: 6px 12px !important; border-radius: 6px !important; display: inline-block !important;">{{ order.order_id }}</span></h1>
-        <p class="mt-1 text-ink-muted">{{ order.get_status_display }} · {{ order.design.title }}</p>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
-          {% include "orders/_payment_badge.html" %}
-          {% if order.pending_payment %}
-            {% include "components/badge.html" with label="Payment awaiting review" variant="warning" %}
-          {% endif %}
-        </div>
+<section class="so-wrap">
+
+  {# ── Breadcrumb ─────────────────────────────────────── #}
+  <p class="so-crumbs">
+    <a href="{% url 'jobs_pipeline' %}" aria-label="Back to Jobs" class="so-back">
+      <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18"/>
+      </svg>
+    </a>
+    <a href="{% url 'jobs_pipeline' %}" style="text-decoration:underline">Jobs</a>
+    <span>/</span>
+    <span class="so-mono">{{ order.order_id }}</span>
+  </p>
+
+  {# ── Header ─────────────────────────────────────────── #}
+  <header class="so-head">
+    <div>
+      <h1 style="margin:0"><span class="so-idchip">{{ order.order_id }}</span></h1>
+      <p class="so-title">{{ order.design.title }} · {{ order.customer.get_full_name|default:order.customer.email }}</p>
+      <div class="so-pills">
+        {% include "partials/status_badge.html" with status=order.status %}
+        {% include "partials/payment_pill.html" %}
+        {% include "partials/payment_review_badge.html" %}
       </div>
+    </div>
+
+    <div class="so-action">
+      {% if can_request_final_payment %}
+      <form method="post" action="{% url 'request_final_payment' order.order_id %}" class="so-action">
+        {% csrf_token %}
+        <div>
+          <label for="balance-due" class="so-label">Final balance (₱)</label>
+          <input type="number" id="balance-due" name="balance_due" min="0" step="0.01"
+                 inputmode="decimal" required
+                 {% if order.balance_due is not None %}value="{{ order.balance_due|stringformat:'s' }}"{% elif order.outstanding_amount and order.outstanding_amount > 0 %}value="{{ order.outstanding_amount|stringformat:'s' }}"{% endif %}
+                 class="min-h-9 w-40 rounded-md border border-border px-2 py-1.5 font-mono text-sm">
+        </div>
+        {% if order.balance_due is None %}
+          {% include "components/button.html" with label="Request final payment" type="submit" variant="secondary" %}
+        {% else %}
+          {% include "components/button.html" with label="Update final balance" type="submit" variant="secondary" %}
+        {% endif %}
+      </form>
+      {% endif %}
+
       {% if next_status %}
         {% if advance_blocked_reason %}
-        <div class="max-w-xs text-right">
+        <div style="max-width:20rem;text-align:right">
           {% include "components/button.html" with label=advance_label type="button" variant="primary" disabled=True %}
-          <p class="mt-2 text-xs text-ink-muted">{{ advance_blocked_reason }}</p>
+          <p class="so-muted" style="margin-top:.4rem">{{ advance_blocked_reason }}</p>
         </div>
         {% else %}
         <form method="post"
               action="{% url 'advance_order_phase' order.order_id %}"
-              class="flex flex-wrap items-end gap-2"
-              {% if needs_final_design_confirm %}onsubmit="return confirm('No final design has been uploaded. Move to Production anyway?');"{% endif %}>
+              {% if production_confirm_message %}onsubmit="return confirm('{{ production_confirm_message|escapejs }}');"{% endif %}>          
           {% csrf_token %}
-          {% if next_status == "completed" %}
-          <div>
-            <label for="balance-due" class="mb-1 block text-xs font-medium text-ink">Remaining balance (₱)</label>
-            <input type="number" id="balance-due" name="balance_due" min="0" step="0.01"
-                   inputmode="decimal" required
-                   class="min-h-9 w-40 rounded-md border border-border px-2 py-1.5 font-mono text-sm">
-          </div>
-          {% endif %}
           {% include "components/button.html" with label=advance_label type="submit" variant="primary" %}
         </form>
         {% endif %}
@@ -62,663 +69,405 @@
         {% include "components/badge.html" with label="Completed" variant="success" %}
       {% endif %}
     </div>
+    </header>
 
-    <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
+  {# ── Stepper ────────────────────────────────────────── #}
+  <div class="so-card so-gap">
+    <div class="so-body">
       {% include "components/stepper.html" with steps=job_steps current=current_step %}
     </div>
+  </div>
 
-    {% if is_pending_edit %}
-    {% comment %}Pending Edit: two columns on landscape tablets/laptops; stack on phones/portrait tablets{% endcomment %}
-    <div class="mt-8 grid grid-cols-1 gap-6 md:landscape:grid-cols-2 lg:grid-cols-2">
-      <div class="space-y-6">
-        <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-          <h2 class="font-display text-xl text-ink">Customer</h2>
-          <dl class="mt-4 space-y-2 text-sm">
-            <div>
-              <dt class="text-ink-subtle">Name</dt>
-              <dd class="text-ink">{{ order.customer.get_full_name|default:"—" }}</dd>
-            </div>
-            <div>
-              <dt class="text-ink-subtle">Email</dt>
-              <dd class="text-ink">{{ order.customer.email }}</dd>
-            </div>
-            <div>
-              <dt class="text-ink-subtle">Phone</dt>
-              <dd class="text-ink">{{ order.customer.phone|default:"—" }}</dd>
-            </div>
-          </dl>
-          <dl class="mt-4 grid grid-cols-1 gap-3 border-t border-border pt-4 text-sm sm:grid-cols-2">
-            <div>
-              <dt class="text-ink-subtle">Order ID</dt>
-              <dd class="font-mono text-ink">{{ order.order_id }}</dd>
-            </div>
-            <div>
-              <dt class="text-ink-subtle">Design title</dt>
-              <dd class="text-ink">{{ order.design.title }}</dd>
-            </div>
-            <div>
-              <dt class="text-ink-subtle">Garment</dt>
-              <dd class="text-ink">{{ order.design.garment_template }} · {{ order.design.garment_color }}</dd>
-            </div>
-            <div>
-              <dt class="text-ink-subtle">Agreed total</dt>
-              <dd class="text-ink">{% if order.agreed_total %}₱{{ order.agreed_total }}{% else %}—{% endif %}</dd>
-            </div>
-          </dl>
-          {% if order.notes %}
-          <p class="mt-4 whitespace-pre-wrap text-sm text-ink-muted">{{ order.notes }}</p>
-          {% endif %}
+  {# ── Action banner ──────────────────────────────────── #}
+  {% if order.pending_payment %}
+  <a href="#so-payments" class="so-banner">
+    <div>
+      <strong>Payment awaiting your review</strong> ·
+      <b>₱{{ order.pending_payment.amount_claimed }}</b> ({{ order.pending_payment.get_purpose_display|lower }})
+    </div>
+    <span>Review below →</span>
+  </a>
+  {% endif %}
+
+  {% if is_pending_edit and order.customer_approved_current_design %}
+  <div class="so-banner" style="background:#e8f5e9;border-color:#bfe3c6">
+    <div>
+      <strong style="color:#166534">Customer approved the final design</strong> ·
+      v{{ order.approved_version }}{% if order.approved_at %} · {{ order.approved_at|date:"Y-m-d H:i" }}{% endif %}
+    </div>
+    <span style="color:#166534">You can now move this order to Production.</span>
+  </div>
+  {% endif %}
+
+  <div class="so-grid">
+
+    {# ══════════ MAIN COLUMN ══════════ #}
+    <div class="so-col">
+
+      {# Payments #}
+      <section id="so-payments" class="so-card" aria-labelledby="so-pay-title">
+        <div class="so-card-head">
+          <h2 id="so-pay-title">Payments</h2>
         </div>
-
-        <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-          <div class="flex items-center justify-between gap-2">
-            <h2 class="font-display text-xl text-ink">Payments</h2>
-            <a href="{% url 'accounting_detail' order.order_id %}" class="text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Accounting</a>
-          </div>
-          {% if payments %}
-          <ul class="mt-4 divide-y divide-border rounded-md border border-border">
-            {% for payment in payments %}
-            <li class="px-3 py-3 text-sm">
-              <div class="flex flex-wrap items-start justify-between gap-3">
-                <div class="min-w-0 flex-1">
-                  <p class="font-medium text-ink">
-                    {% if payment.channel %}{{ payment.channel.display_name }}{% else %}Manual{% endif %}
-                    {% if payment.is_manual_adjustment %}
-                      {% include "components/badge.html" with label="Adjustment" variant="muted" %}
-                    {% endif %}
-                  </p>
-                  <p class="text-xs text-ink-muted">{{ payment.created_at|date:"Y-m-d H:i" }}</p>
-                  <div class="mt-1">
-                    {% if payment.status == "accepted" %}
-                      {% include "components/badge.html" with label="Accepted" variant="success" %}
-                    {% elif payment.status == "rejected" %}
-                      {% include "components/badge.html" with label="Rejected" variant="danger" %}
-                    {% else %}
-                      {% include "components/badge.html" with label="Pending" variant="warning" %}
-                    {% endif %}
-                  </div>
-                  {% if payment.reviewed_by %}
-                  <p class="mt-1 text-xs text-ink-subtle">
-                    Reviewed by {{ payment.reviewed_by.get_full_name|default:payment.reviewed_by.email }}
-                    {% if payment.reviewed_at %} · {{ payment.reviewed_at|date:"Y-m-d H:i" }}{% endif %}
-                  </p>
+        {% if payments %}
+        <ul style="margin:0;padding:0;list-style:none">
+          {% for payment in payments %}
+          <li class="so-pay {% if payment.status == 'pending' %}is-pending{% endif %}">
+            <div class="so-pay-top">
+              <div>
+                <p class="so-pay-ch">
+                  {% if payment.channel %}{{ payment.channel.display_name }}{% else %}Manual{% endif %}
+                  {% if payment.is_manual_adjustment %}
+                    {% include "components/badge.html" with label="Adjustment" variant="muted" %}
                   {% endif %}
-                {% if payment.rejection_reason %}
-                <p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>
+                </p>
+                <p class="so-muted">{{ payment.created_at|date:"Y-m-d H:i" }} · <strong>{{ payment.get_purpose_display }}</strong></p>
+              </div>
+              <div class="so-pay-right">
+                <span class="so-amt">₱{{ payment.amount_claimed }}</span>
+                {% if payment.status == "accepted" %}
+                  {% include "components/badge.html" with label="Accepted" variant="success" %}
+                {% elif payment.status == "rejected" %}
+                  {% include "components/badge.html" with label="Rejected" variant="danger" %}
+                {% else %}
+                  {% include "components/badge.html" with label="Pending" variant="warning" %}
                 {% endif %}
-                <p class="mt-1 text-xs text-text-muted">Type: <strong>{{ payment.get_purpose_display }}</strong></p>
-                {% if payment.requested_amount %}
-                <p class="mt-1 text-xs text-ink">Requested exact amount: <span class="font-mono">₱{{ payment.requested_amount }}</span></p>
+              </div>
+            </div>
+
+            {% if payment.status == "pending" %}
+              {% if payment.purpose == "downpayment" and order.agreed_downpayment is not None %}
+                {% if payment.amount_claimed == order.agreed_downpayment %}
+                <p class="so-check is-ok">Matches the agreed downpayment (₱{{ order.agreed_downpayment }})</p>
+                {% else %}
+                <p class="so-check is-warn">Agreed downpayment is ₱{{ order.agreed_downpayment }}. If this is wrong, reject and request the exact amount.</p>
                 {% endif %}
-                </div>
-                <p class="font-mono text-ink">₱{{ payment.amount_claimed }}</p>
-              </div>
-              {% if payment.reference_number %}
-              <div class="mt-2">
-                <span class="text-xs text-ink-subtle">Reference No:</span>
-                <span class="ml-1 font-mono text-sm text-ink">{{ payment.reference_number }}</span>
-              </div>
+              {% elif payment.purpose == "balance" and order.balance_remaining is not None %}
+                {% if payment.amount_claimed == order.balance_remaining %}
+                <p class="so-check is-ok">Matches the final balance (₱{{ order.balance_remaining }})</p>
+                {% else %}
+                <p class="so-check is-warn">Final balance is ₱{{ order.balance_remaining }}. If this is wrong, reject and request the exact amount.</p>
+                {% endif %}
               {% endif %}
-              {% if payment.proof_file %}
-              <div class="mt-3">
-                {% with name=payment.proof_file.name|lower %}
-                  {% if ".pdf" in name %}
-                  <a href="{{ payment.proof_file.url }}" target="_blank" rel="noopener" class="inline-block text-xs underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Open PDF proof</a>
-                  {% else %}
-                  <a href="{{ payment.proof_file.url }}" target="_blank" rel="noopener" class="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-                    <img src="{{ payment.proof_file.url }}" alt="Payment proof" class="max-h-48 w-auto max-w-full rounded-md border border-border object-contain bg-surface">
-                  </a>
-                  {% endif %}
-                {% endwith %}
-              </div>
-              {% endif %}
-              {% include "orders/_payment_review_actions.html" %}
-            </li>
-            {% endfor %}
-          </ul>
-          {% else %}
-          <p class="mt-4 text-sm text-ink-muted">No payments recorded yet.</p>
-          {% endif %}
-        </div>
-
-        <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 class="font-display text-xl text-ink">Mock-up previews</h2>
-            <div class="flex flex-wrap gap-3 text-sm">
-              {% if order.preview_image %}
-              <a href="{% url 'download_order_preview' order.order_id 'front' %}"
-                class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-                Download artwork (front)
-              </a>
-              {% endif %}
-              {% if order.preview_back_image %}
-              <a href="{% url 'download_order_preview' order.order_id 'back' %}"
-                class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-                Download artwork (back)
-              </a>
-              {% endif %}
-            </div>
-          </div>
-          <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <p class="mb-2 text-sm font-medium text-ink">Front</p>
-              {% if order.preview_image %}
-              <button type="button"
-                      class="block w-full cursor-zoom-in rounded-md border border-border bg-surface p-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                      data-preview-open
-                      data-preview-src="{{ order.preview_image.url }}"
-                      data-preview-label="Front mock-up">
-                <img src="{{ order.preview_image.url }}"
-                    alt="Front mock-up"
-                    class="mx-auto max-h-64 w-full object-contain">
-              </button>
-              {% else %}
-              <div class="flex h-40 items-center justify-center rounded-md border border-dashed border-border bg-surface text-sm text-ink-subtle">
-                No front preview
-              </div>
-              {% endif %}
-            </div>
-            <div>
-              <p class="mb-2 text-sm font-medium text-ink">Back</p>
-              {% if order.preview_back_image %}
-              <button type="button"
-                      class="block w-full cursor-zoom-in rounded-md border border-border bg-surface p-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                      data-preview-open
-                      data-preview-src="{{ order.preview_back_image.url }}"
-                      data-preview-label="Back mock-up">
-                <img src="{{ order.preview_back_image.url }}"
-                    alt="Back mock-up"
-                    class="mx-auto max-h-64 w-full object-contain">
-              </button>
-              {% else %}
-              <div class="flex h-40 items-center justify-center rounded-md border border-dashed border-border bg-surface text-sm text-ink-subtle">
-                No back preview
-              </div>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6 md:landscape:sticky md:landscape:top-20 lg:sticky lg:top-20 self-start">
-        <h2 class="font-display text-xl text-ink">Final design</h2>
-        <p class="mt-1 text-sm text-ink-muted">
-          {% if order.final_design_version %}
-            Version {{ order.final_design_version }}
-            {% if order.final_design_uploaded_at %}
-              · uploaded {{ order.final_design_uploaded_at|date:"Y-m-d H:i" }}
             {% endif %}
-          {% else %}
-            No final design uploaded yet.
-          {% endif %}
-        </p>
-        {% if order.final_design %}
-        <div class="mt-4">
-          {% if order.final_design_is_pdf %}
-          <a href="{{ order.final_design.url }}"
-            target="_blank"
-            rel="noopener"
-            class="inline-block text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-            Download final design (PDF)
-          </a>
-          {% elif order.final_design_is_image %}
-          <a href="{{ order.final_design.url }}"
-            target="_blank"
-            rel="noopener"
-            class="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-            <img src="{{ order.final_design.url }}"
-                alt="Final design version {{ order.final_design_version }}"
-                class="mx-auto max-h-[28rem] w-full rounded-md border border-border object-contain bg-surface">
-          </a>
-          {% else %}
-          <a href="{{ order.final_design.url }}"
-            target="_blank"
-            rel="noopener"
-            class="inline-block text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-            Download final design
-          </a>
-          {% endif %}
-        </div>
-        {% else %}
-        <div class="mt-4 flex h-48 items-center justify-center rounded-md border border-dashed border-border bg-surface text-sm text-ink-subtle">
-          Upload the print-ready final design
-        </div>
-        {% endif %}
-        <form method="post"
-              action="{% url 'upload_final_design' order.order_id %}"
-              enctype="multipart/form-data"
-              class="mt-6 space-y-4">
-          {% csrf_token %}
-          <div>
-            <label for="final-design-file" class="mb-1.5 block text-sm font-medium text-ink">
-              {% if order.final_design %}Replace final design{% else %}Upload final design{% endif %}
-            </label>
-            <input type="file"
-                  id="final-design-file"
-                  name="final_design"
-                  accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
-                  required
-                  class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2 text-base text-ink file:mr-3 file:rounded file:border-0 file:bg-ink file:px-3 file:py-2 file:text-sm file:font-medium file:text-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink">
-            <p class="mt-1.5 text-xs text-ink-subtle">PNG, JPG, JPEG, or PDF · max {{ PROOF_MAX_UPLOAD_MB }} MB · files are stored as-is</p>
-          </div>
-          {% if order.final_design %}
-            {% include "components/button.html" with label="Replace final design" type="submit" variant="primary" %}
-          {% else %}
-            {% include "components/button.html" with label="Upload final design" type="submit" variant="primary" %}
-          {% endif %}
-        </form>
-      </div>
-    </div>
 
-    <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <h2 class="font-display text-xl text-ink">Design details</h2>
-      {% if design_details.ok %}
-        <div class="mt-4 space-y-6">
-          {% for view in design_details.views %}
-          <div>
-            <h3 class="text-sm font-medium text-ink">{{ view.label }}</h3>
-            <dl class="mt-2 space-y-2 text-sm">
-              <div>
-                <dt class="text-ink-subtle">Text</dt>
-                <dd class="text-ink">
-                  {% if view.texts %}
-                    <ul class="list-disc pl-4">
-                      {% for t in view.texts %}<li>{{ t }}</li>{% endfor %}
-                    </ul>
-                  {% else %}
-                    <span class="text-ink-muted">None</span>
-                  {% endif %}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-ink-subtle">Fonts</dt>
-                <dd class="text-ink">{% if view.fonts %}{{ view.fonts|join:", " }}{% else %}<span class="text-ink-muted">—</span>{% endif %}</dd>
-              </div>
-              <div>
-                <dt class="text-ink-subtle">Colors</dt>
-                <dd class="text-ink">
-                  {% if view.colors %}
-                    <ul class="mt-1 flex flex-wrap gap-2">
-                      {% for c in view.colors %}
-                      <li class="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs">
-                        <span class="inline-block h-3 w-3 rounded-sm border border-border" style="background:{{ c }}" aria-hidden="true"></span>
-                        <span class="font-mono">{{ c }}</span>
-                      </li>
-                      {% endfor %}
-                    </ul>
-                  {% else %}
-                    <span class="text-ink-muted">—</span>
-                  {% endif %}
-                </dd>
-              </div>
-              <div>
-                <dt class="text-ink-subtle">Uploaded images</dt>
-                <dd class="text-ink">
-                  {% if view.images %}
-                    <ul class="list-disc pl-4">
-                      {% for name in view.images %}<li>{{ name }}</li>{% endfor %}
-                    </ul>
-                  {% else %}
-                    <span class="text-ink-muted">None</span>
-                  {% endif %}
-                </dd>
-              </div>
-            </dl>
-          </div>
+            {% if payment.reference_number %}
+            <p class="so-line">Reference No: <span class="so-mono" style="color:#000">{{ payment.reference_number }}</span></p>
+            {% endif %}
+            {% if payment.reviewed_by %}
+            <p class="so-line">
+              Reviewed by {{ payment.reviewed_by.get_full_name|default:payment.reviewed_by.email }}
+              {% if payment.reviewed_at %} · {{ payment.reviewed_at|date:"Y-m-d H:i" }}{% endif %}
+            </p>
+            {% endif %}
+            {% if payment.rejection_reason %}
+            <p class="so-line is-bad">{{ payment.rejection_reason }}</p>
+            {% endif %}
+            {% if payment.requested_amount %}
+            <p class="so-line">Requested exact amount: <span class="so-mono" style="color:#000">₱{{ payment.requested_amount }}</span></p>
+            {% endif %}
+
+            {% if payment.proof_file %}
+            <div class="so-proof" style="margin-top:.7rem">
+              {% with name=payment.proof_file.name|lower %}
+                {% if ".pdf" in name %}
+                <a href="{{ payment.proof_file.url }}" target="_blank" rel="noopener" class="so-link">Open PDF proof</a>
+                {% else %}
+                <a href="{{ payment.proof_file.url }}" target="_blank" rel="noopener">
+                  <img src="{{ payment.proof_file.url }}" alt="Payment proof">
+                </a>
+                {% endif %}
+              {% endwith %}
+            </div>
+            {% endif %}
+
+            {% include "orders/_payment_review_actions.html" %}
+          </li>
           {% endfor %}
-        </div>
-      {% else %}
-        <p class="mt-4 text-sm text-ink-muted">{{ design_details.error|default:"Design details could not be read." }}</p>
-      {% endif %}
-    </div>
-    {% else %}
-    {% comment %}Order summary — one column on phones/portrait tablets; two on landscape tablets and laptops{% endcomment %}
-    <div class="mt-8 grid grid-cols-1 gap-6 md:landscape:grid-cols-2 lg:grid-cols-2">
-      <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-        <h2 class="font-display text-xl text-ink">Order details</h2>
-        <dl class="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-          <div>
-            <dt class="text-ink-subtle">Order ID</dt>
-            <dd class="font-mono text-ink">{{ order.order_id }}</dd>
-          </div>
-          <div>
-            <dt class="text-ink-subtle">Status</dt>
-            <dd class="text-ink">{{ order.get_status_display }}</dd>
-          </div>
-          <div>
-            <dt class="text-ink-subtle">Submitted</dt>
-            <dd class="text-ink">{{ order.created_at|date:"Y-m-d H:i" }}</dd>
-          </div>
-          <div>
-            <dt class="text-ink-subtle">Design title</dt>
-            <dd class="text-ink">{{ order.design.title }}</dd>
-          </div>
-          <div>
-            <dt class="text-ink-subtle">Garment</dt>
-            <dd class="text-ink">{{ order.design.garment_template }} · {{ order.design.garment_color }}</dd>
-          </div>
-          <div>
-            <dt class="text-ink-subtle">Agreed total</dt>
-            <dd class="text-ink">{% if order.agreed_total %}₱{{ order.agreed_total }}{% else %}—{% endif %}</dd>
-          </div>
-        </dl>
-        <div class="mt-4">
-          <h3 class="text-sm font-medium text-ink">Notes</h3>
-          <p class="mt-1 whitespace-pre-wrap text-sm text-ink-muted">{{ order.notes|default:"—" }}</p>
-        </div>
-      </div>
-
-      <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-        <h2 class="font-display text-xl text-ink">Customer</h2>
-        <dl class="mt-4 space-y-2 text-sm">
-          <div>
-            <dt class="text-ink-subtle">Name</dt>
-            <dd class="text-ink">{{ order.customer.get_full_name|default:"—" }}</dd>
-          </div>
-          <div>
-            <dt class="text-ink-subtle">Email</dt>
-            <dd class="text-ink">{{ order.customer.email }}</dd>
-          </div>
-          <div>
-            <dt class="text-ink-subtle">Phone</dt>
-            <dd class="text-ink">{{ order.customer.phone|default:"—" }}</dd>
-          </div>
-        </dl>
-      </div>
-    </div>
-    {% if order.final_design %}
-    <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <h2 class="font-display text-xl text-ink">Final design</h2>
-      <p class="mt-1 text-sm text-ink-muted">
-      Final Design
-      {% if order.final_design_version %}
-        (Version {{ order.final_design_version }})
-      {% endif %}
-      {% if order.approved_version %}
-        · approved v{{ order.approved_version }}
-      {% endif %}
-    </p>
-      <div class="mt-4">
-        {% if order.final_design_is_pdf %}
-        <a href="{{ order.final_design.url }}" target="_blank" rel="noopener" class="inline-block text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Download final design (PDF)</a>
-        {% elif order.final_design_is_image %}
-        <img src="{{ order.final_design.url }}" alt="Final design" class="mx-auto max-h-[28rem] w-full rounded-md border border-border object-contain bg-surface">
+        </ul>
         {% else %}
-        <a href="{{ order.final_design.url }}" target="_blank" rel="noopener" class="inline-block text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Download final design</a>
+        <p class="so-empty">No payments recorded yet.</p>
         {% endif %}
-      </div>
-    </div>
-    
-    {% comment %}Front / back mock-ups — large, tap to open lightbox{% endcomment %}
-    <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <h2 class="font-display text-xl text-ink">Mock-up previews</h2>
-        <div class="flex flex-wrap gap-3 text-sm">
-          {% if order.preview_image %}
-          <a href="{% url 'download_order_preview' order.order_id 'front' %}"
-            class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-            Download artwork (front)
-          </a>
-          {% endif %}
-          {% if order.preview_back_image %}
-          <a href="{% url 'download_order_preview' order.order_id 'back' %}"
-            class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-            Download artwork (back)
-          </a>
-          {% endif %}
-        </div>
-      </div>
-      <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-        <div>
-          <p class="mb-2 text-sm font-medium text-ink">Front</p>
-          {% if order.preview_image %}
-          <button type="button"
-                  class="block w-full cursor-zoom-in rounded-md border border-border bg-surface p-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                  data-preview-open
-                  data-preview-src="{{ order.preview_image.url }}"
-                  data-preview-label="Front mock-up">
-            <img src="{{ order.preview_image.url }}"
-                alt="Front mock-up"
-                class="mx-auto max-h-[28rem] w-full object-contain">
-          </button>
-          {% else %}
-          <div class="flex h-48 items-center justify-center rounded-md border border-dashed border-border bg-surface text-sm text-ink-subtle">
-            No front preview
-          </div>
-          {% endif %}
-        </div>
-        <div>
-          <p class="mb-2 text-sm font-medium text-ink">Back</p>
-          {% if order.preview_back_image %}
-          <button type="button"
-                  class="block w-full cursor-zoom-in rounded-md border border-border bg-surface p-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                  data-preview-open
-                  data-preview-src="{{ order.preview_back_image.url }}"
-                  data-preview-label="Back mock-up">
-            <img src="{{ order.preview_back_image.url }}"
-                alt="Back mock-up"
-                class="mx-auto max-h-[28rem] w-full object-contain">
-          </button>
-          {% else %}
-          <div class="flex h-48 items-center justify-center rounded-md border border-dashed border-border bg-surface text-sm text-ink-subtle">
-            No back preview
-          </div>
-          {% endif %}
-        </div>
-      </div>
-    </div>
-    {% endif %}
+      </section>
 
-    <div class="mt-8 grid grid-cols-1 gap-6 md:landscape:grid-cols-2 lg:grid-cols-2">
-      <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-        <h2 class="font-display text-xl text-ink">Design details</h2>
-        {% if design_details.ok %}
-          <div class="mt-4 space-y-6">
+      {# Mock-up previews #}
+      <section class="so-card" aria-labelledby="so-prev-title">
+        <div class="so-card-head">
+          <h2 id="so-prev-title">Mock-up previews</h2>
+          <div style="display:flex;flex-wrap:wrap;gap:.9rem">
+            {% if order.preview_image %}
+            <a href="{% url 'download_order_preview' order.order_id 'front' %}" class="so-link">Download front</a>
+            {% endif %}
+            {% if order.preview_back_image %}
+            <a href="{% url 'download_order_preview' order.order_id 'back' %}" class="so-link">Download back</a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="so-body so-previews">
+          <div>
+            <p class="so-label">Front</p>
+            {% if order.preview_image %}
+            <button type="button" class="so-pbtn"
+                    data-preview-open
+                    data-preview-src="{{ order.preview_image.url }}"
+                    data-preview-label="Front mock-up">
+              <img src="{{ order.preview_image.url }}" alt="Front mock-up">
+            </button>
+            {% else %}
+            <div class="so-pempty">No front preview</div>
+            {% endif %}
+          </div>
+          <div>
+            <p class="so-label">Back</p>
+            {% if order.preview_back_image %}
+            <button type="button" class="so-pbtn"
+                    data-preview-open
+                    data-preview-src="{{ order.preview_back_image.url }}"
+                    data-preview-label="Back mock-up">
+              <img src="{{ order.preview_back_image.url }}" alt="Back mock-up">
+            </button>
+            {% else %}
+            <div class="so-pempty">No back preview</div>
+            {% endif %}
+          </div>
+        </div>
+      </section>
+
+      {# Design details (collapsed by default) #}
+      <details class="so-card so-fold">
+        <summary class="so-card-head">
+          <h2>Design details</h2>
+          <span class="so-caret" aria-hidden="true">▼</span>
+        </summary>
+        <div class="so-body">
+          {% if design_details.ok %}
+          <div class="so-views">
             {% for view in design_details.views %}
             <div>
-              <h3 class="text-sm font-medium text-ink">{{ view.label }}</h3>
-              <dl class="mt-2 space-y-2 text-sm">
+              <h3 style="margin:0;font-size:.9rem;font-weight:600">{{ view.label }}</h3>
+              <dl class="so-dl2" style="margin:0">
                 <div>
-                  <dt class="text-ink-subtle">Text</dt>
-                  <dd class="text-ink">
+                  <dt>Text</dt>
+                  <dd>
                     {% if view.texts %}
-                      <ul class="list-disc pl-4">
-                        {% for t in view.texts %}<li>{{ t }}</li>{% endfor %}
-                      </ul>
-                    {% else %}
-                      <span class="text-ink-muted">None</span>
-                    {% endif %}
+                    <ul style="margin:0;padding-left:1.1rem;list-style:disc">
+                      {% for t in view.texts %}<li>{{ t }}</li>{% endfor %}
+                    </ul>
+                    {% else %}<span class="so-muted">None</span>{% endif %}
                   </dd>
                 </div>
                 <div>
-                  <dt class="text-ink-subtle">Fonts</dt>
-                  <dd class="text-ink">{% if view.fonts %}{{ view.fonts|join:", " }}{% else %}<span class="text-ink-muted">—</span>{% endif %}</dd>
+                  <dt>Fonts</dt>
+                  <dd>{% if view.fonts %}{{ view.fonts|join:", " }}{% else %}<span class="so-muted">—</span>{% endif %}</dd>
                 </div>
                 <div>
-                  <dt class="text-ink-subtle">Colors</dt>
-                  <dd class="text-ink">
+                  <dt>Colors</dt>
+                  <dd>
                     {% if view.colors %}
-                      <ul class="mt-1 flex flex-wrap gap-2">
-                        {% for c in view.colors %}
-                        <li class="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-1 text-xs">
-                          <span class="inline-block h-3 w-3 rounded-sm border border-border" style="background:{{ c }}" aria-hidden="true"></span>
-                          <span class="font-mono">{{ c }}</span>
-                        </li>
-                        {% endfor %}
-                      </ul>
-                    {% else %}
-                      <span class="text-ink-muted">—</span>
-                    {% endif %}
+                      {% for c in view.colors %}
+                      <span class="so-swatch"><i style="background:{{ c }}"></i><span class="so-mono">{{ c }}</span></span>
+                      {% endfor %}
+                    {% else %}<span class="so-muted">—</span>{% endif %}
                   </dd>
                 </div>
                 <div>
-                  <dt class="text-ink-subtle">Uploaded images</dt>
-                  <dd class="text-ink">
+                  <dt>Uploaded images</dt>
+                  <dd>
                     {% if view.images %}
-                      <ul class="list-disc pl-4">
-                        {% for name in view.images %}<li>{{ name }}</li>{% endfor %}
-                      </ul>
-                    {% else %}
-                      <span class="text-ink-muted">None</span>
-                    {% endif %}
+                    <ul style="margin:0;padding-left:1.1rem;list-style:disc">
+                      {% for name in view.images %}<li>{{ name }}</li>{% endfor %}
+                    </ul>
+                    {% else %}<span class="so-muted">None</span>{% endif %}
                   </dd>
                 </div>
               </dl>
             </div>
             {% endfor %}
           </div>
-        {% else %}
-          <p class="mt-4 text-sm text-ink-muted">{{ design_details.error|default:"Design details could not be read." }}</p>
-        {% endif %}
-      </div>
-
-  <div class="rounded-lg p-4 sm:p-6" {% if order.status == 'job_request' and order.pending_payment %}style="border: 3px solid #d4a017; background-color: #fffbeb; box-shadow: 0 4px 15px rgba(212,160,23,0.18);"{% else %}style="border: 1px solid #e7e5e4; background-color: #ffffff;"{% endif %}>
-  <div class="flex items-center justify-between gap-2">
-    {% if order.status == 'job_request' and order.pending_payment %}
-    <h2 class="font-display text-xl flex items-center gap-2" style="color: #92400e !important;">
-      <span style="display: inline-block; width: 12px; height: 12px; background-color: #d4a017; border-radius: 50%; animation: pulse 1.5s infinite;"></span>
-      Payments — Action Required
-    </h2>
-    {% else %}
-    <h2 class="font-display text-xl text-ink">Payments</h2>
-    {% endif %}
-    <a href="{% url 'accounting_detail' order.order_id %}" class="text-sm underline" {% if order.status == 'job_request' and order.pending_payment %}style="color: #92400e !important;"{% endif %}>Accounting</a>
-  </div>
-        {% if payments %}
-        {% if order.status == 'job_request' and order.pending_payment %}
-        <div class="mt-3 flex items-center gap-2 rounded-lg px-4 py-3" style="background-color: #fef3c7; border: 2px solid #fbbf24;">
-          <div>
-            <p class="text-sm font-bold" style="color: #78350f !important;">Payment awaiting your review!</p>
-            <p class="text-xs" style="color: #b45309 !important;">Please accept or reject the payment proof below.</p>
-          </div>
+          {% else %}
+          <p class="so-muted">{{ design_details.error|default:"Design details could not be read." }}</p>
+          {% endif %}
         </div>
-        {% endif %}
-        <ul class="mt-4 divide-y divide-border rounded-md border border-border">
-          {% for payment in payments %}
-          <li class="px-3 py-3 text-sm" {% if order.status == 'job_request' and payment.status == 'pending' %}style="background-color: #fefce8; border-left: 4px solid #eab308; border-radius: 0 8px 8px 0;"{% endif %}>
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div class="min-w-0 flex-1">
-                <p class="font-medium text-ink">
-                  {% if payment.channel %}{{ payment.channel.display_name }}{% else %}Manual{% endif %}
-                  {% if payment.is_manual_adjustment %}
-                    {% include "components/badge.html" with label="Adjustment" variant="muted" %}
-                  {% endif %}
+      </details>
+
+      {# Phase history (collapsed by default) #}
+      <details class="so-card so-fold">
+        <summary class="so-card-head">
+          <h2>Phase change history</h2>
+          <span class="so-caret" aria-hidden="true">▼</span>
+        </summary>
+        <div class="so-body">
+          {% if phase_changes %}
+          <ol class="so-hist">
+            {% for change in phase_changes %}
+            <li>
+              <div>
+                <span>{{ change.get_from_status_display }} <span style="color:#9ca3af">→</span> {{ change.get_to_status_display }}</span>
+                <p class="so-muted">
+                  {% if change.changed_by %}{{ change.changed_by.get_full_name|default:change.changed_by.email }}{% else %}System{% endif %}
                 </p>
-                <p class="text-xs text-ink-muted">{{ payment.created_at|date:"Y-m-d H:i" }}</p>
-                <div class="mt-1">
-                  {% if payment.status == "accepted" %}
-                    {% include "components/badge.html" with label="Accepted" variant="success" %}
-                  {% elif payment.status == "rejected" %}
-                    {% include "components/badge.html" with label="Rejected" variant="danger" %}
-                  {% else %}
-                    {% include "components/badge.html" with label="Pending" variant="warning" %}
-                  {% endif %}
-                </div>
-                {% if payment.reviewed_by %}
-                <p class="mt-1 text-xs text-ink-subtle">
-                  Reviewed by {{ payment.reviewed_by.get_full_name|default:payment.reviewed_by.email }}
-                  {% if payment.reviewed_at %} · {{ payment.reviewed_at|date:"Y-m-d H:i" }}{% endif %}
-                </p>
-                {% endif %}
-                {% if payment.rejection_reason %}
-                <p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>
-                {% endif %}
-                <p class="mt-1 text-xs text-text-muted">Type: <strong>{{ payment.get_purpose_display }}</strong></p>
-                {% if payment.requested_amount %}
-                <p class="mt-1 text-xs text-ink">Requested exact amount: <span class="font-mono">₱{{ payment.requested_amount }}</span></p>
-                {% endif %}
               </div>
-              <p class="font-mono text-ink">₱{{ payment.amount_claimed }}</p>
-            </div>
-            {% if payment.reference_number %}
-            <div class="mt-2">
-              <span class="text-xs text-ink-subtle">Reference No:</span>
-              <span class="ml-1 font-mono text-sm text-ink">{{ payment.reference_number }}</span>
-            </div>
-            {% endif %}
-            {% if payment.proof_file %}
-            <div class="mt-3">
-              {% with name=payment.proof_file.name|lower %}
-                {% if ".pdf" in name %}
-                <a href="{{ payment.proof_file.url }}" target="_blank" rel="noopener" class="inline-block text-xs underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Open PDF proof</a>
-                {% else %}
-                <a href="{{ payment.proof_file.url }}" target="_blank" rel="noopener" class="block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-                  <img src="{{ payment.proof_file.url }}" alt="Payment proof" class="max-h-48 w-auto max-w-full rounded-md border border-border object-contain bg-surface">
-                </a>
-                {% endif %}
-              {% endwith %}
-            </div>
-            {% endif %}
-              {% include "orders/_payment_review_actions.html" %}
-          </li>
-          {% endfor %}
-        </ul>
-        {% else %}
-        <p class="mt-4 text-sm text-ink-muted">No payments recorded yet.</p>
-        {% endif %}
-      </div>
+              <time class="so-muted" datetime="{{ change.changed_at|date:'c' }}">{{ change.changed_at|date:"Y-m-d H:i" }}</time>
+            </li>
+            {% endfor %}
+          </ol>
+          {% else %}
+          <p class="so-muted">No phase changes yet.</p>
+          {% endif %}
+        </div>
+      </details>
     </div>
-    {% endif %}
 
-    <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <h2 class="font-display text-xl text-ink">Phase change history</h2>
-      {% if phase_changes %}
-      <ol class="mt-4 divide-y divide-border rounded-md border border-border">
-        {% for change in phase_changes %}
-        <li class="flex flex-wrap items-baseline justify-between gap-2 px-3 py-3 text-sm">
-          <div>
-            <p class="text-ink">
-              {{ change.get_from_status_display }}
-              <span class="text-ink-subtle">→</span>
-              {{ change.get_to_status_display }}
-            </p>
-            <p class="text-xs text-ink-muted">
-              {% if change.changed_by %}
-                {{ change.changed_by.get_full_name|default:change.changed_by.email }}
-              {% else %}
-                System
-              {% endif %}
-            </p>
+    {# ══════════ SIDE COLUMN ══════════ #}
+    <aside class="so-col">
+
+      {# Order details (editable pricing) #}
+      <section class="so-card" aria-labelledby="so-od-title">
+        <div class="so-card-head"><h2 id="so-od-title">Order details</h2></div>
+        <div class="so-body">
+          <dl class="so-dl">
+            <div><dt>Order ID</dt><dd class="so-mono">{{ order.order_id }}</dd></div>
+            <div><dt>Garment</dt><dd>{{ order.design.garment_template|default:"—"|title }} · {{ order.design.garment_color|default:"—"|title }}</dd></div>
+            <div><dt>Submitted</dt><dd>{{ order.created_at|date:"Y-m-d H:i" }}</dd></div>
+            <div><dt>Agreed total (full payment)</dt><dd class="so-mono is-strong">{% if order.agreed_total is not None %}₱{{ order.agreed_total }}{% else %}Not set{% endif %}</dd></div>
+            <div><dt>Agreed downpayment</dt><dd class="so-mono is-strong">{% if order.agreed_downpayment is not None %}₱{{ order.agreed_downpayment }}{% else %}Not set{% endif %}</dd></div>
+            {% if order.agreed_balance is not None %}
+            <div><dt>Balance after downpayment</dt><dd class="so-mono">₱{{ order.agreed_balance }}</dd></div>
+            {% endif %}
+          </dl>
+
+          {% if can_edit_pricing %}
+          <details class="so-edit">
+            <summary>Edit pricing</summary>
+            <form method="post" action="{% url 'update_order_pricing' order.order_id %}">
+              {% csrf_token %}
+              <div>
+                <label for="so-total">Agreed total (₱)</label>
+                <input id="so-total" name="agreed_total" type="number" step="0.01" min="0" inputmode="decimal"
+                       {% if order.agreed_total is not None %}value="{{ order.agreed_total|stringformat:'s' }}"{% endif %}>
+              </div>
+              <div>
+                <label for="so-down">Agreed downpayment (₱)</label>
+                <input id="so-down" name="agreed_downpayment" type="number" step="0.01" min="0" inputmode="decimal"
+                       {% if order.agreed_downpayment is not None %}value="{{ order.agreed_downpayment|stringformat:'s' }}"{% endif %}>
+              </div>
+              <p class="so-help">Agreed with the customer outside the site. Used for documentation and to check submitted payments. It does not change a final balance already requested from the customer.</p>
+              <button type="submit" class="so-save">Save pricing</button>
+            </form>
+          </details>
+          {% else %}
+          <p class="so-note">Only accounting staff can edit pricing.</p>
+          {% endif %}
+
+          <p class="so-sec">Payment record</p>
+          <dl class="so-dl">
+            <div><dt>Downpayment received</dt><dd class="so-mono">₱{{ order.downpayment_paid }}</dd></div>
+            {% if order.balance_due is not None %}
+            <div><dt>Final balance (requested)</dt><dd class="so-mono">₱{{ order.balance_due }}</dd></div>
+            <div><dt>Final payment received</dt><dd class="so-mono">₱{{ order.balance_paid }}</dd></div>
+            {% endif %}
+            <div><dt>Total received</dt><dd class="so-mono is-strong">₱{{ order.total_paid }}</dd></div>
+            {% if order.outstanding_amount is not None %}
+            <div><dt>Remaining to collect</dt><dd class="so-mono is-strong">₱{{ order.outstanding_amount }}</dd></div>
+            {% endif %}
+          </dl>
+
+          {% if order.notes %}
+          <p class="so-sec">Notes</p>
+          <p style="margin:0;white-space:pre-wrap;font-size:.85rem;color:#4b5563">{{ order.notes }}</p>
+          {% endif %}
+        </div>
+      </section>
+
+      {# Customer #}
+      <section class="so-card" aria-labelledby="so-cust-title">
+        <div class="so-card-head"><h2 id="so-cust-title">Customer</h2></div>
+        <div class="so-body">
+          <dl class="so-dl">
+            <div><dt>Name</dt><dd>{{ order.customer.get_full_name|default:"—" }}</dd></div>
+            <div><dt>Email</dt><dd>{{ order.customer.email }}</dd></div>
+            <div><dt>Phone</dt><dd>{{ order.customer.phone|default:"—" }}</dd></div>
+          </dl>
+        </div>
+      </section>
+
+      {# Final design #}
+      <section class="so-card" aria-labelledby="so-final-title">
+        <div class="so-card-head">
+          <h2 id="so-final-title">Final design</h2>
+          <span class="so-muted">
+            {% if order.final_design_version %}v{{ order.final_design_version }}{% if order.approved_version %} · approved v{{ order.approved_version }}{% endif %}{% else %}None yet{% endif %}
+          </span>
+        </div>
+        <div class="so-body">
+          {% if order.final_design %}
+          <div class="so-final">
+            {% if order.final_design_is_pdf %}
+            <a href="{{ order.final_design.url }}" target="_blank" rel="noopener" class="so-link">Download final design (PDF)</a>
+            {% elif order.final_design_is_image %}
+            <a href="{{ order.final_design.url }}" target="_blank" rel="noopener">
+              <img src="{{ order.final_design.url }}" alt="Final design version {{ order.final_design_version }}">
+            </a>
+            {% else %}
+            <a href="{{ order.final_design.url }}" target="_blank" rel="noopener" class="so-link">Download final design</a>
+            {% endif %}
           </div>
-          <time class="text-xs text-ink-subtle" datetime="{{ change.changed_at|date:'c' }}">
-            {{ change.changed_at|date:"Y-m-d H:i" }}
-          </time>
-        </li>
-        {% endfor %}
-      </ol>
-      {% else %}
-      <p class="mt-4 text-sm text-ink-muted">No phase changes yet.</p>
-      {% endif %}
-    </div>
-  </section>
+          {% if order.final_design_uploaded_at %}
+          <p class="so-muted" style="margin-top:.5rem">Uploaded {{ order.final_design_uploaded_at|date:"Y-m-d H:i" }}</p>
+          {% endif %}
+          {% else %}
+          <div class="so-pempty">No final design uploaded yet</div>
+          {% endif %}
 
-  {% comment %}Full-screen preview lightbox{% endcomment %}
-  <div id="preview-lightbox"
-      class="fixed inset-0 z-[80] hidden items-center justify-center bg-ink/90 p-4"
-      aria-hidden="true"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Mock-up preview">
-    <button type="button"
-            class="absolute right-3 top-3 z-10 rounded-md bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-            data-lightbox-close>
-      Close
-    </button>
-    <div class="absolute inset-0" data-lightbox-close tabindex="-1"></div>
-    <div class="relative z-10 flex max-h-[90dvh] w-full max-w-4xl flex-col items-center"
-        data-lightbox-stage
-        style="touch-action: none;">
-      <p class="mb-2 text-sm text-canvas" data-lightbox-label></p>
-      <img data-lightbox-img
-          alt=""
-          class="max-h-[80dvh] max-w-full origin-center object-contain select-none"
-          draggable="false"
-          style="touch-action: none;">
-      <p class="mt-2 text-xs text-canvas/70">Pinch or scroll to zoom · drag when zoomed</p>
-    </div>
+          {% if is_pending_edit %}
+          <form method="post" action="{% url 'upload_final_design' order.order_id %}" enctype="multipart/form-data" style="margin-top:1rem;display:flex;flex-direction:column;gap:.6rem">
+            {% csrf_token %}
+            <label for="final-design-file" class="so-label" style="margin:0">
+              {% if order.final_design %}Replace final design{% else %}Upload final design{% endif %}
+            </label>
+            <input type="file" id="final-design-file" name="final_design"
+                   accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf" required class="so-file">
+            <p class="so-help">PNG, JPG, JPEG, or PDF · max {{ PROOF_MAX_UPLOAD_MB }} MB · files are stored as-is</p>
+            {% if order.final_design %}
+              {% include "components/button.html" with label="Replace final design" type="submit" variant="primary" %}
+            {% else %}
+              {% include "components/button.html" with label="Upload final design" type="submit" variant="primary" %}
+            {% endif %}
+          </form>
+          {% endif %}
+        </div>
+      </section>
+    </aside>
   </div>
-  {% endblock %}
+</section>
 
-  {% block extra_js %}
-  <script src="{% static 'js/staff_preview_viewer.js' %}" defer></script>
-  {% endblock %}
+{% comment %}Full-screen preview lightbox (used by staff_preview_viewer.js){% endcomment %}
+<div id="preview-lightbox"
+     class="fixed inset-0 z-[80] hidden items-center justify-center bg-ink/90 p-4"
+     aria-hidden="true"
+     role="dialog"
+     aria-modal="true"
+     aria-label="Mock-up preview">
+  <button type="button"
+          class="absolute right-3 top-3 z-10 rounded-md bg-canvas px-3 py-2 text-sm text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          data-lightbox-close>
+    Close
+  </button>
+  <div class="absolute inset-0" data-lightbox-close tabindex="-1"></div>
+  <div class="relative z-10 flex max-h-[90dvh] w-full max-w-4xl flex-col items-center"
+       data-lightbox-stage
+       style="touch-action: none;">
+    <p class="mb-2 text-sm text-canvas" data-lightbox-label></p>
+    <img data-lightbox-img
+         alt=""
+         class="max-h-[80dvh] max-w-full origin-center object-contain select-none"
+         draggable="false"
+         style="touch-action: none;">
+    <p class="mt-2 text-xs text-canvas/70">Pinch or scroll to zoom · drag when zoomed</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/staff_preview_viewer.js' %}" defer></script>
+{% endblock %}

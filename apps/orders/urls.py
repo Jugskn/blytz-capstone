@@ -28,6 +28,16 @@ urlpatterns = [
         name="advance_order_phase",
     ),
     path(
+        "staff/orders/<str:order_id>/pricing/",
+        views.update_order_pricing,
+        name="update_order_pricing",
+    ),
+    path(
+        "staff/orders/<str:order_id>/request-final-payment/",
+        views.request_final_payment,
+        name="request_final_payment",
+    ),
+    path(
         "staff/orders/<str:order_id>/payments/<int:payment_id>/review/",
         views.review_payment,
         name="review_payment",

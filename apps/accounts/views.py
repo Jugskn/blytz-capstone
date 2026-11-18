@@ -79,7 +79,7 @@ def staff_home(request):
     # ---- Recent ----
     recent_orders = (
         Order.objects.select_related("customer", "design")
-        .prefetch_related("payments")
+        .prefetch_related("payments__reviewed_by")
         .order_by("-created_at")[:5]
     )
     recent_leads = Lead.objects.select_related("customer", "order__design").order_by(
