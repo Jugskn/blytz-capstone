@@ -1,4 +1,6 @@
 {# Blytz Staff Dashboard Top Bar #}
+<style>[x-cloak]{display:none!important}</style>
+
 <header class="fixed top-0 {% if show_logo %}left-0 justify-between{% else %}left-60 justify-end{% endif %} right-0 h-16 bg-bg-page border-b border-border z-30 flex items-center px-6">
 
   {% if show_logo %}
@@ -23,7 +25,7 @@
         {% endif %}
       </button>
 
-      <div x-show="open" @click.away="open = false" x-transition
+      <div x-show="open" x-cloak @click.away="open = false" x-transition
            class="absolute right-0 mt-2 bg-bg-surface border border-border rounded-lg shadow-lg z-50 overflow-hidden"
            style="width:22rem;max-width:calc(100vw - 2rem)">
 
@@ -111,8 +113,7 @@
         </svg>
       </button>
 
-      <div x-show="open" @click.away="open = false" x-transition class="absolute right-0 mt-2 w-48 bg-bg-surface border border-border rounded-lg shadow-lg py-1 z-50">
-        <a href="{% url 'account_profile' %}" class="block px-4 py-2 text-sm text-text-muted hover:bg-bg-elevated hover:text-text-primary transition-colors">
+      <div x-show="open" x-cloak @click.away="open = false" x-transition class="absolute right-0 mt-2 w-48 bg-bg-surface border border-border rounded-lg shadow-lg py-1 z-50">        <a href="{% url 'account_profile' %}" class="block px-4 py-2 text-sm text-text-muted hover:bg-bg-elevated hover:text-text-primary transition-colors">
           Profile Overview
         </a>
         <a href="{% url 'account_logout' %}" class="block px-4 py-2 text-sm text-text-muted hover:bg-bg-elevated hover:text-text-primary transition-colors">
