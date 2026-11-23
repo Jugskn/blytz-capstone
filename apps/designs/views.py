@@ -261,6 +261,9 @@ def design_submit(request, pk):
                 else:
                     design.canvas_json = canvas
                     update_fields = ["canvas_json", "updated_at"]
+                    if form.cleaned_data.get("title") is not None:
+                        design.title = form.cleaned_data["title"]
+                        update_fields.append("title")
                     if form.cleaned_data.get("garment_template") is not None:
                         design.garment_template = form.cleaned_data["garment_template"]
                         update_fields.append("garment_template")

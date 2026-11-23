@@ -530,6 +530,9 @@ def review_payment(request, order_id, payment_id):
 
     return redirect("staff_order_detail", order_id=order.order_id)
 
+def _money(value):
+    return "not set" if value is None else f"₱{value:,.2f}"
+
 @staff_required
 @require_POST
 def update_order_pricing(request, order_id):
@@ -544,6 +547,7 @@ def update_order_pricing(request, order_id):
                 messages.error(request, err)
         return redirect("staff_order_detail", order_id=order.order_id)
 
+    old_total, old_down = order.agreed_total, order.agreed_downpayment
     order.agreed_total = form.cleaned_data["agreed_total"]
     order.agreed_downpayment = form.cleaned_data["agreed_downpayment"]
     order.accounting_edited_by = request.user
@@ -556,7 +560,19 @@ def update_order_pricing(request, order_id):
             "accounting_edited_at",
         ]
     )
-    messages.success(request, "Order pricing updated.")
+    if (old_total, old_down) != (order.agreed_total, order.agreed_downpayment):
+        actor = request.user.get_full_name() or request.user.email
+        ActivityLog.objects.create(
+            customer=order.customer,
+            design=order.design,
+            order=order,
+            kind=ActivityLog.Kind.PRICING_UPDATED,
+            detail=(
+                f"Total {_money(old_total)} → {_money(order.agreed_total)} · "
+                f"Downpayment {_money(old_down)} → {_money(order.agreed_downpayment)} · by {actor}"
+            ),
+        )
+    messages.success(request, "Order pricing updated.")    
     return redirect("staff_order_detail", order_id=order.order_id)
 
 @staff_required
@@ -587,6 +603,14 @@ def request_final_payment(request, order_id):
 
     order.balance_due = form.cleaned_data["balance_due"]
     order.save(update_fields=["balance_due"])
+    actor = request.user.get_full_name() or request.user.email
+    ActivityLog.objects.create(
+        customer=order.customer,
+        design=order.design,
+        order=order,
+        kind=ActivityLog.Kind.FINAL_PAYMENT_REQUESTED,
+        detail=f"Final balance {_money(order.balance_due)} · by {actor}",
+    )
     messages.success(
         request,
         f"Final payment requested: ₱{order.balance_due}. The customer can now pay it.",

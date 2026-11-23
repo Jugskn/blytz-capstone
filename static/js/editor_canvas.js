@@ -429,6 +429,10 @@
   }
 
   function evaluateCurrentPrintOverflow() {
+    if (global.BlytzSilhouette && typeof global.BlytzSilhouette.evaluateCanvas === "function") {
+      var silState = global.BlytzSilhouette.evaluateCanvas(fabricCanvas);
+      if (silState) return silState;
+    }
     var g = global.BlytzGarments;
     if (!g || typeof g.getPrintAreas !== "function") {
       return {
@@ -444,7 +448,7 @@
   }
 
   var PRINT_OVERFLOW_MSG =
-    "Artwork extends outside the printable area. Nothing was moved — you can still edit and save, but parts outside the guide may not print.";
+    "Large design: the edges wrap around the sides of the garment in the mock-up. The part past the seam is hidden here.";
 
   function updatePrintOverflowDom(state) {
     var next = state || {
@@ -861,6 +865,10 @@
 
   function notifyCommitted(getJSON, label) {
     if (suppressCommit) return;
+    // Garment silhouette: fit new objects / undo overflow BEFORE the snapshot is taken.
+    if (global.BlytzSilhouette && typeof global.BlytzSilhouette.beforeCommit === "function") {
+      global.BlytzSilhouette.beforeCommit(label);
+    }
     var listeners = global.BlytzEditor && global.BlytzEditor._commitListeners;
     var snapshot = typeof getJSON === "function" ? getJSON() : null;
     runHooks(beforeCommitHooks, label || "commit", snapshot);
@@ -5350,7 +5358,10 @@
       ]).then(function (parts) {
         var layers = parts[0];
         var art = parts[1];
-        return compositeUnderArtOver(layers.under, art, layers.over);
+        return compositeUnderArtOver(layers.under, art, layers.over, {
+          template: template,
+          view: viewId,
+        });
       });
     }
 
@@ -5424,7 +5435,7 @@
    * Composite UNDER garment + artwork + OVER garment into an 800×800 PNG.
    * Print-area guides are never included (export markups omit them).
    */
-  function compositeUnderArtOver(underMarkup, artworkUrl, overMarkup) {
+  function compositeUnderArtOver(underMarkup, artworkUrl, overMarkup, garmentOpts) {
     var size = LOGICAL_SIZE;
     var out = document.createElement("canvas");
     out.width = size;
@@ -5436,16 +5447,27 @@
     // ctx.fillStyle = "#FFFFFF";
     // ctx.fillRect(0, 0, size, size);
 
+    var silPromise =
+      garmentOpts && global.BlytzSilhouette && typeof global.BlytzSilhouette.load === "function"
+        ? global.BlytzSilhouette.load(garmentOpts.template, garmentOpts.view)
+        : Promise.resolve(null);
+
     return Promise.all([
       svgMarkupToImage(underMarkup, size),
       loadImageFromUrl(artworkUrl, "Could not load artwork for preview."),
       svgMarkupToImage(overMarkup, size),
+      silPromise,
     ]).then(function (imgs) {
       var underImg = imgs[0];
       var artImg = imgs[1];
       var overImg = imgs[2];
+      var sil = imgs[3];
       if (underImg) ctx.drawImage(underImg, 0, 0, size, size);
-      if (artImg) ctx.drawImage(artImg, 0, 0, size, size);
+      if (artImg) {
+        // Mock-up only: wrap the flat art around the garment and clip it to the outline.
+        if (sil) global.BlytzSilhouette.drawMockupArt(ctx, artImg, sil, size);
+        else ctx.drawImage(artImg, 0, 0, size, size);
+      }
       if (overImg) ctx.drawImage(overImg, 0, 0, size, size);
       return out.toDataURL("image/png");
     });
@@ -5468,7 +5490,10 @@
     ]).then(function (parts) {
       var layers = parts[0];
       var art = parts[1];
-      return compositeUnderArtOver(layers.under, art, layers.over);
+      return compositeUnderArtOver(layers.under, art, layers.over, {
+        template: state.template,
+        view: viewId,
+      });
     });
   }
 

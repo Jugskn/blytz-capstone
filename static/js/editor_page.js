@@ -1705,6 +1705,7 @@
           currentTitle(),
           currentGarment()
         );
+        const submitTitle = currentTitle();
         var frozenEnvelope;
         try {
           frozenEnvelope = JSON.parse(prepared.jsonString);
@@ -1796,6 +1797,7 @@
               dataURLToBlob(urls[1]),
               "preview_back.png"
             );
+            body.set("title", submitTitle);
             return fetch(form.action, {
               method: "POST",
               body: body,
