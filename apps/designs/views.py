@@ -46,8 +46,11 @@ def _wants_json(request) -> bool:
 @customer_required
 def dashboard(request):
     designs = Design.objects.filter(owner=request.user).order_by("-updated_at")
-    orders = Order.objects.filter(customer=request.user).select_related("design")
-
+    orders = (
+        Order.objects.filter(customer=request.user)
+        .select_related("design")
+        .prefetch_related("payments")
+    )
     designs_list = list(designs)
     submitted_ids = set(
         Order.objects.filter(design_id__in=[d.pk for d in designs_list]).values_list(
@@ -258,6 +261,9 @@ def design_submit(request, pk):
                 else:
                     design.canvas_json = canvas
                     update_fields = ["canvas_json", "updated_at"]
+                    if form.cleaned_data.get("title") is not None:
+                        design.title = form.cleaned_data["title"]
+                        update_fields.append("title")
                     if form.cleaned_data.get("garment_template") is not None:
                         design.garment_template = form.cleaned_data["garment_template"]
                         update_fields.append("garment_template")

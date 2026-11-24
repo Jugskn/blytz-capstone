@@ -25,7 +25,11 @@ def collected_vs_outstanding_chart(orders=None) -> dict:
         )
     collected = sum((o.total_paid for o in orders), Decimal("0.00"))
     outstanding = sum(
-        (o.balance for o in orders if o.balance is not None and o.balance > 0),
+        (
+            o.outstanding_amount
+            for o in orders
+            if o.outstanding_amount is not None and o.outstanding_amount > 0
+        ),
         Decimal("0.00"),
     )
     labels = ["Collected", "Outstanding"]

@@ -24,10 +24,11 @@
    * Locking can later disable descriptors centrally.
    */
   var PROPERTY_REGISTRY = {
-    rect: [
+        rect: [
       "fill",
+      "strokeStyle",
       "stroke",
-      "strokeWidth",
+      "cornerRadius",
       "opacity",
       "posX",
       "posY",
@@ -38,8 +39,8 @@
     ],
     ellipse: [
       "fill",
+      "strokeStyle",
       "stroke",
-      "strokeWidth",
       "opacity",
       "posX",
       "posY",
@@ -50,8 +51,8 @@
     ],
     polygon: [
       "fill",
+      "strokeStyle",
       "stroke",
-      "strokeWidth",
       "opacity",
       "posX",
       "posY",
@@ -62,8 +63,8 @@
     ],
     path: [
       "fill",
+      "strokeStyle",
       "stroke",
-      "strokeWidth",
       "opacity",
       "posX",
       "posY",
@@ -72,7 +73,7 @@
       "rotation",
       "keepProportions",
     ],
-    line: ["stroke", "strokeWidth", "opacity", "posX", "posY", "width", "rotation"],
+    line: ["strokeStyle", "stroke", "opacity", "posX", "posY", "width", "rotation"],
     itext: [
       "text",
       "fill",
@@ -271,6 +272,10 @@
       fill: obj.fill,
       stroke: obj.stroke,
       strokeWidth: obj.strokeWidth,
+      dash: obj.strokeDashArray ? obj.strokeDashArray.join(",") : "",
+      cap: obj.strokeLineCap,
+      rx: obj.rx,
+      ry: obj.ry,
       opacity: obj.opacity,
       angle: obj.angle,
       left: obj.left,
@@ -309,6 +314,242 @@
     return global.BlytzEditor && global.BlytzEditor.getCanvasJSON();
   }
 
+    /* ================= Border style + corner rounding ================= */
+  var STROKE_DEFAULT_WIDTH = 4;
+  var lastStrokeColor = "#000000";
+  var STROKE_IDS = ["none", "solid", "dashed", "long", "dotted"];
+
+  function strokeSvg(dash, cap) {
+    return (
+      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" ' +
+      'stroke-linecap="' + (cap || "butt") + '" aria-hidden="true" focusable="false">' +
+      '<path d="M2 12h20"' + (dash ? ' stroke-dasharray="' + dash + '"' : "") + "/></svg>"
+    );
+  }
+
+  var STROKE_STYLES = [
+    {
+      id: "none",
+      title: "No border",
+      svg:
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+        'stroke-linecap="round" aria-hidden="true" focusable="false">' +
+        '<circle cx="12" cy="12" r="8"/><path d="M6.3 17.7L17.7 6.3"/></svg>',
+    },
+    { id: "solid", title: "Solid line", svg: strokeSvg("", "butt") },
+    { id: "dashed", title: "Dashed line", svg: strokeSvg("4 3", "butt") },
+    { id: "long", title: "Long dashed line", svg: strokeSvg("9 4", "butt") },
+    { id: "dotted", title: "Dotted line", svg: strokeSvg("0.1 4.5", "round") },
+  ];
+
+  function supportsBorder(obj) {
+    var k = typeKey(obj);
+    return (
+      k === "rect" || k === "ellipse" || k === "polygon" || k === "path" || k === "line"
+    );
+  }
+
+  function strokeBounds(obj) {
+    var L = limits();
+    return {
+      min: typeKey(obj) === "line" ? 1 : 0,
+      max: L.strokeWidthMax != null ? L.strokeWidthMax : 40,
+    };
+  }
+
+  /** Read the current border style back from the object. */
+  function strokeStyleOf(obj) {
+    var w = Number(obj && obj.strokeWidth) || 0;
+    if (!obj || !obj.stroke || w <= 0) return "none";
+    var d = obj.strokeDashArray;
+    if (!d || !d.length) return "solid";
+    var ratio = d[0] / w;
+    if (obj.strokeLineCap === "round" && ratio < 0.5) return "dotted";
+    return ratio >= 4.5 ? "long" : "dashed";
+  }
+
+  /** Dash pattern scales with the weight so the look stays the same at any width. */
+  function dashFor(style, w) {
+    if (style === "dashed") return { dash: [w * 3, w * 2], cap: "butt" };
+    if (style === "long") return { dash: [w * 6, w * 3], cap: "butt" };
+    if (style === "dotted") return { dash: [0.01, w * 2], cap: "round" };
+    return { dash: null, cap: "butt" };
+  }
+
+  function applyStrokeStyle(obj, style) {
+    if (STROKE_IDS.indexOf(style) < 0 || !supportsBorder(obj)) return false;
+    if (style === "none") {
+      if (typeKey(obj) === "line") return false; // a line IS its stroke
+      if (obj.stroke) lastStrokeColor = obj.stroke;
+      obj.set({
+        stroke: null,
+        strokeWidth: 0,
+        strokeDashArray: null,
+        strokeLineCap: "butt",
+      });
+      return true;
+    }
+    var w = Number(obj.strokeWidth) || 0;
+    if (w <= 0) w = STROKE_DEFAULT_WIDTH; // default weight = 4
+    if (!obj.stroke) obj.set("stroke", lastStrokeColor || "#000000");
+    var d = dashFor(style, w);
+    obj.set({ strokeWidth: w, strokeDashArray: d.dash, strokeLineCap: d.cap });
+    return true;
+  }
+
+  function applyStrokeWidth(obj, value) {
+    if (!supportsBorder(obj)) return false;
+    var b = strokeBounds(obj);
+    var sw = clamp(value, b.min, b.max);
+    if (sw === null) return false;
+    if (sw <= 0) return applyStrokeStyle(obj, "none"); // weight 0 = remove border
+    var style = strokeStyleOf(obj);
+    if (style === "none") style = "solid";
+    if (!obj.stroke) obj.set("stroke", lastStrokeColor || "#000000");
+    var d = dashFor(style, sw);
+    obj.set({ strokeWidth: sw, strokeDashArray: d.dash, strokeLineCap: d.cap });
+    return true;
+  }
+
+  /* Corner radius is shown in canvas pixels; rx/ry are divided by the scale so
+     corners stay round even when the rectangle is stretched. */
+  function cornerRadiusOf(obj) {
+    if (!obj || typeKey(obj) !== "rect") return 0;
+    return Math.round((obj.rx || 0) * Math.abs(obj.scaleX || 1) * 100) / 100;
+  }
+
+  function maxCornerRadius(obj) {
+    return Math.max(0, Math.floor(Math.min(obj.getScaledWidth(), obj.getScaledHeight()) / 2));
+  }
+
+  function setCornerRadius(obj, r) {
+    var rr = Math.max(0, Math.min(r, maxCornerRadius(obj)));
+    var sx = Math.abs(obj.scaleX) || 1;
+    var sy = Math.abs(obj.scaleY) || 1;
+    obj.set({ rx: rr / sx, ry: rr / sy });
+  }
+
+  /** Gold "filled" part of the slider track (see CSS). */
+  function setRangeFill(input) {
+    if (!input || input.type !== "range") return;
+    var min = Number(input.min) || 0;
+    var max = Number(input.max);
+    if (isNaN(max) || max <= min) max = min + 1;
+    var pct = ((Number(input.value) - min) / (max - min)) * 100;
+    input.style.setProperty("--fill", Math.max(0, Math.min(100, pct)) + "%");
+  }
+
+  /** Keep buttons / colour row / numbers in sync with the object. */
+  function patchBorderControls(body, obj) {
+    if (!body || !obj) return;
+    var style = strokeStyleOf(obj);
+    body.querySelectorAll("[data-stroke-style]").forEach(function (btn) {
+      var on = btn.getAttribute("data-stroke-style") === style;
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      btn.classList.toggle("is-active", on);
+    });
+    var colorRow = body.querySelector("[data-stroke-color-row]");
+    if (colorRow) colorRow.hidden = style === "none";
+    var sw = style === "none" ? 0 : Number(obj.strokeWidth) || 0;
+    body.querySelectorAll('[data-prop="strokeWidth"]').forEach(function (inp) {
+      if (document.activeElement !== inp) inp.value = String(Math.round(sw * 100) / 100);
+    });
+    if (typeKey(obj) === "rect") {
+      var cr = cornerRadiusOf(obj);
+      var maxR = maxCornerRadius(obj);
+      body.querySelectorAll('[data-prop="cornerRadius"]').forEach(function (inp) {
+        inp.setAttribute("max", String(maxR));
+        if (document.activeElement !== inp) inp.value = String(cr);
+      });
+    }
+    body.querySelectorAll(".editor-props-range--filled").forEach(setRangeFill);
+  }
+
+  function buildBorderStyleControl(obj) {
+    var isLine = typeKey(obj) === "line";
+    var wrap = el("div", { className: "editor-props-border" });
+    var group = el("div", {
+      className: "editor-props-strokestyle",
+      role: "group",
+      "aria-label": "Border style",
+    });
+    STROKE_STYLES.forEach(function (spec) {
+      if (spec.id === "none" && isLine) return;
+      var btn = el("button", {
+        type: "button",
+        className: "editor-props-strokestyle-btn",
+        "data-stroke-style": spec.id,
+        title: spec.title,
+        "aria-label": spec.title,
+        "aria-pressed": "false",
+      });
+      btn.innerHTML = spec.svg;
+      group.appendChild(btn);
+    });
+    wrap.appendChild(group);
+
+    var b = strokeBounds(obj);
+    var sw = strokeStyleOf(obj) === "none" ? 0 : Number(obj.strokeWidth) || 0;
+    var range = el("input", {
+      type: "range",
+      className: "editor-props-range editor-props-range--filled",
+      "data-prop": "strokeWidth",
+      min: String(b.min),
+      max: String(b.max),
+      step: "1",
+      value: String(sw),
+      "aria-label": "Border weight",
+    });
+    var num = el("input", {
+      type: "number",
+      className: "editor-props-input editor-props-weight-num",
+      "data-prop": "strokeWidth",
+      min: String(b.min),
+      max: String(b.max),
+      step: "1",
+      value: String(sw),
+      "aria-label": "Border weight in pixels",
+    });
+    wrap.appendChild(
+      labeledRow(
+        "Border weight",
+        el("div", { className: "editor-props-range-wrap" }, [range, num])
+      )
+    );
+    patchBorderControls(wrap, obj);
+    return wrap;
+  }
+
+  function buildCornerControl(obj) {
+    var maxR = maxCornerRadius(obj);
+    var cr = cornerRadiusOf(obj);
+    var range = el("input", {
+      type: "range",
+      className: "editor-props-range editor-props-range--filled",
+      "data-prop": "cornerRadius",
+      min: "0",
+      max: String(maxR),
+      step: "1",
+      value: String(cr),
+      "aria-label": "Corner rounding",
+    });
+    var num = el("input", {
+      type: "number",
+      className: "editor-props-input editor-props-weight-num",
+      "data-prop": "cornerRadius",
+      min: "0",
+      max: String(maxR),
+      step: "1",
+      value: String(cr),
+      "aria-label": "Corner rounding in pixels",
+    });
+    setRangeFill(range);
+    return labeledRow(
+      "Corner rounding",
+      el("div", { className: "editor-props-range-wrap" }, [range, num])
+    );
+  }
+
   function applyField(obj, key, value, opts) {
     opts = opts || {};
     var L = limits();
@@ -318,11 +559,16 @@
     if (key === "fill") {
       obj.set("fill", value);
     } else if (key === "stroke") {
+      if (value) lastStrokeColor = value;
       obj.set("stroke", value || null);
     } else if (key === "strokeWidth") {
-      var sw = clamp(value, L.strokeWidthMin, L.strokeWidthMax);
-      if (sw === null) return false;
-      obj.set("strokeWidth", sw);
+      if (!applyStrokeWidth(obj, value)) return false;
+    } else if (key === "strokeStyle") {
+      if (!applyStrokeStyle(obj, value)) return false;
+    } else if (key === "cornerRadius") {
+      if (typeKey(obj) !== "rect") return false;
+      if (typeof value !== "number" || isNaN(value) || !isFinite(value)) return false;
+      setCornerRadius(obj, value);
     } else if (key === "opacity") {
       var op = clamp(value, L.opacityMin, L.opacityMax);
       if (op === null) return false;
@@ -363,6 +609,7 @@
       if (size === null) return false;
       var baseW = obj.width || 1;
       var baseH = obj.height || 1;
+      var keepCorner = cornerRadiusOf(obj);
       if (typeKey(obj) === "line" && key === "width") {
         // Line length via scaleX relative to native width.
         obj.set("scaleX", size / Math.max(baseW, 0.0001));
@@ -379,6 +626,7 @@
           obj.set("scaleX", sy);
         }
       }
+      if (keepCorner > 0) setCornerRadius(obj, keepCorner);
     } else if (key === "fontSize") {
       var fs = clamp(value, L.fontSizeMin, L.fontSizeMax);
       if (fs === null) return false;
@@ -460,9 +708,25 @@
       return colorToHex(curStroke) !== colorToHex(nextStroke);
     }
     if (key === "strokeWidth") {
-      var sw = clamp(value, L.strokeWidthMin, L.strokeWidthMax);
-      if (sw === null) return false;
-      return !nearlyEqual(obj.strokeWidth == null ? 0 : obj.strokeWidth, sw);
+      var bnd = strokeBounds(obj);
+      var swv = clamp(value, bnd.min, bnd.max);
+      if (swv === null) return false;
+      if (swv <= 0) return strokeStyleOf(obj) !== "none";
+      return (
+        strokeStyleOf(obj) === "none" ||
+        !nearlyEqual(obj.strokeWidth == null ? 0 : obj.strokeWidth, swv)
+      );
+    }
+    if (key === "strokeStyle") {
+      if (STROKE_IDS.indexOf(value) < 0 || !supportsBorder(obj)) return false;
+      if (value === "none" && typeKey(obj) === "line") return false;
+      return strokeStyleOf(obj) !== value;
+    }
+    if (key === "cornerRadius") {
+      if (typeKey(obj) !== "rect") return false;
+      if (typeof value !== "number" || isNaN(value)) return false;
+      var crv = Math.max(0, Math.min(value, maxCornerRadius(obj)));
+      return !nearlyEqual(cornerRadiusOf(obj), crv);
     }
     if (key === "opacity") {
       var op = clamp(value, L.opacityMin, L.opacityMax);
@@ -566,6 +830,9 @@
           key === "text" ||
           key === "fontSize" ||
           key === "fontFamily")) {
+      return false;
+    }
+    if ((key === "strokeStyle" || key === "cornerRadius") && !supportsBorder(obj)) {
       return false;
     }
     if (!fieldWouldChange(obj, key, value)) {
@@ -902,7 +1169,11 @@
     var canCompose = !locked;
     var canDistribute = canCompose && isMulti && count >= 3;
     var a = api();
-    var canLayout = !!(a && a.canAutoLayout && a.canAutoLayout());
+    var canLayout = !!(
+      a &&
+      a.canAutoLayoutSelected &&
+      a.canAutoLayoutSelected()
+    );
     var section = el("div", { className: "editor-props-align" });
     section.appendChild(
       el("p", {
@@ -913,16 +1184,16 @@
     section.appendChild(
       el("div", { className: "editor-props-align-row" }, [
         (function () {
-          var btn = el("button", {
-            type: "button",
-            className: "editor-props-align-btn",
-            "data-auto-layout": "1",
-            text: "Auto layout",
-            title: canLayout
-              ? "Arrange images and text on the print panel (rule-based)"
-              : "Add unlocked images or text to use auto layout",
-            "aria-label": "Auto layout",
-          });
+        var btn = el("button", {
+          type: "button",
+          className: "editor-props-align-btn",
+          "data-auto-layout-selected": "1",
+          text: "Auto Layout Selected",
+          title: canLayout
+            ? "Arrange only the selected object on the garment"
+            : "Select one unlocked text, image, or element to use auto layout",
+          "aria-label": "Auto Layout Selected",
+        });
           if (!canLayout) btn.disabled = true;
           return btn;
         })(),
@@ -1391,13 +1662,61 @@
     });
   }
 
-  function buildControls(obj) {
+    /* ---- Redesign helpers ---- */
+  var PROPS_TITLES = {
+    rect: "Rectangle",
+    ellipse: "Ellipse",
+    polygon: "Shape",
+    path: "Shape",
+    line: "Line",
+    itext: "Text",
+    text: "Text",
+    textbox: "Text",
+    image: "Image",
+    activeselection: "Selection",
+  };
+
+  function setPropsTitle(obj) {
+    var t = document.getElementById("editor-properties-title");
+    if (!t) return;
+    t.textContent = (obj && PROPS_TITLES[typeKey(obj)]) || "Properties";
+  }
+
+  function propsSection(title) {
+    var s = el("section", { className: "editor-props-section" });
+    s.appendChild(el("h3", { className: "editor-props-section-title", text: title }));
+    return s;
+  }
+
+  /** Number input with a unit label inside the field (px, °). */
+  function unitField(key, value, step, unit, ariaLabel, minVal) {
+    var input = numberInput(key, value, step);
+    if (ariaLabel) input.setAttribute("aria-label", ariaLabel);
+    if (minVal != null) input.setAttribute("min", String(minVal));
+    var wrap = el("div", { className: "editor-props-field" }, [input]);
+    if (unit) wrap.appendChild(el("span", { className: "editor-props-unit", text: unit }));
+    return wrap;
+  }
+
+  function miniField(labelText, control) {
+    return el("div", { className: "editor-props-mini" }, [
+      el("span", { className: "editor-props-mini-label", text: labelText }),
+      control,
+    ]);
+  }
+
+  function pairRow(children) {
+    return el("div", { className: "editor-props-pair" }, children);
+  }
+
+    function buildControls(obj) {
     var body = bodyEl();
     if (!body) return;
     // Drop preview if controls rebuild for a different selection.
     discardCurveSessionIfStale(obj);
     while (body.firstChild) body.removeChild(body.firstChild);
     body.removeAttribute("data-sync-for");
+    setPropsTitle(obj);
 
     if (!obj) return;
 
@@ -1435,22 +1754,37 @@
     var renderedW = obj.getScaledWidth();
     var renderedH = obj.getScaledHeight();
     var isImage = typeKey(obj) === "image";
+    var sizeMin = limits().sizeMin != null ? limits().sizeMin : 8;
+
+    // Card sections (appended in a fixed order after the loop)
+    var textSec = propsSection("Text");
+    var lookSec = propsSection("Appearance");
+    var layoutSec = propsSection("Position & size");
+    var borderSec = propsSection("Border");
+    var posFields = [];
+    var sizeFields = [];
+    var rotRow = null;
+    var keepRow = null;
+    var curveSec = null;
+    var placeSec = null;
 
     keys.forEach(function (key) {
       if (key === "fill") {
-        body.appendChild(labeledRow("Fill", buildColorControl("fill", obj.fill)));
+        lookSec.appendChild(labeledRow("Fill", buildColorControl("fill", obj.fill)));
+        
+      } else if (key === "strokeStyle") {
+        borderSec.appendChild(buildBorderStyleControl(obj));
       } else if (key === "stroke") {
-        body.appendChild(
-          labeledRow("Stroke", buildColorControl("stroke", obj.stroke || "#000000"))
+        var strokeRow = labeledRow(
+          "Border color",
+          buildColorControl("stroke", obj.stroke || lastStrokeColor)
         );
-      } else if (key === "strokeWidth") {
-        body.appendChild(
-          labeledRow(
-            "Stroke width",
-            numberInput("strokeWidth", obj.strokeWidth || 0, 1),
-            "px"
-          )
-        );
+        strokeRow.setAttribute("data-stroke-color-row", "1");
+        strokeRow.hidden = strokeStyleOf(obj) === "none"; // no border = no colour
+        borderSec.appendChild(strokeRow);
+      } else if (key === "cornerRadius") {
+        if (typeKey(obj) === "rect") borderSec.appendChild(buildCornerControl(obj));
+
       } else if (key === "opacity") {
         var opPct = Math.round((obj.opacity == null ? 1 : obj.opacity) * 100);
         var range = el("input", {
@@ -1478,31 +1812,43 @@
           value: String(opPct),
           "aria-label": "Opacity percent numeric",
         });
+        var opField = el("div", { className: "editor-props-field editor-props-opacity-field" }, [
+          opNum,
+          el("span", { className: "editor-props-unit", text: "%" }),
+        ]);
         var wrap = el("div", { className: "editor-props-range-wrap" }, [
           range,
           out,
-          opNum,
+          opField,
         ]);
-        body.appendChild(labeledRow("Opacity", wrap, "%"));
+        lookSec.appendChild(labeledRow("Opacity", wrap));
       } else if (key === "posX") {
-        body.appendChild(labeledRow("Position X", numberInput("posX", center.x, 1), "px"));
+        posFields.push(
+          miniField("X", unitField("posX", center.x, 1, "px", "Position X"))
+        );
       } else if (key === "posY") {
-        body.appendChild(labeledRow("Position Y", numberInput("posY", center.y, 1), "px"));
+        posFields.push(
+          miniField("Y", unitField("posY", center.y, 1, "px", "Position Y"))
+        );
       } else if (key === "width") {
         var wLabel = typeKey(obj) === "line" ? "Length" : "Width";
-        var wInput = numberInput("width", renderedW, 1);
-        wInput.setAttribute("aria-label", wLabel + " in canvas pixels");
-        wInput.setAttribute("min", String(limits().sizeMin != null ? limits().sizeMin : 8));
-        body.appendChild(labeledRow(wLabel, wInput, "px"));
+        sizeFields.push(
+          miniField(
+            wLabel,
+            unitField("width", renderedW, 1, "px", wLabel + " in canvas pixels", sizeMin)
+          )
+        );
       } else if (key === "height") {
-        var hInput = numberInput("height", renderedH, 1);
-        hInput.setAttribute("aria-label", "Height in canvas pixels");
-        hInput.setAttribute("min", String(limits().sizeMin != null ? limits().sizeMin : 8));
-        body.appendChild(labeledRow("Height", hInput, "px"));
+        sizeFields.push(
+          miniField(
+            "Height",
+            unitField("height", renderedH, 1, "px", "Height in canvas pixels", sizeMin)
+          )
+        );
       } else if (key === "rotation") {
-        var rotInput = numberInput("rotation", obj.angle || 0, 1);
-        rotInput.setAttribute("aria-label", "Rotation in degrees");
-        var rotWrap = el("div", { className: "editor-props-rot-wrap" }, [rotInput]);
+        var rotWrap = el("div", { className: "editor-props-rot-wrap" }, [
+          unitField("rotation", obj.angle || 0, 1, "°", "Rotation in degrees"),
+        ]);
         if (isImage) {
           var resetBtn = el("button", {
             type: "button",
@@ -1515,15 +1861,18 @@
           if (locked) resetBtn.disabled = true;
           rotWrap.appendChild(resetBtn);
         }
-        body.appendChild(labeledRow("Rotation", rotWrap, "°"));
+        rotRow = labeledRow("Rotation", rotWrap);
       } else if (key === "imagePlacement") {
-        if (isImage) body.appendChild(buildImagePlacementControls(locked));
+        if (isImage) placeSec = buildImagePlacementControls(locked);
       } else if (key === "fontSize") {
-        body.appendChild(
-          labeledRow("Font size", numberInput("fontSize", obj.fontSize || 16, 1), "px")
+        textSec.appendChild(
+          labeledRow(
+            "Font size",
+            unitField("fontSize", obj.fontSize || 16, 1, "px", "Font size")
+          )
         );
       } else if (key === "textStyle") {
-        body.appendChild(labeledRow("Style", buildTextStyleControls(obj)));
+        textSec.appendChild(labeledRow("Style", buildTextStyleControls(obj)));
       } else if (key === "textAlign") {
         var alignGroup = el("div", {
           className: "editor-props-align-row",
@@ -1547,7 +1896,7 @@
           }
           alignGroup.appendChild(btn);
         });
-        body.appendChild(labeledRow("Text align", alignGroup));
+        textSec.appendChild(labeledRow("Alignment", alignGroup));
       } else if (key === "charSpacing") {
         var csVal = obj.charSpacing == null ? 0 : obj.charSpacing;
         var csRange = el("input", {
@@ -1564,12 +1913,11 @@
           "data-prop-out": "charSpacing",
           text: String(Math.round(csVal)),
         });
-        var csWrap = el("div", { className: "editor-props-range-wrap" }, [
-          csRange,
-          csOut,
-        ]);
-        body.appendChild(
-          labeledRow("Letter spacing", csWrap, "Fabric 1/1000 em")
+        textSec.appendChild(
+          labeledRow(
+            "Letter spacing",
+            el("div", { className: "editor-props-range-wrap" }, [csRange, csOut])
+          )
         );
       } else if (key === "lineHeight") {
         var lhVal = obj.lineHeight == null ? 1.16 : obj.lineHeight;
@@ -1587,13 +1935,14 @@
           "data-prop-out": "lineHeight",
           text: String(Math.round(lhVal * 100) / 100),
         });
-        var lhWrap = el("div", { className: "editor-props-range-wrap" }, [
-          lhRange,
-          lhOut,
-        ]);
-        body.appendChild(labeledRow("Line spacing", lhWrap, "line-height ×"));
+        textSec.appendChild(
+          labeledRow(
+            "Line spacing",
+            el("div", { className: "editor-props-range-wrap" }, [lhRange, lhOut])
+          )
+        );
       } else if (key === "textCurve") {
-        body.appendChild(buildTextCurveControls(obj));
+        curveSec = buildTextCurveControls(obj);
       } else if (key === "fontFamily") {
         var sel = el("select", {
           className: "editor-props-input",
@@ -1604,7 +1953,7 @@
           if (f === obj.fontFamily) opt.selected = true;
           sel.appendChild(opt);
         });
-        body.appendChild(labeledRow("Font", sel));
+        textSec.appendChild(labeledRow("Font", sel));
       } else if (key === "text") {
         var ta = el("textarea", {
           className: "editor-props-textarea",
@@ -1613,7 +1962,7 @@
           maxlength: String(limits().textMax || 200),
         });
         ta.value = obj.text || "";
-        body.appendChild(labeledRow("Text", ta));
+        textSec.appendChild(labeledRow("Content", ta));
       } else if (key === "keepProportions") {
         var chk = el("input", {
           type: "checkbox",
@@ -1629,17 +1978,34 @@
             keepProportions ? " Aspect ratio locked" : " Aspect ratio unlocked"
           )
         );
-        body.appendChild(el("div", { className: "editor-props-row" }, [lab]));
+        keepRow = el("div", { className: "editor-props-row" }, [lab]);
       }
+    });
+
+    // Assemble the Position & size card
+    if (posFields.length) layoutSec.appendChild(pairRow(posFields));
+    if (sizeFields.length) layoutSec.appendChild(pairRow(sizeFields));
+    if (rotRow) layoutSec.appendChild(rotRow);
+    if (keepRow) layoutSec.appendChild(keepRow);
+
+    // Append cards in a fixed order (skip empty ones: only the title inside)
+    [textSec, lookSec, borderSec, curveSec, layoutSec, placeSec].forEach(function (sec) {
+      if (sec && sec.childNodes.length > 1) body.appendChild(sec);
     });
 
     body.appendChild(
       buildAlignFlipControls({ isMulti: false, count: 1, locked: locked })
     );
     if (locked) setPropsControlsDisabled(body, true);
-    // Auto layout is canvas-wide (skips locked); keep it available when selection is locked.
-    body.querySelectorAll("[data-auto-layout]").forEach(function (btn) {
-      var allow = !!(api() && api().canAutoLayout && api().canAutoLayout());
+
+    body.querySelectorAll("[data-auto-layout-selected]").forEach(function (btn) {
+      var currentApi = api();
+      var allow = !!(
+        currentApi &&
+        currentApi.canAutoLayoutSelected &&
+        currentApi.canAutoLayoutSelected()
+      );
+
       btn.disabled = !allow;
     });
   }
@@ -1841,11 +2207,30 @@
     if (!a) return;
     if (runCurvePanelClick(e)) return;
     if (runImagePlacementClick(e)) return;
-    var layoutBtn = e.target.closest("[data-auto-layout]");
-    if (layoutBtn) {
+    var strokeBtn = e.target.closest("[data-stroke-style]");
+    if (strokeBtn) {
       e.preventDefault();
-      if (layoutBtn.disabled) return;
-      if (a.autoLayoutActive) a.autoLayoutActive(getJSON);
+      var strokeObj = activeObject();
+      if (
+        !strokeObj ||
+        (a.isActiveSelection && a.isActiveSelection(strokeObj)) ||
+        selectionHasLocked(strokeObj)
+      ) {
+        return;
+      }
+      commitField(strokeObj, "strokeStyle", strokeBtn.getAttribute("data-stroke-style"));
+      scheduleSync();
+      return;
+    }
+    var layoutSelectedBtn = e.target.closest("[data-auto-layout-selected]");
+    if (layoutSelectedBtn) {
+      e.preventDefault();
+      if (layoutSelectedBtn.disabled) return;
+
+      if (a.autoLayoutSelected) {
+        a.autoLayoutSelected(getJSON);
+      }
+
       scheduleSync();
       return;
     }
@@ -2171,6 +2556,7 @@
       var lhOut = body.querySelector('[data-prop-out="lineHeight"]');
       if (lhOut) lhOut.textContent = String(Math.round(lhVal * 100) / 100);
     }
+    patchBorderControls(body, obj);
   }
 
   function parseNumber(raw) {
@@ -2193,6 +2579,16 @@
         beginLive(obj, key);
       }
     });
+
+    // NEW: start a live session when the text-content field gains focus,
+    // so typing is rendered immediately and the whole edit is ONE undo step.
+    panel.addEventListener("focusin", function (e) {
+      var t = e.target;
+      if (!t || !t.getAttribute) return;
+      if (t.getAttribute("data-prop") === "text") {
+        beginLive(activeObject(), "text");
+      }
+    }, true);
 
     panel.addEventListener("change", function (e) {
       var enable = e.target.closest("[data-curve-enable]");
@@ -2251,6 +2647,25 @@
       }
       var key = t.getAttribute("data-prop");
       if (!key) return;
+
+      // NEW: live-render text edits as the user types.
+      //   applyField → obj.set('text') + initDimensions + requestRenderAll
+      //   (the safety check re-arms beginLive in case focusin was missed)
+      if (key === "text") {
+        if (liveKey !== "text" || !liveBaseline) {
+          beginLive(obj, "text");
+        }
+        liveUpdate(obj, "text", t.value);
+        return;
+      }
+
+      if ((key === "strokeWidth" || key === "cornerRadius") && t.type === "range") {
+        var rv = parseNumber(t.value);
+        if (!isNaN(rv)) liveUpdate(obj, key, rv);
+        setRangeFill(t);
+        patchBorderControls(bodyEl(), obj);
+        return;
+      }
       if (key === "opacity" && t.type === "range") {
         var pct = parseNumber(t.value);
         var out = panel.querySelector('[data-prop-out="opacity"]');
@@ -2325,10 +2740,9 @@
       var obj = activeObject();
       if (!key || !obj || syncing) return;
       if (key === "text") {
-        var before = obj.text;
-        var next = t.value;
-        if (next === before) return;
-        commitField(obj, "text", next);
+        // Commit the whole typing session as a single edit; re-sync the
+        // textarea from obj.text so rejected / clamped input is snapped back.
+        endLive(obj, "text");
         return;
       }
       if (t.type === "number") {

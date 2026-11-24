@@ -126,6 +126,18 @@
    * Shared by applyCanvasJSON (legacy name) and previewCanvasJSON (Stage 2).
    * @returns {Promise<{ok: boolean, error?: string, restored?: boolean}>}
    */
+  function conformAfterLoad(result) {
+    if (
+      result &&
+      result.ok &&
+      global.BlytzSilhouette &&
+      typeof global.BlytzSilhouette.conformAll === "function"
+    ) {
+      global.BlytzSilhouette.conformAll();
+    }
+    return result;
+  }
+
   function safeReplaceCanvas(json, messages) {
     messages = messages || {};
     return new Promise(function (resolve) {
@@ -534,7 +546,8 @@
         failMessage: "Could not apply that design. Your previous design was restored.",
         dualFailMessage:
           "Apply failed and the previous design could not be restored. Reload the page.",
-      });
+      }).then(conformAfterLoad);
+    
     },
 
     /**
@@ -545,11 +558,10 @@
      */
     previewCanvasJSON: function (json) {
       return safeReplaceCanvas(json, {
-        failMessage:
-          "Could not preview that candidate. Your previous design was restored.",
+        failMessage: "Could not preview that design. Your previous design was restored.",
         dualFailMessage:
           "Preview failed and the previous design could not be restored. Reload the page.",
-      });
+      }).then(conformAfterLoad);
     },
 
     /** Additive: undo last committed edit (phone chrome). */

@@ -12,15 +12,19 @@
     <p class="mt-1 text-sm text-text-muted">Move orders forward one phase at a time.</p>
   </div>
 
-  {% if pending_review %}
   <div class="flex flex-wrap items-center gap-3">
+    {% if pending_review %}
     <span class="blytz-pill blytz-pill--gold">Showing orders with payment awaiting review</span>
     <a href="{% url 'jobs_pipeline' %}"
        class="text-sm text-accent transition-colors hover:text-accent-hover">
       Clear filter
     </a>
+    {% elif staff_pending_payments_count %}
+    <a href="{% url 'jobs_pipeline' %}?pending_review=1" class="blytz-pill blytz-pill--gold">
+      {{ staff_pending_payments_count }} payment{{ staff_pending_payments_count|pluralize }} to review →
+    </a>
+    {% endif %}
   </div>
-  {% endif %}
 </header>
 
 {# ── Filters ─────────────────────────────────────────────── #}
@@ -76,6 +80,7 @@
              role="region"
              aria-label="{{ col.label }}"
              class="pipeline-phase blytz-panel flex w-[85%] shrink-0 snap-start flex-col overflow-hidden
+                    shadow-[0_6px_8px_-4px_rgb(0_0_0_/_0.5)] shadow-slate-500/40
                     sm:w-[20rem] xl:w-auto xl:shrink">
 
       {# Accent bar — colour per phase #}
@@ -87,7 +92,7 @@
         {% endif %}"></div>
 
       {# Column header #}
-      <div class="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+      <div class="flex items-center justify-between gap-2 border-b border-border px-4 py-3 ">
         <div class="flex items-center gap-2">
           <span class="h-2 w-2 rounded-full
             {% if col.status == 'job_request' %}bg-text-muted

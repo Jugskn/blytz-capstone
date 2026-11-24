@@ -1,0 +1,9 @@
+<span data-tip="{{ order.payment_tooltip }}" tabindex="0" style="display:inline-flex">
+{% if order.payment_status == "Fully Paid" %}
+  {% include "components/badge.html" with label=order.payment_status variant="success" %}
+{% elif order.payment_status == "Downpayment Paid" %}
+  {% include "components/badge.html" with label=order.payment_status variant="muted" %}
+{% else %}
+  {% include "components/badge.html" with label=order.payment_status variant="warning" %}
+{% endif %}
+</span>

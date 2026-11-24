@@ -1,0 +1,16 @@
+{% with p=order.latest_payment %}
+{% if p %}
+<span tabindex="0" style="display:inline-flex"
+      data-tip="₱{{ p.amount_claimed }} · {{ p.get_purpose_display }}&#10;{% if p.reviewed_by %}{{ p.status|capfirst }} by {{ p.reviewed_by.get_full_name|default:p.reviewed_by.email }}{% if p.reviewed_at %} · {{ p.reviewed_at|date:'M j, g:i A' }}{% endif %}{% else %}Submitted {{ p.created_at|date:'M j, g:i A' }}{% endif %}{% if p.status == 'rejected' and p.requested_amount %}&#10;Requested: ₱{{ p.requested_amount }}{% endif %}">
+  {% if p.status == "pending" %}
+    {% include "components/badge.html" with label="Payment awaiting review" variant="warning" %}
+  {% elif p.is_manual_adjustment %}
+    {% include "components/badge.html" with label="Manual payment recorded" variant="muted" %}
+  {% elif p.status == "accepted" %}
+    {% include "components/badge.html" with label="Payment accepted" variant="success" %}
+  {% else %}
+    {% include "components/badge.html" with label="Payment rejected" variant="danger" %}
+  {% endif %}
+</span>
+{% endif %}
+{% endwith %}

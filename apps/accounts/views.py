@@ -2,11 +2,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
 
-from apps.accounts.dashboard import (
-    new_orders_per_day_chart,
-    orders_by_phase_chart,
-    payments_awaiting_review_count,
-)
+from apps.accounts.dashboard import PHASE_LABELS
 from apps.designs.models import Design
 from apps.orders.models import Order
 from apps.sales.models import Lead
@@ -17,64 +13,96 @@ from .forms import ProfileForm
 
 @staff_required
 def staff_home(request):
-    from django.db.models import Sum, Count
+    from decimal import Decimal
+
+    from django.db.models import Count, Sum
     from django.utils import timezone
-    from datetime import timedelta
-    from apps.orders.models import Order, Payment
-    
-    # KPI calculations
-    total_orders = Order.objects.count()
-    pending_review_count = Order.objects.filter(status=Order.Status.JOB_REQUEST).count()
-    in_production_count = Order.objects.filter(status=Order.Status.PRODUCTION).count()
-    completed_count = Order.objects.filter(status=Order.Status.COMPLETED).count()
-    
-    # Total sales this month (accepted payments)
-    month_start = timezone.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    total_sales = Payment.objects.filter(
-        status=Payment.Status.ACCEPTED,
-        created_at__gte=month_start
-    ).aggregate(total=Sum('amount_claimed'))['total'] or 0
-    
-    # Format as Philippine peso
-    total_sales_formatted = f"₱{total_sales:,.0f}"
-    
-    # Recent orders (last 4)
-    recent_orders = Order.objects.select_related('customer', 'design').order_by('-created_at')[:4]
-    
-    # Recent leads (last 4)
-    from apps.sales.models import Lead
-    recent_leads = Lead.objects.select_related('customer', 'order__design').order_by('-created_at')[:4]
-    
-    # Existing chart data
-    orders = Order.objects.all()
-    incomplete = Design.objects.prefetch_related("orders")
-    incomplete_count = sum(1 for d in incomplete if not d.is_submitted)
-    phase_chart = orders_by_phase_chart()
-    orders_per_day_chart = new_orders_per_day_chart(days=30)
-    
+
+    from apps.orders.models import Payment
+
+    # ---- Needs attention (work queue) ----
+    pending_qs = Payment.objects.filter(status=Payment.Status.PENDING)
+    payments_to_review = list(
+        pending_qs.select_related("order", "order__customer", "channel").order_by(
+            "created_at"
+        )[:5]
+    )
+    payments_to_review_count = pending_qs.count()
+
+    job_requests = Order.objects.filter(
+        status=Order.Status.JOB_REQUEST
+    ).prefetch_related("payments")
+    ready_to_move_count = sum(
+        1 for o in job_requests if o.payment_status == Order.DOWNPAYMENT_PAID
+    )
+
+    completed_with_balance = (
+        Order.objects.filter(status=Order.Status.COMPLETED, balance_due__isnull=False)
+        .select_related("customer", "design")
+        .prefetch_related("payments")
+    )
+    balance_orders = [
+        o for o in completed_with_balance if o.payment_status != Order.FULLY_PAID
+    ]
+    balance_outstanding_count = len(balance_orders)
+    balance_outstanding_total = sum(
+        (o.balance_remaining for o in balance_orders), Decimal("0.00")
+    )
+    attention_total = (
+        payments_to_review_count + ready_to_move_count + balance_outstanding_count
+    )
+
+    # ---- Pipeline at a glance ----
+    counts = {
+        row["status"]: row["c"]
+        for row in Order.objects.values("status").annotate(c=Count("id"))
+    }
+    total_orders = sum(counts.values())
+    phase_rows = [
+        {
+            "status": status,
+            "label": label,
+            "count": counts.get(status, 0),
+            "pct": round(counts.get(status, 0) * 100 / total_orders) if total_orders else 0,
+        }
+        for status, label in PHASE_LABELS
+    ]
+
+    # ---- This month ----
+    month_start = timezone.now().replace(
+        day=1, hour=0, minute=0, second=0, microsecond=0
+    )
+    sales_total = Payment.objects.filter(
+        status=Payment.Status.ACCEPTED, created_at__gte=month_start
+    ).aggregate(total=Sum("amount_claimed"))["total"] or Decimal("0.00")
+
+    # ---- Recent ----
+    recent_orders = (
+        Order.objects.select_related("customer", "design")
+        .prefetch_related("payments__reviewed_by")
+        .order_by("-created_at")[:5]
+    )
+    recent_leads = Lead.objects.select_related("customer", "order__design").order_by(
+        "-created_at"
+    )[:3]
+
     return render(
         request,
         "accounts/staff_home.html",
         {
-            # KPI data
+            "payments_to_review": payments_to_review,
+            "payments_to_review_count": payments_to_review_count,
+            "ready_to_move_count": ready_to_move_count,
+            "balance_outstanding_count": balance_outstanding_count,
+            "balance_outstanding_total": balance_outstanding_total,
+            "attention_total": attention_total,
+            "phase_rows": phase_rows,
             "total_orders": total_orders,
-            "pending_review_count": pending_review_count,
-            "in_production_count": in_production_count,
-            "completed_count": completed_count,
-            "total_sales": total_sales_formatted,
-            
-            # Tables
+            "in_production_count": counts.get(Order.Status.PRODUCTION, 0),
+            "completed_count": counts.get(Order.Status.COMPLETED, 0),
+            "sales_total": sales_total,
             "recent_orders": recent_orders,
             "recent_leads": recent_leads,
-            
-            # Existing chart data (keep for Step 4)
-            "stat_orders": orders.count(),
-            "stat_job_requests": orders.filter(status=Order.Status.JOB_REQUEST).count(),
-            "stat_leads": Lead.objects.count(),
-            "stat_incomplete": incomplete_count,
-            "stat_pending_review": payments_awaiting_review_count(),
-            "phase_chart": phase_chart,
-            "orders_per_day_chart": orders_per_day_chart,
         },
     )
 @admin_required

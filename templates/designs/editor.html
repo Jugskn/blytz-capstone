@@ -7,24 +7,24 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 /* =====================================================================
-   BLYTZ DARK PREMIUM THEME  (visual only)
-   This CSS only changes colors / borders / fonts / shadows. It never
-   changes layout properties the editor JS measures, and no id / data-*
-   hook was removed from the markup below.
-   .blytz-dark is display:contents so it never affects page layout.
+   BLYTZ EDITOR THEME — black / gold (merged)
+   Visual only: colors, borders, radii, shadows, fonts. It never changes
+   layout properties the editor JS measures, and no id / data-* hook was
+   removed from the markup. .blytz-dark is display:contents.
    ===================================================================== */
 .blytz-dark{display:contents}
 :root{
   --bg-primary:#000;--bg-secondary:#0B0B0B;--bg-panel:#111;--bg-elevated:#1A1A1A;
   --border-default:#222;--border-strong:#333;
   --text-primary:#fff;--text-secondary:#A3A3A3;--text-muted:#666;
-  --accent-gold:#D4AF37;--accent-gold-hover:#E5C04B;--accent-gold-soft:rgba(153, 121, 14, 0.1);
+  --accent-gold:#D4AF37;--accent-gold-hover:#E5C04B;--accent-gold-soft:rgba(153,121,14,.1);
   --danger:#EF4444;
+  --gold:#D4AF37;--gold-hi:#f1d97a;--gold-lo:#b8932a;
+  --line-gold:rgba(212,175,55,.22);
 }
 body{background:var(--bg-primary)!important;color:var(--text-primary)}
 
 /* ---- Remap the site's Tailwind color tokens to the dark theme ---- */
-
 .blytz-dark{font-family:'Inter',system-ui,sans-serif}
 .blytz-dark .bg-canvas{background-color:var(--bg-panel)!important}
 .blytz-dark .bg-surface{background-color:var(--bg-secondary)!important}
@@ -41,61 +41,106 @@ body{background:var(--bg-primary)!important;color:var(--text-primary)}
 .blytz-dark .hover\:bg-ink\/90:hover{background-color:var(--accent-gold-hover)!important}
 .blytz-dark .hover\:text-ink:hover{color:#fff!important}
 .blytz-dark .focus-visible\:outline-ink:focus-visible{outline-color:var(--accent-gold)!important}
-.blytz-dark .font-display{font-family:'Bebas Neue',sans-serif;letter-spacing:.05em;text-transform:uppercase}
+.blytz-dark .font-display{font-family:'Playfair Display',Georgia,serif!important;text-transform:none!important;letter-spacing:0!important}
 .blytz-dark input,.blytz-dark select,.blytz-dark textarea{color-scheme:dark}
 .blytz-dark input::placeholder,.blytz-dark textarea::placeholder{color:var(--text-muted)}
 .blytz-dark #editor-design-title,
-.blytz-dark [data-editor-title-heading] {
-  text-transform: none !important;
-  font-family: 'Inter', system-ui, sans-serif !important;
-  letter-spacing: normal !important;
-  font-weight: 600;
-}
+.blytz-dark [data-editor-title-heading]{
+  text-transform:none!important;
+  font-family:'Inter',system-ui,sans-serif!important;
+  letter-spacing:normal!important;
+  font-weight:600}
 
-/* ---- Top bar ---- */
-.blytz-dark .editor-shell {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  height: 100dvh; /* Forces the editor to fill the full screen height */
-  min-height: 100vh; /* Fallback for older browsers */
-  overflow: hidden; /* Prevents the whole page from scrolling */
-}
-.blytz-dark .editor-shell > .border-b{background:var(--bg-panel)!important;border-color:var(--border-default)!important}
+/* =====================================================================
+   TOP BAR
+   ===================================================================== */
+.blytz-dark .editor-shell{
+  background:var(--bg-primary);
+  color:var(--text-primary);
+  height:100dvh;      /* fills the full screen height */
+  min-height:100vh;   /* fallback for older browsers */
+  overflow:hidden}    /* prevents the whole page from scrolling */
+.blytz-dark .editor-shell > .border-b{
+  background:#0a0a0a!important;
+  border-color:var(--border-default)!important;
+  box-shadow:none}
+.blytz-dark .editor-shell > .border-b a{color:#cfc8b0}
+.blytz-dark .editor-shell > .border-b a:hover{color:var(--gold)!important}
 .blytz-dark #editor-design-title:hover{border-color:var(--border-default)!important}
 .blytz-dark #editor-design-title:focus{border-color:var(--accent-gold)!important;background:transparent!important}
-.blytz-dark .editor-top-actions button:not([data-editor-submit]){
-  background:var(--bg-elevated)!important;color:var(--text-secondary)!important;border-color:var(--border-default)!important;font-size:.75rem}
-.blytz-dark .editor-top-actions button:not([data-editor-submit]):hover:not(:disabled){
-  color:#fff!important;border-color:var(--border-strong)!important}
-.blytz-dark .editor-top-actions [data-editor-submit]{
-  border-radius:9999px!important;background:var(--accent-gold)!important;color:#000!important;
-  font-weight:600;font-size:.75rem;box-shadow:0 0 12px rgba(212,175,55,.3)}
-.blytz-dark .editor-top-actions [data-editor-submit]:hover:not(:disabled){background:var(--accent-gold-hover)!important}
-.blytz-dark .editor-save-status{color:var(--text-muted)!important}
 
-/* ---- Left tool rail ---- */
-.blytz-dark .editor-toolbar{background:var(--bg-panel)!important;border-color:var(--border-default)!important}
-.blytz-dark .editor-toolbar-btn{background:transparent!important;color:var(--text-secondary)!important;border-radius:.75rem;transition:all .15s}
-.blytz-dark .editor-toolbar-btn:hover:not(:disabled){background:var(--bg-elevated)!important;color:#976507!important}
+/* Secondary buttons: ghost pills */
+.blytz-dark .editor-top-actions button:not([data-editor-submit]){
+  background:rgba(255,255,255,.04)!important;
+  color:#d9d4c3!important;
+  border:1px solid rgba(255,255,255,.14)!important;
+  border-radius:9999px!important;
+  font-weight:600;font-size:.75rem;letter-spacing:.01em;
+  transition:border-color .15s,color .15s,background .15s}
+.blytz-dark .editor-top-actions button:not([data-editor-submit]):hover:not(:disabled){
+  color:var(--gold)!important;border-color:var(--gold)!important;background:rgba(212,175,55,.08)!important}
+.blytz-dark .editor-top-actions [data-drawer-open]{padding:.5rem!important}
+
+/* Submit: gold pill */
+.blytz-dark .editor-top-actions [data-editor-submit]{
+  background:linear-gradient(135deg,var(--gold-hi),var(--gold) 55%,var(--gold-lo))!important;
+  color:#0a0a0a!important;border-radius:9999px!important;
+  font-weight:700;font-size:.75rem;
+  box-shadow:0 0 0 1px rgba(255,255,255,.25) inset,0 6px 22px rgba(212,175,55,.40);
+  transition:transform .15s,box-shadow .15s}
+.blytz-dark .editor-top-actions [data-editor-submit]:hover:not(:disabled){
+  background:linear-gradient(135deg,#f8e48f,#e5c04b 55%,var(--gold))!important;
+  transform:translateY(-1px);
+  box-shadow:0 0 0 1px rgba(255,255,255,.3) inset,0 10px 28px rgba(212,175,55,.5)}
+
+/* Save status */
+.blytz-dark .editor-save-status{color:var(--text-muted)!important}
+.blytz-dark .editor-save-status.is-saved{color:#8fd19e!important}
+.blytz-dark .editor-save-status.is-unsaved{color:var(--gold)!important}
+.blytz-dark .editor-save-status.is-saving{color:#a8a290!important}
+.blytz-dark .editor-save-status.is-error{color:#f87171!important}
+
+/* =====================================================================
+   LEFT TOOL RAIL
+   ===================================================================== */
+.blytz-dark .editor-toolbar{
+  background:linear-gradient(180deg,#101010,#080808)!important;
+  border-color:transparent!important;}
+.blytz-dark .editor-toolbar-btn{
+  background:transparent!important;
+  color:#a8a290!important;
+  border-radius:.85rem;
+  box-shadow:inset 0 0 0 1px transparent;
+  transition:background .15s,color .15s,box-shadow .15s}
+.blytz-dark .editor-toolbar-btn:hover:not(:disabled){
+  background:rgba(212,175,55,.10)!important;color:var(--gold)!important;
+  box-shadow:inset 0 0 0 1px rgba(212,175,55,.35)}
 .blytz-dark .editor-toolbar-btn.is-active,
 .blytz-dark .editor-toolbar-btn[aria-pressed="true"],
 .blytz-dark .editor-toolbar-btn[aria-expanded="true"]{
-  background:var(--accent-gold)!important;color:#000!important;box-shadow:0 0 12px rgba(212,175,55,.3)}
+  background:linear-gradient(135deg,var(--gold-hi),var(--gold) 55%,var(--gold-lo))!important;
+  color:#0a0a0a!important;
+  box-shadow:0 0 0 1px rgba(255,255,255,.25) inset,0 6px 18px rgba(212,175,55,.35)}
 .blytz-dark .editor-toolbar-btn:disabled{opacity:.3}
 .blytz-dark .editor-toolbar-icon svg{width:1.25rem;height:1.25rem;display:block;margin:0 auto}
-.blytz-dark .editor-toolbar-label{font-size:9px;font-weight:500}
+.blytz-dark .editor-toolbar-label{font-size:9px;font-weight:500;letter-spacing:.02em}
 .blytz-dark .editor-toolbar-feedback{color:var(--text-muted)}
+/* the "_________" divider text in the rail becomes a thin gold line */
+.blytz-dark .editor-toolbar-inner > .editor-toolbar-label{
+  font-size:0!important;display:block;height:1px;width:60%;margin:.35rem auto;overflow:hidden;
+  background:linear-gradient(90deg,transparent,rgba(212,175,55,.55),transparent)}
 
-/* ---- Canvas area ---- */
-.blytz-dark #editor-root {
-  background-color: var(--bg-secondary, #0B0B0B) !important;
-  background-image: 
-    /* Soft, wide warm glow in the center/bottom */
-    radial-gradient(ellipse 80% 60% at 50% 65%, rgba(250, 204, 21, 0.08) 0%, transparent 60%),
-    /* Secondary subtle glow near the top */
-    radial-gradient(ellipse 60% 40% at 50% 20%, rgba(212, 175, 55, 0.04) 0%, transparent 50%);
-  background-repeat: no-repeat;
-}
+/* =====================================================================
+   CANVAS AREA
+   ===================================================================== */
+.blytz-dark #editor-root{
+  background-color:var(--bg-secondary,#0B0B0B)!important;
+  background-image:
+    radial-gradient(ellipse 80% 60% at 50% 65%,rgba(250,204,21,.08) 0%,transparent 60%),
+    radial-gradient(ellipse 60% 40% at 50% 20%,rgba(212,175,55,.04) 0%,transparent 50%),
+    radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px)!important;
+  background-size:auto,auto,18px 18px!important;
+  background-repeat:no-repeat,no-repeat,repeat!important}
 .blytz-dark #editor-root::before{
   content:"";
   position:absolute;
@@ -108,179 +153,152 @@ body{background:var(--bg-primary)!important;color:var(--text-primary)}
   transform:translate(33.3333%,-3rem);
   background:radial-gradient(circle,rgba(250,204,21,.45) 0%,rgba(250,204,21,.2) 35%,rgba(250,204,21,.06) 60%,transparent 80%);
   filter:blur(64px);
-  z-index:-1;                         /* NEW — must be -1, not 0, or it covers the canvas */
-}
-/* Frame the artboard in grey without touching the design surface */
-.blytz-dark #editor-canvas-wrap {
-  border-radius: 14px;
+  z-index:-1}  /* must be -1, not 0, or it covers the canvas */
+.blytz-dark #editor-canvas-wrap{
+  border-radius:14px;
   background:
-    radial-gradient(ellipse 70% 90% at 50% 0%,
-      rgba(255, 255, 255, 0.05) 0%, transparent 55%),
-    radial-gradient(ellipse 60% 60% at 50% 100%,
-      rgba(212, 175, 55, 0.14) 0%, transparent 65%),
-    linear-gradient(180deg, #0F0F0F 0%, #0B0B0B 100%);
-  
-}
-.blytz-dark #editor-artboard-scene {
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4);
-}
+    radial-gradient(ellipse 70% 90% at 50% 0%,rgba(255,255,255,.05) 0%,transparent 55%),
+    radial-gradient(ellipse 60% 60% at 50% 100%,rgba(212,175,55,.14) 0%,transparent 65%),
+    linear-gradient(180deg,#0F0F0F 0%,#0B0B0B 100%);
+  box-shadow:0 0 0 1px rgba(0,0,0,.6),0 24px 60px rgba(0,0,0,.6),0 0 40px rgba(212,175,55,.08)!important}
+.blytz-dark #editor-artboard-scene{
+  border-radius:8px;
+  overflow:hidden;
+  box-shadow:0 0 0 1px rgba(0,0,0,.4)}
 
-#editor-zoom-tools-chrome {
-  display: flex !important;
-  flex-direction: row !important;
-  flex-wrap: wrap !important; 
-  align-items: center !important;
-  
-  /* 1. Push contents to the right */
-  justify-content: flex-end !important; 
-  
-  /* 2. Push the entire bar to the right side of its parent */
-  margin-left: auto !important; 
-  margin-right: 16px !important; /* Space from the right edge */
-  
-  /* 3. Override JS centering if it's absolutely positioned */
-  left: auto !important;
-  right: 16px !important;
-  transform: none !important;
-  
-  gap: 12px !important; 
-  width: max-content !important;
-}
-
-
+#editor-zoom-tools-chrome{
+  display:flex!important;
+  flex-direction:row!important;
+  flex-wrap:wrap!important;
+  align-items:center!important;
+  justify-content:flex-end!important;      /* push contents to the right */
+  margin-left:auto!important;              /* push the bar to the right side */
+  margin-right:16px!important;
+  left:auto!important;                     /* override JS centering */
+  right:16px!important;
+  transform:none!important;
+  gap:12px!important;
+  width:max-content!important}
 
 #editor-zoom-chrome,
-#editor-tools-chrome {
-  display: inline-flex !important;
-  position: relative !important;  /* Stops JS from floating them apart */
-  top: auto !important;
-  bottom: auto !important;
-  left: auto !important;
-  right: auto !important;
-  margin: 0 !important;
-  
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 4px !important;
-  padding: 4px !important;
-  
-  /* Pill styling applied directly to IDs */
-  background: rgba(17, 17, 17, .95) !important;
-  border: 1px solid var(--border-default) !important;
-  border-radius: 9999px !important;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 12px rgba(0,0,0,.5);
-  width: max-content !important;
-}
+#editor-tools-chrome{
+  display:inline-flex!important;
+  position:relative!important;             /* stops JS from floating them apart */
+  top:auto!important;
+  bottom:auto!important;
+  left:auto!important;
+  right:auto!important;
+  margin:0!important;
+  flex-direction:row!important;
+  align-items:center!important;
+  gap:4px!important;
+  padding:4px!important;
+  background:rgba(17,17,17,.95)!important;
+  border-color:transparent!important;
+  box-shadow:
+    0 0 18px rgba(212,175,55,.22),
+    0 8px 22px rgba(0,0,0,.55)!important;
+  border-radius:9999px!important;
+  backdrop-filter:blur(8px);
+  box-shadow:0 8px 22px rgba(0,0,0,.55)!important;
+  width:max-content!important}
 
-/* 3. The inner select group (Select/Multi) should NOT have pill styling */
-#editor-select-mode {
-  display: inline-flex !important;
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 4px !important;
-  background: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  padding: 0 !important;
-}
+/* the inner select group (Select/Multi) should NOT have pill styling */
+#editor-select-mode{
+  display:inline-flex!important;
+  flex-direction:row!important;
+  align-items:center!important;
+  gap:4px!important;
+  background:transparent!important;
+  border:none!important;
+  box-shadow:none!important;
+  padding:0!important}
 
-#editor-zoom-tools-chrome button {
-  display: inline-flex !important;
-  flex: 0 0 auto !important;
-  visibility: visible !important;
-  opacity: 1 !important;
-  width: auto !important;
-  min-width: 0 !important;
-  max-width: none !important;
-  height: auto !important;
-  white-space: nowrap !important;
-  overflow: visible !important;
-  padding: 6px 10px !important;
-  box-sizing: border-box !important;
-  border-radius: 6px !important;
-}
+#editor-zoom-tools-chrome button{
+  display:inline-flex!important;
+  flex:0 0 auto!important;
+  visibility:visible!important;
+  opacity:1!important;
+  width:auto!important;
+  min-width:0!important;
+  max-width:none!important;
+  height:auto!important;
+  white-space:nowrap!important;
+  overflow:visible!important;
+  padding:6px 10px!important;
+  box-sizing:border-box!important;
+  border-radius:6px!important}
+#editor-zoom-tools-chrome .editor-toolbar-label{
+  display:inline!important;
+  white-space:nowrap!important}
 
-#editor-zoom-tools-chrome .editor-toolbar-label {
-  display: inline !important;
-  white-space: nowrap !important;
-}
-
-/* Dark theme pills */
+/* Front/Back + zoom pills */
 .blytz-dark .editor-view-toggle,
-.blytz-dark .editor-zoom-chrome {
-  background: rgba(17,17,17,.95) !important;
-  border: 1px solid var(--border-default) !important;
-  border-radius: 9999px !important;
-  backdrop-filter: blur(8px);
-  box-shadow: 0 4px 12px rgba(0,0,0,.5);
-  /* overflow: hidden removed so buttons aren't clipped */
-}
-
+.blytz-dark .editor-zoom-chrome{
+  background:rgba(17,17,17,.95)!important;
+  border-color:transparent!important;
+  box-shadow:
+    0 0 18px rgba(212,175,55,.22),
+    0 8px 22px rgba(0,0,0,.55)!important;  border-radius:9999px!important;
+  backdrop-filter:blur(8px);
+  box-shadow:0 8px 22px rgba(0,0,0,.55)!important}
 .blytz-dark .editor-view-toggle button,
-.blytz-dark .editor-zoom-chrome button {
-  background: transparent !important;
-  color: var(--text-secondary) !important;
-  border: none !important;
-  font-weight: 600;
-}
+.blytz-dark .editor-zoom-chrome button{
+  background:transparent!important;
+  color:var(--text-secondary)!important;
+  border:none!important;
+  font-weight:600}
+.blytz-dark .editor-view-toggle button:hover{color:#fff!important}
+.blytz-dark .editor-zoom-chrome button:hover,
+.blytz-dark #editor-tools-chrome .editor-toolbar-btn:hover:not(:disabled){color:var(--gold)!important}
+.blytz-dark .editor-view-toggle button[aria-pressed="true"]{
+  background:linear-gradient(135deg,var(--gold-hi),var(--gold) 55%,var(--gold-lo))!important;
+  color:#0a0a0a!important}
 
-.blytz-dark .editor-view-toggle button:hover,
-.blytz-dark .editor-zoom-chrome button:hover {
-  color: #fff !important;
-}
+/* =====================================================================
+   TOOL PANEL (stretches to the bottom)
+   ===================================================================== */
+#editor-tool-panel{
+  position:absolute!important;
+  top:0!important;
+  bottom:0!important;
+  left:0!important;
+  height:100%!important;
+  max-height:none!important;               /* overrides any JS height limit */
+  z-index:20}
+.blytz-dark #editor-tool-panel .editor-garment-type-btn{
+  background:var(--bg-elevated)!important;
+  border:1px solid var(--border-default)!important;
+  color:var(--text-primary)!important}
+.blytz-dark .editor-tool-panel-chrome{
+  height:100%!important;
+  display:flex!important;
+  flex-direction:column!important}
+.blytz-dark .editor-tool-panel-body{
+  flex:1!important;
+  overflow-y:auto!important}
 
-.blytz-dark .editor-view-toggle button[aria-pressed="true"] {
-  background: var(--accent-gold) !important;
-  color: #000 !important;
-}
-/* ============================================================
-   FORCE TOOL PANEL TO STRETCH TO BOTTOM
-   ============================================================ */
-
-/* 1. Force the outer panel to fill the canvas height */
-#editor-tool-panel {
-  position: absolute !important;
-  top: 0 !important;
-  bottom: 0 !important;
-  left: 0 !important; 
-  height: 100% !important;
-  max-height: none !important; /* Overrides any JS height limit */
-  z-index: 20;
-}
-
-.blytz-dark #editor-tool-panel .editor-garment-type-btn {
-  background: var(--bg-elevated) !important;          /* #1A1A1A */
-  border: 1px solid var(--border-default) !important;
-  color: var(--text-primary) !important;
-}
-
-/* 2. Make the inner wrapper a flex column so it fills the panel */
-.blytz-dark .editor-tool-panel-chrome {
-  height: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-}
-
-/* 3. Make the body scrollable so it fills the remaining space */
-.blytz-dark .editor-tool-panel-body {
-  flex: 1 !important;
-  overflow-y: auto !important;
-}
-
-
-/* Floating panels (tool panel, properties, context bar) */
+/* ---- Floating panels (tool panel, properties, context bar) ---- */
 .blytz-dark .editor-tool-panel-chrome,
 .blytz-dark .editor-properties-chrome,
 .blytz-dark .editor-context-bar{
-  background:var(--bg-panel)!important;color:var(--text-primary)!important;
-  border: none !important;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+  background:var(--bg-panel)!important;color:var(--text-primary)!important}
+.blytz-dark .editor-tool-panel-chrome,
+.blytz-dark .editor-context-bar{
+  border:1px solid var(--line-gold)!important;
+  box-shadow:0 18px 44px rgba(0,0,0,.65),0 0 0 1px rgba(0,0,0,.4)!important}
+.blytz-dark .editor-properties-chrome{border:none!important}
 .blytz-dark .editor-tool-panel-chrome *,
 .blytz-dark .editor-properties-chrome *{border-color:var(--border-default)}
+.blytz-dark .editor-tool-panel-header{
+  border-bottom:1px solid var(--line-gold);
+  background:radial-gradient(120% 220% at 100% 0%,rgba(212,175,55,.12),transparent 60%)}
 .blytz-dark .editor-tool-panel-title,
-.blytz-dark .editor-properties-title{font-family:'Bebas Neue',sans-serif;letter-spacing:.05em;text-transform:uppercase;color:var(--text-primary)}
+.blytz-dark .editor-properties-title{
+  font-family:'Playfair Display',Georgia,serif!important;
+  text-transform:none!important;
+  letter-spacing:0!important;
+  color:var(--text-primary)}
 .blytz-dark .editor-tool-panel-close,
 .blytz-dark .editor-properties-icon-btn{color:var(--text-secondary);background:transparent}
 .blytz-dark .editor-tool-panel-close:hover,
@@ -300,80 +318,577 @@ body{background:var(--bg-primary)!important;color:var(--text-primary)}
 .blytz-dark .editor-tool-panel-body .is-active,
 .blytz-dark .editor-tool-panel-body .is-selected,
 .blytz-dark .editor-tool-panel-body [aria-checked="true"]{border-color:var(--accent-gold)!important;color:var(--accent-gold)!important}
+.blytz-dark .editor-context-bar{border-radius:9999px}
 .blytz-dark .editor-context-bar button{background:transparent;color:var(--text-secondary)}
 .blytz-dark .editor-context-bar button:hover{background:var(--bg-elevated);color:#fff}
-.blytz-dark .editor-props-pill{background:var(--accent-gold)!important;color:#000!important;font-weight:600}
+.blytz-dark .editor-props-pill{
+  background:linear-gradient(135deg,var(--gold-hi),var(--gold) 55%,var(--gold-lo))!important;
+  color:#000!important;font-weight:600;
+  box-shadow:0 6px 18px rgba(212,175,55,.35)}
 
-/* ---- AI assistant panel ---- */
-.blytz-dark .ai-assistant-panel{background:var(--bg-panel)!important;border-color:var(--border-default)!important}
+/* =====================================================================
+   AI ASSISTANT PANEL
+   ===================================================================== */
+.blytz-dark .ai-assistant-panel{
+  background:linear-gradient(180deg,#0f0f0f,#0a0a0a)!important;  
+  border-color:transparent!important;
+  box-shadow:
+    0 1px 0 rgba(212,175,55,.10),
+    0 10px 22px -10px rgba(212,175,55,.22)!important;}
+.blytz-dark .ai-assistant-panel > div:first-child{
+  border-color:var(--line-gold)!important;
+  background:radial-gradient(120% 220% at 100% 0%,rgba(212,175,55,.14),transparent 60%)}
 .blytz-dark .ai-assistant-panel textarea{background:var(--bg-elevated)!important;border-color:var(--border-default)!important;color:#fff!important}
-.blytz-dark .ai-assistant-panel textarea:focus{border-color:var(--accent-gold)!important}
+.blytz-dark .ai-assistant-panel textarea:focus{border-color:var(--accent-gold)!important;box-shadow:0 0 0 3px rgba(212,175,55,.18)}
 .blytz-dark .ai-assistant-panel [data-ai-starter]{
   border-radius:9999px;background:var(--bg-elevated)!important;color:var(--text-secondary)!important;border-color:var(--border-default)!important}
 .blytz-dark .ai-assistant-panel [data-ai-starter]:hover{border-color:var(--accent-gold)!important;color:var(--accent-gold)!important}
-.blytz-dark .ai-assistant-panel [data-ai-send]{box-shadow:0 0 12px rgba(212,175,55,.3);font-weight:600}
+.blytz-dark .ai-assistant-panel [data-ai-send]{
+  background:linear-gradient(135deg,var(--gold-hi),var(--gold) 55%,var(--gold-lo))!important;
+  color:#0a0a0a!important;font-weight:700;border-radius:9999px;
+  box-shadow:0 0 12px rgba(212,175,55,.3)}
 .blytz-dark .ai-turn-panel{background:var(--bg-panel)}
 
-/* ---- Drawer / modals ---- */
-.blytz-dark #design-preview-modal .design-preview-panel,
-.blytz-dark #payment-modal > div.relative{background:var(--bg-panel)!important;border-color:var(--border-default)!important;color:#fff}
-.blytz-dark #editor-tools > div.absolute.inset-y-0{background:var(--bg-panel)!important;border-color:var(--border-default)!important}
-.blytz-dark #payment-modal input,
-.blytz-dark #payment-modal select{background:var(--bg-elevated)!important;border-color:var(--border-default)!important;color:#fff!important}
-.blytz-dark #payment-modal input[type="file"]::file-selector-button{background:var(--accent-gold);color:#000}
+/* =====================================================================
+   DRAWER / MODALS
+   ===================================================================== */
+/* Backdrops: blur + gold glow (same as the payment sheet) */
+.blytz-dark #approval-modal > .absolute,
+.blytz-dark #design-preview-modal > .absolute,
+.blytz-dark #editor-tools > .absolute.inset-0{
+  background:
+    radial-gradient(60% 50% at 85% 0%,rgba(212,175,55,.30),transparent 70%),
+    radial-gradient(50% 40% at 0% 100%,rgba(212,175,55,.15),transparent 70%),
+    rgba(10,10,10,.80)!important;
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+
+/* Design-info drawer */
+.blytz-dark #editor-tools > div.absolute.inset-y-0{
+  background:var(--bg-panel)!important;
+  border-color:rgba(212,175,55,.25)!important;
+  box-shadow:-20px 0 60px rgba(0,0,0,.6)}
+.blytz-dark #editor-tools #editor-tools-title{
+  font-family:'Playfair Display',Georgia,serif!important;text-transform:none!important}
+
+/* Preview modal */
+.blytz-dark #design-preview-modal .design-preview-panel{
+  background:var(--bg-panel)!important;
+  color:#fff;
+  border:0!important;border-radius:1.25rem!important;
+  box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px rgba(212,175,55,.30)!important}
+.blytz-dark #design-preview-modal .design-preview-panel > div:first-child{
+  position:relative;border-color:transparent!important;
+  background:
+    radial-gradient(120% 140% at 100% 0%,rgba(212,175,55,.38),transparent 60%),
+    repeating-linear-gradient(135deg,rgba(255,255,255,.045) 0 2px,transparent 2px 10px),
+    #0a0a0a}
+.blytz-dark #design-preview-modal .design-preview-panel > div:first-child::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:3px;
+  background:linear-gradient(90deg,var(--gold-lo),var(--gold-hi),var(--gold-lo))}
+.blytz-dark #design-preview-modal .design-preview-panel > div:last-child{border-color:var(--line-gold)!important}
 .blytz-dark .design-preview-side-tab{color:var(--text-secondary);background:transparent}
 .blytz-dark .design-preview-side-tab.is-active,
 .blytz-dark .design-preview-side-tab[aria-selected="true"]{background:var(--accent-gold);color:#000}
-.blytz-dark .design-preview-frame{background:var(--bg-secondary)}
+.blytz-dark .design-preview-frame{
+  border-radius:14px;
+  background:
+    radial-gradient(ellipse 70% 90% at 50% 0%,rgba(255,255,255,.05) 0%,transparent 55%),
+    radial-gradient(ellipse 60% 60% at 50% 100%,rgba(212,175,55,.14) 0%,transparent 65%),
+    linear-gradient(180deg,#0F0F0F 0%,#0B0B0B 100%)}
 .blytz-dark .design-preview-meta dt{color:var(--text-muted)}
 .blytz-dark .design-preview-meta dd{color:#fff}
 
-/* -------------------------------------------------------------
-   Unify readiness text — title, ✓, •, item text, footer note
-   Change the hex below to whatever colour you want.
-   ------------------------------------------------------------- */
+/* Readiness text — title, ✓, •, item text, footer note */
 .blytz-dark [data-editor-readiness],
 .blytz-dark [data-editor-readiness] *,
 .blytz-dark [data-design-preview-readiness],
-.blytz-dark [data-design-preview-readiness] * {
-  color: #A3A3A3 !important;              /* ← the shared colour */
-}
+.blytz-dark [data-design-preview-readiness] *{
+  color:#A3A3A3!important}
+.blytz-dark #design-preview-modal .design-preview-review > p:last-of-type{
+  color:#A3A3A3!important}
+.blytz-dark #design-preview-modal .design-preview-review > p:last-of-type strong{
+  color:#ffffff!important;
+  font-weight:600}
 
-/* Footer note inside the preview modal */
-.blytz-dark #design-preview-modal .design-preview-review > p:last-of-type {
-  color: #A3A3A3 !important;
-}
-
-/* Keep the bold "Submit" word visually emphasised */
-.blytz-dark #design-preview-modal .design-preview-review > p:last-of-type strong {
-  color: #ffffff !important;
-  font-weight: 600;
-}
-
-.blytz-dark .design-preview-frame {
-border-radius: 14px;
+/* Approval / Terms modal (light card, like the payment sheet) */
+.blytz-dark #approval-modal > .relative{
+  background:#fff!important;border:0!important;border-radius:1.25rem!important;color:#0a0a0a;
+  box-shadow:0 30px 80px rgba(0,0,0,.55),0 0 0 1px rgba(212,175,55,.30)!important}
+.blytz-dark #approval-modal > .relative > div:first-child{
+  position:relative;border-color:transparent!important;
   background:
-    radial-gradient(ellipse 70% 90% at 50% 0%,
-      rgba(255, 255, 255, 0.05) 0%, transparent 55%),
-    radial-gradient(ellipse 60% 60% at 50% 100%,
-      rgba(212, 175, 55, 0.14) 0%, transparent 65%),
-    linear-gradient(180deg, #0F0F0F 0%, #0B0B0B 100%);}
+    radial-gradient(120% 140% at 100% 0%,rgba(212,175,55,.38),transparent 60%),
+    repeating-linear-gradient(135deg,rgba(255,255,255,.045) 0 2px,transparent 2px 10px),
+    #0a0a0a}
+.blytz-dark #approval-modal > .relative > div:first-child::after{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:3px;
+  background:linear-gradient(90deg,var(--gold-lo),var(--gold-hi),var(--gold-lo))}
+.blytz-dark #approval-modal > .relative > div:nth-child(2){
+  background-color:#faf8f3!important;
+  background-image:radial-gradient(rgba(10,10,10,.07) 1px,transparent 1px);background-size:14px 14px}
+.blytz-dark #approval-modal > .relative > div:last-child{
+  background:#fff!important;border-color:#e7e2d3!important}
+.blytz-dark #approval-modal .text-ink{color:#0a0a0a!important}
+.blytz-dark #approval-modal .text-ink-muted,
+.blytz-dark #approval-modal .text-ink-subtle{color:#3b3a33!important}
+.blytz-dark #approval-modal .bg-surface,
+.blytz-dark #approval-modal .bg-canvas{background-color:#fff!important}
+.blytz-dark #approval-modal .border-border,
+.blytz-dark #approval-modal .border-border-strong{border-color:#e7e2d3!important}
+.blytz-dark #approval-modal > .relative > div:first-child #approval-modal-title{
+  color:#fff!important;font-family:'Playfair Display',Georgia,serif!important;
+  text-transform:none!important;font-size:1.35rem}
+.blytz-dark #approval-modal > .relative > div:first-child .text-ink-muted{color:rgba(255,255,255,.72)!important}
+.blytz-dark #approval-modal > .relative > div:first-child button{color:#fff!important}
+.blytz-dark #approval-modal > .relative > div:first-child button:hover{background:rgba(212,175,55,.25)!important}
+.blytz-dark #approval-decline-btn{
+  background:#fff!important;color:#0a0a0a!important;border:1px solid #d9d3bf!important;border-radius:.8rem!important}
+.blytz-dark #approval-decline-btn:hover{background:#faf8f3!important}
+.blytz-dark #approval-accept-btn{
+  background:#0a0a0a!important;color:#fff!important;border-radius:.8rem!important;font-weight:600}
+.blytz-dark #approval-accept-btn:hover:not(:disabled){background:var(--gold)!important;color:#0a0a0a!important}
 
+/* =====================================================================
+   LAYERS PANEL
+   ===================================================================== */
+/* Slightly wider panel only for Layers (desktop); full width on phones */
+#editor-tool-panel[data-panel-kind="layers"]{width:min(20rem,calc(100% - 1.5rem))}
+@media (max-width:1023px){
+  #editor-tool-panel[data-panel-kind="layers"]{width:100%}
+}
 
+/* ---- Header (count + hint) ---- */
+.blytz-dark .editor-layers-head{
+  display:flex;align-items:center;justify-content:space-between;
+  margin:0 0 .5rem;padding:0 .125rem}
+.blytz-dark .editor-layers-count{
+  font-size:.7rem;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--text-secondary)}
+.blytz-dark .editor-layers-hint{font-size:.68rem;color:var(--text-muted)}
+
+/* ---- Icon toolbar ---- */
+.blytz-dark .editor-layers-toolbar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:.25rem;
+  padding:.25rem;margin:0 0 .75rem;
+  background:var(--bg-secondary);
+  border:1px solid var(--border-default);border-radius:.75rem}
+.blytz-dark .editor-layers-group{display:flex;gap:.125rem}
+.blytz-dark .editor-layers-sep{
+  width:1px;align-self:stretch;margin:.25rem .25rem;background:var(--border-default)}
+.blytz-dark .editor-layers-toolbar .editor-layers-action{
+  flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:2.25rem;height:2.25rem;min-width:2.25rem;padding:0;
+  border:1px solid transparent!important;border-radius:.5rem;
+  background:transparent!important;color:var(--text-secondary)!important;
+  cursor:pointer;transition:background .15s,color .15s}
+.blytz-dark .editor-layers-toolbar .editor-layers-action svg{width:1.125rem;height:1.125rem;display:block}
+.blytz-dark .editor-layers-toolbar .editor-layers-action:hover:not(:disabled){
+  background:var(--bg-elevated)!important;color:#fff!important}
+.blytz-dark .editor-layers-toolbar .editor-layers-action--danger:hover:not(:disabled){
+  color:var(--danger)!important}
+.blytz-dark .editor-layers-toolbar .editor-layers-action:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+.blytz-dark .editor-layers-toolbar .editor-layers-action:disabled,
+.blytz-dark .editor-layers-toolbar .editor-layers-action[aria-disabled="true"]{
+  opacity:.3;cursor:not-allowed}
+
+/* ---- List + rows ---- */
+.blytz-dark .editor-layers-list{display:flex;flex-direction:column;gap:.375rem}
+.blytz-dark .editor-layer-row{
+  position:relative;display:flex;align-items:center;gap:.125rem;
+  padding:.25rem .375rem .25rem .25rem;
+  background:var(--bg-secondary);
+  border:1px solid var(--border-default);border-radius:.625rem;
+  color:#fff;transition:background .15s,border-color .15s}
+.blytz-dark .editor-layer-row:hover{
+  background:var(--bg-elevated);border-color:var(--border-strong)}
+.blytz-dark .editor-tool-panel-body .editor-layer-row.is-selected,
+.blytz-dark .editor-tool-panel-body .editor-layer-row[aria-selected="true"]{
+  background:rgba(212,175,55,.08)!important;
+  border-color:var(--accent-gold)!important;
+  color:#fff!important;
+  box-shadow:0 0 0 1px rgba(212,175,55,.2)}
+.blytz-dark .editor-layer-row.is-hidden .editor-layer-select{opacity:.4}
+
+/* Select area (chip + text) */
+.blytz-dark .editor-tool-panel-body .editor-layer-select{
+  display:flex;align-items:center;gap:.5rem;flex:1 1 auto;min-width:0;
+  padding:.25rem .25rem;
+  border:0!important;background:transparent!important;color:#fff!important;
+  border-radius:.5rem;text-align:left;cursor:pointer}
+.blytz-dark .editor-layer-select:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+.blytz-dark .editor-layer-glyph{
+  flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;
+  width:1.875rem;height:1.875rem;border-radius:.5rem;
+  background:var(--bg-elevated);border:1px solid var(--border-default);
+  color:var(--text-secondary);font-size:.85rem;line-height:1}
+.blytz-dark .editor-layer-row.is-selected .editor-layer-glyph{
+  background:var(--accent-gold);border-color:var(--accent-gold);color:#000}
+.blytz-dark .editor-layer-text{
+  display:flex;flex-direction:column;min-width:0;flex:1 1 auto;line-height:1.25}
+.blytz-dark .editor-layer-label{
+  font-size:.8125rem;font-weight:500;color:#fff;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.blytz-dark .editor-layer-sub{
+  font-size:.68rem;color:var(--text-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* old " · locked" suffix is now shown in the sub line */
+.blytz-dark .editor-layer-row.is-locked .editor-layer-label::after{content:none!important}
+/* hide the sub line while renaming */
+.blytz-dark .editor-layer-row:has(.editor-layer-rename-input) .editor-layer-sub{display:none}
+.blytz-dark .editor-tool-panel-body .editor-layer-rename-input{
+  flex:1 1 auto;min-width:0;width:100%;min-height:1.875rem;padding:.25rem .5rem;
+  font-size:.8125rem}
+.blytz-dark .editor-tool-panel-body .editor-layer-rename-input:focus{
+  border-color:var(--accent-gold)!important;outline:none}
+
+/* Icon buttons (eye / lock / rename / duplicate) */
+.blytz-dark .editor-layer-row-actions{display:flex;align-items:center;gap:.0625rem;flex:0 0 auto}
+.blytz-dark .editor-tool-panel-body .editor-layer-icon-btn{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:1.75rem;height:1.75rem;min-width:1.75rem;min-height:1.75rem;padding:0;
+  border:0!important;border-radius:.5rem;
+  background:transparent!important;color:var(--text-muted)!important;
+  cursor:pointer;transition:background .15s,color .15s}
+.blytz-dark .editor-layer-icon-btn svg{width:1rem;height:1rem;display:block}
+.blytz-dark .editor-tool-panel-body .editor-layer-icon-btn:hover{
+  background:var(--bg-elevated)!important;color:#fff!important}
+.blytz-dark .editor-layer-icon-btn:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+/* eye: white when visible, dim when hidden */
+.blytz-dark .editor-tool-panel-body .editor-layer-icon-btn--eye[aria-pressed="true"]{
+  color:var(--text-secondary)!important}
+/* lock: gold when locked */
+.blytz-dark .editor-tool-panel-body .editor-layer-icon-btn--lock[aria-pressed="true"]{
+  color:var(--accent-gold)!important}
+.blytz-dark .editor-tool-panel-body .editor-layer-row.is-selected .editor-layer-icon-btn--eye[aria-pressed="true"]{
+  color:#fff!important}
+
+/* Rename + duplicate only appear on hover / focus / selected (always on touch) */
+.blytz-dark .editor-layer-icon-btn.is-reveal{display:none}
+.blytz-dark .editor-layer-row:hover .editor-layer-icon-btn.is-reveal,
+.blytz-dark .editor-layer-row:focus-within .editor-layer-icon-btn.is-reveal,
+.blytz-dark .editor-layer-row.is-selected .editor-layer-icon-btn.is-reveal{display:inline-flex}
+@media (hover:none){
+  .blytz-dark .editor-layer-icon-btn.is-reveal{display:inline-flex}
+}
+
+/* Empty state */
+.blytz-dark .editor-layers-empty{
+  margin:.25rem 0;padding:1.5rem .75rem;text-align:center;
+  border:1px dashed var(--border-strong);border-radius:.75rem;
+  color:var(--text-muted);font-size:.8125rem;line-height:1.4}
+
+/* =====================================================================
+   ELEMENTS PANEL
+   ===================================================================== */
+/* [hidden] must win over display:flex on tiles/sections */
+.blytz-dark .editor-panel-tile[hidden],
+.blytz-dark [data-elements-section][hidden]{display:none!important}
+
+/* ---- Search ---- */
+.blytz-dark .editor-elements-search{
+  position:relative;margin:0 0 .5rem}
+.blytz-dark .editor-elements-search svg{
+  position:absolute;left:.65rem;top:50%;transform:translateY(-50%);
+  width:1rem;height:1rem;color:var(--text-muted);pointer-events:none}
+.blytz-dark .editor-tool-panel-body .editor-elements-search input{
+  width:100%;min-height:2.25rem;padding:.4rem .75rem .4rem 2.1rem;
+  border-radius:9999px;font-size:.8125rem}
+.blytz-dark .editor-tool-panel-body .editor-elements-search input:focus{
+  border-color:var(--accent-gold)!important;outline:none}
+.blytz-dark .editor-elements-lead{
+  margin:0 0 .75rem;padding:0 .125rem;font-size:.72rem;color:var(--text-muted)}
+
+/* ---- Sections ---- */
+.blytz-dark .editor-panel-section + .editor-panel-section{margin-top:1.1rem}
+.blytz-dark .editor-panel-section .editor-panel-h{
+  display:flex;align-items:center;gap:.5rem;
+  margin:0 0 .5rem;font-size:.68rem;font-weight:600;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary)}
+.blytz-dark .editor-panel-section .editor-panel-h::after{
+  content:"";flex:1;height:1px;background:var(--border-default)}
+
+/* ---- Grid + tiles ---- */
+.blytz-dark .editor-panel-grid{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem}
+.blytz-dark .editor-tool-panel-body .editor-panel-tile{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  gap:.4rem;aspect-ratio:1/1;min-width:0;padding:.5rem .25rem;
+  background:var(--bg-secondary);
+  border:1px solid var(--border-default);border-radius:.75rem;
+  color:var(--text-secondary);cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s,transform .1s,box-shadow .15s}
+.blytz-dark .editor-tool-panel-body .editor-panel-tile:hover{
+  background:var(--bg-elevated);border-color:var(--accent-gold);color:var(--accent-gold);
+  box-shadow:0 0 12px rgba(212,175,55,.15)}
+.blytz-dark .editor-tool-panel-body .editor-panel-tile:active{transform:scale(.96)}
+.blytz-dark .editor-panel-tile:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:2px}
+.blytz-dark .editor-panel-tile-mark{
+  display:flex;align-items:center;justify-content:center;
+  width:2rem;height:2rem;line-height:1}
+.blytz-dark .editor-panel-tile-mark svg{width:1.75rem;height:1.75rem;display:block}
+.blytz-dark .editor-panel-tile-label{
+  font-size:.68rem;font-weight:500;color:inherit;
+  max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ---- Empty search result ---- */
+.blytz-dark .editor-elements-empty{
+  margin:.75rem 0 0;padding:1.25rem .75rem;text-align:center;
+  border:1px dashed var(--border-strong);border-radius:.75rem;
+  color:var(--text-muted);font-size:.8125rem}
+.blytz-dark .editor-elements-empty[hidden]{display:none!important}
+
+/* =====================================================================
+   PROPERTIES PANEL  (text + shapes + images)
+   ===================================================================== */
+/* Moved down so it no longer covers Auto Layout / Select / Multi / Delete.
+   Change 5rem if your pill bar is taller or shorter. */
+@media (min-width:1280px){
+  .blytz-dark .editor-properties-panel{
+    top:5rem;
+    right:.75rem;
+    width:17rem;
+    max-height:calc(100% - 5.75rem);
+  }
+}
+
+/* ---- Shell ---- */
+.blytz-dark .editor-properties-panel{
+  background:var(--bg-panel);
+  border:1px solid var(--line-gold)!important;
+  border-radius:.875rem;
+  box-shadow:0 18px 44px rgba(0,0,0,.7),0 0 0 1px rgba(0,0,0,.4)!important}
+.blytz-dark .editor-properties-chrome{background:transparent!important;box-shadow:none!important}
+
+/* ---- Header ---- */
+.blytz-dark .editor-properties-header{
+  padding:.6rem .75rem;
+  border-bottom:1px solid var(--line-gold)!important;
+  background:linear-gradient(180deg,rgba(255,255,255,.035),transparent)}
+.blytz-dark .editor-properties-title{
+  display:flex;align-items:center;gap:.5rem;font-size:1.15rem}
+.blytz-dark .editor-properties-title::before{
+  content:"";width:.4rem;height:.4rem;border-radius:9999px;
+  background:var(--accent-gold);box-shadow:0 0 8px rgba(212,175,55,.6)}
+@media (min-width:1280px) and (pointer:fine){
+  .blytz-dark .editor-properties-icon-btn{
+    min-width:2rem;min-height:2rem;width:2rem;height:2rem;border-radius:.5rem}
+}
+
+/* ---- Body: stack of cards ---- */
+.blytz-dark .editor-properties-body{
+  display:flex;flex-direction:column;gap:.75rem;padding:.75rem}
+.blytz-dark .editor-props-section,
+.blytz-dark .editor-props-align,
+.blytz-dark .editor-props-curve{
+  margin:0;padding:.75rem;
+  background:var(--bg-secondary);
+  border:1px solid var(--border-default);
+  border-radius:.75rem}
+.blytz-dark .editor-props-readonly{
+  margin:0;padding:.5rem .65rem;border-radius:.5rem;
+  background:var(--accent-gold-soft);
+  border:1px solid rgba(212,175,55,.25);
+  color:var(--accent-gold);font-size:.75rem}
+
+/* Card titles */
+.blytz-dark .editor-props-section-title,
+.blytz-dark .editor-props-align-heading{
+  display:flex;align-items:center;gap:.4rem;margin:0 0 .6rem;
+  font-size:.66rem;font-weight:600;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--text-secondary)}
+.blytz-dark .editor-props-section-title::before{
+  content:"";width:3px;height:.85em;border-radius:2px;background:var(--accent-gold)}
+.blytz-dark .editor-props-align-heading:not(:first-child){margin-top:.85rem}
+
+/* ---- Rows and labels ---- */
+.blytz-dark .editor-props-row{
+  display:flex;flex-direction:column;gap:.3rem;margin:0 0 .75rem}
+.blytz-dark .editor-props-row:last-child{margin-bottom:0}
+.blytz-dark .editor-props-label,
+.blytz-dark .editor-props-mini-label{
+  font-size:.72rem;font-weight:500;color:var(--text-secondary)}
+.blytz-dark .editor-props-hint{font-size:.66rem;color:var(--text-muted)}
+
+/* ---- Inputs (the base look already comes from the rules above) ---- */
+.blytz-dark .editor-properties-body .editor-props-input:focus,
+.blytz-dark .editor-properties-body .editor-props-textarea:focus{
+  border-color:var(--accent-gold)!important;outline:none;
+  box-shadow:0 0 0 3px rgba(212,175,55,.15)}
+.blytz-dark .editor-properties-body .editor-props-textarea{
+  min-height:4.5rem;resize:vertical;font-size:.8125rem;line-height:1.4}
+@media (min-width:1280px){
+  .blytz-dark .editor-properties-body .editor-props-input{
+    min-height:2.25rem;font-size:.8125rem}
+}
+
+/* number field with unit inside */
+.blytz-dark .editor-props-field{position:relative;display:flex;align-items:center;min-width:0}
+.blytz-dark .editor-props-field .editor-props-input{width:100%;padding-right:1.9rem}
+.blytz-dark .editor-props-unit{
+  position:absolute;right:.6rem;font-size:.68rem;color:var(--text-muted);pointer-events:none}
+.blytz-dark .editor-properties-body input[type="number"]{-moz-appearance:textfield}
+.blytz-dark .editor-properties-body input[type="number"]::-webkit-inner-spin-button,
+.blytz-dark .editor-properties-body input[type="number"]::-webkit-outer-spin-button{
+  -webkit-appearance:none;margin:0}
+
+/* X/Y and W/H side by side */
+.blytz-dark .editor-props-pair{
+  display:grid;grid-template-columns:1fr 1fr;gap:.5rem;margin:0 0 .75rem}
+.blytz-dark .editor-props-pair>:only-child{grid-column:1/-1}
+.blytz-dark .editor-props-mini{display:flex;flex-direction:column;gap:.3rem;min-width:0}
+.blytz-dark .editor-props-rot-wrap{display:flex;align-items:center;gap:.4rem}
+.blytz-dark .editor-props-rot-wrap .editor-props-field{flex:1;min-width:0}
+
+/* ---- Sliders ---- */
+.blytz-dark .editor-props-range-wrap{display:flex;align-items:center;gap:.6rem}
+.blytz-dark .editor-properties-body input[type="range"]{
+  -webkit-appearance:none;appearance:none;flex:1;min-width:0;
+  height:1.5rem;min-height:1.5rem!important;padding:0;
+  background:transparent!important;border:0!important;cursor:pointer}
+.blytz-dark .editor-properties-body input[type="range"]::-webkit-slider-runnable-track{
+  height:4px;border-radius:9999px;background:var(--border-strong)}
+.blytz-dark .editor-properties-body input[type="range"]::-moz-range-track{
+  height:4px;border-radius:9999px;background:var(--border-strong)}
+.blytz-dark .editor-properties-body input[type="range"]::-webkit-slider-thumb{
+  -webkit-appearance:none;width:16px;height:16px;margin-top:-6px;border-radius:50%;
+  background:var(--accent-gold)!important;border:2px solid #111!important;
+  box-shadow:0 0 8px rgba(212,175,55,.4)}
+.blytz-dark .editor-properties-body input[type="range"]::-moz-range-thumb{
+  width:12px;height:12px;border-radius:50%;
+  background:var(--accent-gold)!important;border:2px solid #111!important}
+.blytz-dark .editor-props-range-val{
+  min-width:2rem;text-align:right;font-size:.72rem;color:var(--text-secondary)}
+.blytz-dark .editor-props-range-val[data-prop-out="opacity"]{display:none}
+.blytz-dark .editor-props-opacity-field{width:4.5rem;flex:0 0 auto}
+
+/* ---- Colour picker + swatches ---- */
+.blytz-dark .editor-props-color{display:flex;align-items:flex-start;gap:.6rem}
+.blytz-dark .editor-properties-body input[type="color"]{
+  flex:0 0 auto;width:2.25rem;height:2.25rem;min-height:0!important;padding:0;
+  border:2px solid var(--border-strong)!important;border-radius:9999px!important;
+  background:transparent!important;cursor:pointer;overflow:hidden}
+.blytz-dark .editor-properties-body input[type="color"]::-webkit-color-swatch-wrapper{padding:0}
+.blytz-dark .editor-properties-body input[type="color"]::-webkit-color-swatch{border:0;border-radius:9999px}
+.blytz-dark .editor-properties-body input[type="color"]::-moz-color-swatch{border:0;border-radius:9999px}
+.blytz-dark .editor-props-swatches{display:flex;flex-wrap:wrap;gap:.35rem;margin:0;flex:1}
+.blytz-dark .editor-properties-body .editor-props-swatch{
+  width:1.5rem;height:1.5rem;padding:0;border:1px solid rgba(255,255,255,.2);
+  border-radius:9999px;cursor:pointer;transition:transform .1s,border-color .15s}
+.blytz-dark .editor-properties-body .editor-props-swatch:hover{
+  transform:scale(1.15);border-color:var(--accent-gold)}
+@media not all and (min-width:1280px){
+  .blytz-dark .editor-properties-body .editor-props-swatch{width:2rem;height:2rem}
+}
+
+/* ---- Toggle switch (aspect ratio lock, curve enable) ---- */
+.blytz-dark .editor-props-check-label{
+  display:flex;align-items:center;gap:.6rem;min-height:2rem;
+  font-size:.78rem;color:var(--text-secondary);cursor:pointer}
+.blytz-dark .editor-properties-body input[type="checkbox"]{
+  -webkit-appearance:none;appearance:none;position:relative;flex:0 0 auto;
+  width:2.1rem;height:1.2rem;min-height:0!important;padding:0;
+  border:0!important;border-radius:9999px!important;
+  background:var(--border-strong)!important;cursor:pointer;transition:background .15s}
+.blytz-dark .editor-properties-body input[type="checkbox"]::before{
+  content:"";position:absolute;top:2px;left:2px;
+  width:calc(1.2rem - 4px);height:calc(1.2rem - 4px);border-radius:50%;
+  background:#fff;transition:transform .15s}
+.blytz-dark .editor-properties-body input[type="checkbox"]:checked{
+  background:var(--accent-gold)!important}
+.blytz-dark .editor-properties-body input[type="checkbox"]:checked::before{
+  transform:translateX(.9rem);background:#000}
+
+/* ---- Button groups (align, style, flip, image placement, curve) ---- */
+.blytz-dark .editor-props-align-row{display:flex;flex-wrap:wrap;gap:.35rem;margin:0 0 .4rem}
+.blytz-dark .editor-props-align-row:last-child{margin-bottom:0}
+.blytz-dark .editor-properties-body .editor-props-align-btn{
+  flex:1 1 auto;min-width:3rem;padding:.4rem .5rem;
+  background:var(--bg-elevated);border:1px solid var(--border-default);
+  border-radius:.5rem;color:var(--text-secondary);
+  font-size:.72rem;font-weight:500;line-height:1.2;cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s}
+.blytz-dark .editor-properties-body .editor-props-align-btn:hover:not(:disabled){
+  border-color:var(--border-strong);color:#fff}
+.blytz-dark .editor-properties-body .editor-props-align-btn:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+.blytz-dark .editor-properties-body .editor-props-align-btn.is-active,
+.blytz-dark .editor-properties-body .editor-props-align-btn[aria-pressed="true"]{
+  background:var(--accent-gold);border-color:var(--accent-gold);
+  color:#000!important;font-weight:700}
+.blytz-dark .editor-properties-body .editor-props-align-btn:disabled{opacity:.35;cursor:not-allowed}
+.blytz-dark .editor-props-style-row .editor-props-style-btn{
+  flex:1 1 0;font-size:.85rem;font-weight:700}
+
+/* Auto layout: gold outline so it stands out */
+.blytz-dark .editor-properties-body [data-auto-layout]{
+  width:100%;border-color:rgba(212,175,55,.5);color:var(--accent-gold)}
+.blytz-dark .editor-properties-body [data-auto-layout]:hover:not(:disabled){
+  background:var(--accent-gold-soft);border-color:var(--accent-gold);color:var(--accent-gold)}
+
+/* Curve text card */
+.blytz-dark .editor-props-curve-status{margin:.15rem 0 .6rem;font-size:.72rem;color:var(--text-muted)}
+.blytz-dark .editor-props-curve-actions{display:flex;gap:.35rem}
+.blytz-dark .editor-properties-body .editor-props-curve-apply:not(:disabled){
+  background:var(--accent-gold);border-color:var(--accent-gold);
+  color:#000!important;font-weight:700}
+
+/* ---- Border: hidden rows must really hide (rows are display:flex) ---- */
+.blytz-dark .editor-props-row[hidden]{display:none!important}
+
+/* ---- Line style buttons ---- */
+.blytz-dark .editor-props-strokestyle{
+  display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);
+  gap:.35rem;margin:0 0 .85rem}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn{
+  display:flex;align-items:center;justify-content:center;
+  height:2.5rem;min-width:0;padding:0;
+  background:var(--bg-elevated);
+  border:1px solid var(--border-default);border-radius:.625rem;
+  color:var(--text-secondary);cursor:pointer;
+  transition:background .15s,border-color .15s,color .15s,box-shadow .15s}
+.blytz-dark .editor-props-strokestyle-btn svg{width:1.6rem;height:1.6rem;display:block}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn:hover:not(:disabled){
+  border-color:var(--border-strong);color:#fff}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn:focus-visible{
+  outline:2px solid var(--accent-gold);outline-offset:1px}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn.is-active,
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn[aria-pressed="true"]{
+  background:var(--accent-gold-soft);
+  border-color:var(--accent-gold);
+  color:var(--accent-gold)!important;
+  box-shadow:0 0 0 1px rgba(212,175,55,.25)}
+.blytz-dark .editor-properties-body .editor-props-strokestyle-btn:disabled{
+  opacity:.35;cursor:not-allowed}
+
+/* ---- Weight / corner number box next to the slider ---- */
+.blytz-dark .editor-props-weight-num{
+  width:4.25rem;flex:0 0 auto;padding:.3rem .4rem;text-align:center}
+
+/* ---- Gold filled part of the slider ---- */
+.blytz-dark .editor-properties-body input[type="range"].editor-props-range--filled::-webkit-slider-runnable-track{
+  background:linear-gradient(to right,
+    var(--accent-gold) var(--fill,0%),
+    var(--border-strong) var(--fill,0%))}
+.blytz-dark .editor-properties-body input[type="range"].editor-props-range--filled::-moz-range-progress{
+  height:4px;border-radius:9999px;background:var(--accent-gold)}
 
 /* ---- Scrollbars ---- */
 .blytz-dark ::-webkit-scrollbar{width:6px;height:6px}
 .blytz-dark ::-webkit-scrollbar-track{background:var(--bg-panel)}
 .blytz-dark ::-webkit-scrollbar-thumb{background:var(--border-strong);border-radius:3px}
-.blytz-dark ::-webkit-scrollbar-thumb:hover{background:var(--text-muted)}
+.blytz-dark ::-webkit-scrollbar-thumb:hover{background:var(--gold-lo)}
 </style>
 
 <script src="{% static 'vendor/fabric/fabric.min.js' %}?v=stage-h1"></script>
-<script src="{% static 'js/editor_canvas.js' %}?v=stage-r4"></script>
+<script src="{% static 'js/editor_canvas.js' %}?v=stage-r5"></script>
 <script src="{% static 'js/editor_garments.js' %}?v=stage-h1"></script>
-<script src="{% static 'js/editor_tools.js' %}?v=stage-h1"></script>
+<script src="{% static 'js/editor_tools.js' %}?v=stage-h2"></script>
 <script src="{% static 'js/remove_bg_client.js' %}?v=stage-r2"></script>
-<script src="{% static 'js/editor_properties.js' %}?v=stage-r3"></script>
+<script src="{% static 'js/editor_properties.js' %}?v=stage-r5"></script>
 <script src="{% static 'js/editor_contract.js' %}?v=stage-h1"></script>
 <script src="{% static 'js/editor_chrome.js' %}?v=stage-h1"></script>
 <script src="{% static 'js/ai_chat.js' %}?v=stage-h1" defer></script>
@@ -382,6 +897,7 @@ border-radius: 14px;
 <script src="{% static 'js/editor_page.js' %}?v=stage-h1" defer></script>
 <script src="{% static 'js/editor_title_sync.js' %}?v=stage-h1" defer></script>
 {% endblock %}
+{% block navbar %}{% include "components/navbar_editor.html" %}{% endblock %}
 {% block footer %}{% endblock %}
 {% block content %}
 <div class="blytz-dark">
@@ -1209,53 +1725,53 @@ border-radius: 14px;
   </div>
 </div>
 
-{% comment %}Payment modal{% endcomment %}
+{% comment %}Payment modal (styles shared with the customer order page){% endcomment %}
+{% include "orders/_payment_sheet_styles.html" %}
 <div id="payment-modal"
-     class="fixed inset-0 z-50 hidden items-center justify-center p-4"
+     class="pp-sheet hidden"
      role="dialog"
      aria-modal="true"
      aria-labelledby="payment-modal-title"
      data-modal>
-  <div class="absolute inset-0 bg-ink/50" data-modal-close tabindex="-1"></div>
-  <div class="relative z-10 flex max-h-[90dvh] w-full max-w-lg flex-col overflow-hidden rounded-lg border border-border bg-canvas shadow-lg">
-    <div class="flex items-center justify-between border-b border-border px-4 py-3 sm:px-6">
-      <h2 id="payment-modal-title" class="font-display text-lg text-ink">Confirm payment</h2>
-      <button type="button"
-              class="rounded-md p-1.5 text-ink-muted hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-              data-modal-close
-              aria-label="Close">
-        <span aria-hidden="true">&times;</span>
-      </button>
-    </div>
+  <div class="pp-backdrop" data-modal-close tabindex="-1"></div>
+  <div class="pp-panel">
+    <header class="pp-head">
+      <div>
+        <p class="pp-eyebrow">Order payment</p>
+        <h2 id="payment-modal-title" class="pp-title">Confirm payment</h2>
+        <p class="pp-sub">Send your downpayment first, then attach the screenshot or photo here.</p>
+      </div>
+      <button type="button" class="pp-close" data-modal-close aria-label="Close">&times;</button>
+    </header>
 
     <form id="payment-submit-form"
           method="post"
           action="{% url 'design_submit' design.pk %}"
           enctype="multipart/form-data"
-          class="flex flex-1 flex-col overflow-hidden">
+          class="pp-form">
       {% csrf_token %}
       <input type="hidden" name="canvas_json" id="submit-canvas-json" value="">
       <input type="hidden" name="garment_template" id="submit-garment-template" value="">
       <input type="hidden" name="garment_color" id="submit-garment-color" value="">
       <input type="hidden" name="window_started_at" id="window-started-at" value="">
 
-      <div class="flex-1 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
-        <div class="flex items-center justify-between rounded-md border border-gold bg-gold-soft/50 px-3 py-2 text-sm text-ink">
+      <div class="pp-body">
+        <div class="pp-timer">
           <span>Payment window</span>
-          <span class="font-mono text-base" data-payment-timer>00:00</span>
+          <span class="pp-timer-time" data-payment-timer>00:00</span>
         </div>
 
-        <p class="rounded-md border border-danger/40 bg-danger/5 px-3 py-2 text-sm font-medium text-danger">
-          Strictly no refunds. All sales are final once you send payment proof.
-        </p>
+        <p class="pp-notice">Strictly no refunds. All sales are final once you send payment proof.</p>
+
+        <ol class="pp-steps">
+          <li><span>1</span>Send payment</li>
+          <li><span>2</span>Upload proof</li>
+        </ol>
 
         {% if channels %}
-        <div>
-          <label for="payment-channel" class="mb-1.5 block text-sm font-medium text-ink">Payment channel</label>
-          <select id="payment-channel"
-                  name="channel"
-                  required
-                  class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2.5 text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
+        <div class="pp-field">
+          <label for="payment-channel" class="pp-label">Payment channel</label>
+          <select id="payment-channel" name="channel" required class="pp-input">
             {% for ch in channels %}
             <option value="{{ ch.pk }}"
                     data-account-name="{{ ch.account_name }}"
@@ -1269,60 +1785,111 @@ border-radius: 14px;
           <div data-channel-details class="mt-2"></div>
         </div>
         {% else %}
-        <p class="text-sm text-danger">No active payment channels. Contact staff on Messenger.</p>
+        <p class="pp-error">No active payment channels. Contact staff on Messenger.</p>
         {% endif %}
 
-        <div>
-          <label for="payment-amount" class="mb-1.5 block text-sm font-medium text-ink">Amount claimed</label>
-          <input type="number"
-                 id="payment-amount"
-                 name="amount_claimed"
-                 min="0.01"
-                 step="0.01"
-                 inputmode="decimal"
-                 class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                 placeholder="0.00">
+        <div class="pp-field">
+          <label for="payment-amount" class="pp-label">Amount claimed</label>
+          <div class="pp-amount">
+            <span class="pp-amount-cur">₱</span>
+            <input type="number"
+                   id="payment-amount"
+                   name="amount_claimed"
+                   min="0.01"
+                   step="0.01"
+                   inputmode="decimal"
+                   class="pp-amount-input"
+                   placeholder="0.00">
+          </div>
+          <p class="pp-hint">Enter the downpayment you agreed with staff.</p>
         </div>
 
-        <div>
-          <label for="payment-proof" class="mb-1.5 block text-sm font-medium text-ink">Proof of payment</label>
-          <input type="file"
-                 id="payment-proof"
-                 name="proof_file"
-                 accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,image/*,application/pdf"
-                 capture="environment"
-                 class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2 text-base text-ink file:mr-3 file:rounded file:border-0 file:bg-ink file:px-3 file:py-2 file:text-sm file:font-medium file:text-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink">
-          <p class="mt-1.5 text-xs text-ink-subtle">PNG, JPG, JPEG, or PDF · camera photos and screenshots OK · max {{ PROOF_MAX_UPLOAD_MB }} MB</p>
-          <p class="mt-1 text-sm text-danger" data-payment-client-error role="alert"></p>
+        <div class="pp-field">
+          <span class="pp-label">Proof of payment</span>
+          <label class="pp-drop" for="payment-proof" data-proof-drop>
+            <input type="file"
+                   id="payment-proof"
+                   name="proof_file"
+                   accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,image/*,application/pdf"
+                   class="pp-drop-input">
+            <span class="pp-drop-icon" aria-hidden="true">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M16 8l-4-4m0 0L8 8m4-4v12"/></svg>
+            </span>
+            <span class="pp-drop-title" data-proof-title>Tap to upload or drag a file here</span>
+            <span class="pp-drop-sub" data-proof-sub>PNG, JPG, JPEG or PDF · max {{ PROOF_MAX_UPLOAD_MB }} MB</span>
+            <img data-proof-thumb class="pp-drop-thumb" alt="Selected proof preview" hidden>
+          </label>
+          <p class="pp-error" data-payment-client-error role="alert"></p>
         </div>
-        <div>
-        <label for="editor-payment-ref" class="mb-1.5 block text-sm font-medium text-ink">Reference Number</label>
-        <input type="text"
-              id="editor-payment-ref"
-              name="reference_number"
-              maxlength="100"
-              class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2.5 text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-              placeholder="Enter reference / transaction number">
-        <p class="mt-1.5 text-xs text-ink-subtle">The reference number from your GCash, Maya, or bank transfer</p>
-      </div>
+
+        <div class="pp-field">
+          <label for="editor-payment-ref" class="pp-label">Reference number</label>
+          <input type="text"
+                 id="editor-payment-ref"
+                 name="reference_number"
+                 maxlength="100"
+                 class="pp-input"
+                 placeholder="Enter reference / transaction number">
+          <p class="pp-hint">The reference number from your GCash, Maya, or bank transfer.</p>
+        </div>
       </div>
 
-      <div class="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3 sm:px-6">
-        <button type="button"
-                id="payment-cancel-btn"
-                class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-          Cancel Payment
-        </button>
+      <footer class="pp-foot">
+        <button type="button" id="payment-cancel-btn" class="pp-btn pp-btn-ghost">Cancel Payment</button>
         <button type="submit"
                 id="payment-sent-btn"
                 disabled
-                {% if not channels %}disabled{% endif %}
-                class="inline-flex min-h-11 items-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas hover:bg-ink/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-40">
+                class="pp-btn pp-btn-primary">
           Payment Sent
         </button>
-      </div>
+      </footer>
     </form>
   </div>
 </div>
+
+<script>
+  (function () {
+    var input = document.getElementById("payment-proof");
+    if (!input) return;
+    var drop = input.closest("[data-proof-drop]");
+    var title = drop.querySelector("[data-proof-title]");
+    var sub = drop.querySelector("[data-proof-sub]");
+    var thumb = drop.querySelector("[data-proof-thumb]");
+    var defaultTitle = title.textContent;
+    var defaultSub = sub.textContent;
+
+    function render() {
+      var f = input.files && input.files[0];
+      drop.classList.toggle("has-file", !!f);
+      if (!f) {
+        title.textContent = defaultTitle;
+        sub.textContent = defaultSub;
+        thumb.hidden = true;
+        thumb.removeAttribute("src");
+        return;
+      }
+      title.textContent = f.name;
+      sub.textContent = (f.size / 1048576).toFixed(2) + " MB · tap to change";
+      if (/^image\//.test(f.type)) {
+        thumb.src = URL.createObjectURL(f);
+        thumb.hidden = false;
+      } else {
+        thumb.hidden = true;
+      }
+    }
+
+    input.addEventListener("change", render);
+    var form = document.getElementById("payment-submit-form");
+    if (form) {
+      form.addEventListener("reset", function () { setTimeout(render, 0); });
+    }
+    ["dragenter", "dragover"].forEach(function (ev) {
+      drop.addEventListener(ev, function () { drop.classList.add("is-drag"); });
+    });
+    ["dragleave", "drop"].forEach(function (ev) {
+      drop.addEventListener(ev, function () { drop.classList.remove("is-drag"); });
+    });
+  })();
+</script>
 </div>{# /.blytz-dark #}
 {% endblock %}

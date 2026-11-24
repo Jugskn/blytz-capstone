@@ -47,6 +47,8 @@ class ActivityLog(models.Model):
         ORDER_CONFIRMED = "order_confirmed", "Order confirmed"
         PHASE_MOVED = "phase_moved", "Phase moved"
         LEAD_STAGE_CHANGED = "lead_stage_changed", "Lead stage changed"
+        PRICING_UPDATED = "pricing_updated", "Pricing updated"
+        FINAL_PAYMENT_REQUESTED = "final_payment_requested", "Final payment requested"
 
     customer = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -68,6 +70,7 @@ class ActivityLog(models.Model):
         related_name="activity_logs",
     )
     kind = models.CharField(max_length=32, choices=Kind.choices)
+    detail = models.CharField(max_length=255, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -3,104 +3,83 @@
 {% block title %}My orders — Blytz{% endblock %}
 
 {% block content %}
-<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-  <h1 class="font-display text-3xl text-ink">Orders</h1>
-  <p class="mt-1 text-ink-muted">
-    Submitted designs and their current job status. Drafts that were never submitted are not listed here.
-  </p>
+{% include "components/_customer_theme.html" %}
+<div class="cp-page">
+<section class="cp-wrap">
+
+  <header class="cp-hero">
+    <p class="cp-eyebrow">My orders</p>
+    <h1 class="cp-h1">Orders</h1>
+    <p class="cp-lead">Submitted designs, their job status and payment. Drafts that were never submitted are not listed here.</p>
+  </header>
 
   {% if submissions %}
-  <div class="mt-8 rounded-lg border border-border md:overflow-x-auto">
-    <table class="table-responsive-cards w-full border-collapse text-left text-sm md:min-w-[48rem]">
-      <thead>
-        <tr class="border-b border-border-strong bg-surface">
-          <th class="px-4 py-3 font-medium text-ink">Preview</th>
-          <th class="px-4 py-3 font-medium text-ink">Design</th>
-          <th class="px-4 py-3 font-medium text-ink">Submitted</th>
-          <th class="px-4 py-3 font-medium text-ink">Garment</th>
-          <th class="px-4 py-3 font-medium text-ink">Status</th>
-          <th class="px-4 py-3 font-medium text-ink">Payment</th>
-          <th class="px-4 py-3 font-medium text-ink">Order</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-border">
-        {% for row in submissions %}
-        <tr class="hover:bg-surface">
-          <td class="px-4 py-3" data-label="Preview">
-            {% if row.preview %}
-            <a href="{% url 'order_detail' row.order.order_id %}"
-               class="inline-block focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-              <img src="{{ row.preview.url }}"
-                   alt="Preview of {{ row.title }}"
-                   width="48"
-                   height="48"
-                   loading="lazy"
-                   class="h-12 w-12 rounded-md border border-border object-cover bg-surface">
-            </a>
-            {% else %}
-            <span class="inline-flex h-12 w-12 items-center justify-center rounded-md border border-dashed border-border bg-surface text-[10px] leading-tight text-ink-subtle"
-                  aria-label="No preview available">No preview</span>
-            {% endif %}
-          </td>
-          <td class="px-4 py-3" data-label="Design">
-            <a href="{% url 'order_detail' row.order.order_id %}"
-               class="block max-w-[16rem] truncate font-medium text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-               title="{{ row.title }}">{{ row.title }}</a>
-          </td>
-          <td class="px-4 py-3 font-mono text-xs text-ink-muted whitespace-nowrap" data-label="Submitted">
-            {{ row.submitted_at|date:"Y-m-d H:i" }}
-          </td>
-          <td class="px-4 py-3 text-ink-muted" data-label="Garment">
-            <span class="inline-block max-w-[12rem] truncate" title="{{ row.garment_label }}">{{ row.garment_label }}</span>
-          </td>
-          <td class="px-4 py-3" data-label="Status">
-            {% if row.status_known %}
-              {% include "components/badge.html" with label=row.status_label variant="muted" %}
-            {% else %}
-              {% include "components/badge.html" with label=row.status_label variant="warning" %}
-            {% endif %}
-          </td>
-          <td class="px-4 py-3" data-label="Payment">
-            {% if row.order.payment_status == "Fully Paid" %}
-              {% include "components/badge.html" with label=row.order.payment_status variant="success" %}
-            {% else %}
-              {% include "components/badge.html" with label=row.order.payment_status variant="warning" %}
-            {% endif %}
-          </td>
-          <td class="px-4 py-3" data-label="Order">
-            <a href="{% url 'order_detail' row.order.order_id %}"
-               class="font-mono text-sm font-medium text-ink underline-offset-2 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">{{ row.order.order_id }}</a>
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <div class="cp-orders">
+    {% for row in submissions %}
+    <article class="cp-order">
+      <a href="{% url 'order_detail' row.order.order_id %}" class="cp-order-thumb" aria-label="Open order {{ row.order.order_id }}">
+        {% if row.preview %}
+          <img src="{{ row.preview.url }}" alt="Preview of {{ row.title }}" width="72" height="72" loading="lazy">
+        {% else %}
+          <span>No preview</span>
+        {% endif %}
+      </a>
+
+      <div class="min-w-0">
+        <p class="cp-order-id">{{ row.order.order_id }}</p>
+        <h2 class="cp-order-title" title="{{ row.title }}">
+          <a href="{% url 'order_detail' row.order.order_id %}">{{ row.title }}</a>
+        </h2>
+        <p class="cp-order-meta">{{ row.garment_label }} · Submitted {{ row.submitted_at|date:"Y-m-d H:i" }}</p>
+      </div>
+
+      <div class="cp-order-col">
+        <span class="cp-col-label">Job status</span>
+        {% if row.status_known %}
+          <span class="cp-pill is-job">{{ row.status_label }}</span>
+        {% else %}
+          <span class="cp-pill is-warn">{{ row.status_label }}</span>
+        {% endif %}
+      </div>
+
+      <div class="cp-order-col">
+        <span class="cp-col-label">Payment</span>
+        {% include "orders/_payment_cell.html" with order=row.order %}
+      </div>
+
+      <div class="cp-order-cta">
+        <a href="{% url 'order_detail' row.order.order_id %}" class="cp-btn cp-btn-dark cp-btn-sm">View order</a>
+      </div>
+    </article>
+    {% endfor %}
   </div>
 
   {% if page_obj.paginator.num_pages > 1 %}
-  <nav class="mt-6 flex flex-wrap items-center justify-between gap-3 text-sm text-ink-muted"
-       aria-label="Orders pagination">
+  <nav class="cp-pager" aria-label="Orders pagination">
     <p>
       Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}
       · {{ page_obj.paginator.count }} submission{{ page_obj.paginator.count|pluralize }}
     </p>
-    <div class="flex items-center gap-2">
+    <div class="cp-pager-btns">
       {% if page_obj.has_previous %}
-      <a href="?page={{ page_obj.previous_page_number }}"
-         class="inline-flex min-h-11 items-center rounded-md border border-border bg-canvas px-3 py-2 text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Previous</a>
+      <a href="?page={{ page_obj.previous_page_number }}" class="cp-btn cp-btn-ghost cp-btn-sm">Previous</a>
       {% endif %}
       {% if page_obj.has_next %}
-      <a href="?page={{ page_obj.next_page_number }}"
-         class="inline-flex min-h-11 items-center rounded-md border border-border bg-canvas px-3 py-2 text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Next</a>
+      <a href="?page={{ page_obj.next_page_number }}" class="cp-btn cp-btn-ghost cp-btn-sm">Next</a>
       {% endif %}
     </div>
   </nav>
   {% endif %}
 
   {% else %}
-  <div class="mt-8">
-    {% include "components/empty_state.html" with title="No submissions yet" description="Submit a design from the editor to open a job request. Your orders and statuses will show up here." action_label="Go to designs" action_href="/app/designs/" %}
+  <div class="cp-empty cp-empty-solo">
+    <span class="cp-empty-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg></span>
+    <h3>No submissions yet</h3>
+    <p>Submit a design from the editor to open a job request. Your orders and statuses will show up here.</p>
+    <a href="{% url 'design_list' %}" class="cp-btn cp-btn-dark cp-btn-sm">Go to designs</a>
   </div>
   {% endif %}
+
 </section>
+</div>
 {% endblock %}

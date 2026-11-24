@@ -682,8 +682,9 @@
         if (liteGarmentEnabled(wrap)) {
           stripGrainAndWeave(over);
         }
-        drawPrintAreas(over, viewDef.printAreas, contrastColor(fillHex));
-        // Keep overlay above Fabric canvases inside the scene.
+        // Print-area guide (dashed square) turned off.
+        // drawPrintAreas(over, viewDef.printAreas, contrastColor(fillHex));        
+        // // Keep overlay above Fabric canvases inside the scene.
         if (over.parentNode === mount) {
           mount.appendChild(over);
         }

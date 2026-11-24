@@ -6,275 +6,519 @@
 {% block extra_head %}
 <script src="{% static 'js/payment_details.js' %}" defer></script>
 <script src="{% static 'js/payment_upload.js' %}" defer></script>
+<script src="{% static 'js/staff_preview_viewer.js' %}" defer></script>
 {% endblock %}
 
 {% block content %}
-<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6"
+{% include "components/_customer_theme.html" %}
+{% include "orders/_payment_sheet_styles.html" %}
+<style>
+  .od-crumbs{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:0 0 1rem;padding:.45rem .85rem;
+    border-radius:9999px;background:#fff;border:1px solid #e7e2d3;font-size:.78rem;width:max-content;max-width:100%}
+  .od-crumbs a{color:#6b6759;font-weight:600}
+  .od-crumbs a:hover{color:#8a6a00}
+  .od-crumbs .sep{color:#cdbf8f}
+  .od-crumbs .cur{font-family:ui-monospace,Menlo,monospace;font-weight:700;color:#0a0a0a}
+  .od-hero-pills{display:flex;flex-wrap:wrap;gap:.5rem}
+  .od-hero-pills .cp-pill{font-size:.76rem;padding:.3rem .8rem}
+
+  .od-alert{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.85rem;
+    margin-top:1.25rem;padding:1rem 1.15rem;border-radius:1rem;border:1px solid}
+  .od-alert.is-bad{background:#fff5f5;border-color:#f3c4c4}
+  .od-alert.is-due{background:#fffbea;border-color:#ecd98a}
+  .od-alert-title{margin:0;font-size:.95rem;font-weight:700;color:#0a0a0a}
+  .od-alert.is-bad .od-alert-title{color:#b91c1c}
+  .od-alert-text{margin:.3rem 0 0;font-size:.83rem;color:#3b3a33}
+  .od-alert-text strong{font-family:ui-monospace,Menlo,monospace;font-size:.95rem}
+
+  .od-body{padding:1.1rem}
+  .od-gap{margin-top:1.5rem}
+  .od-grid{display:grid;gap:1.5rem;margin-top:1.5rem}
+  @media (min-width:1024px){.od-grid{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
+
+  .od-preview{display:block;width:100%;border-radius:.9rem;border:1px solid #e7e2d3;background:#faf8f3;object-fit:contain}
+  .od-preview-empty{display:flex;height:12rem;align-items:center;justify-content:center;border-radius:.9rem;
+    border:1px dashed #cdbf8f;background:#faf8f3;font-family:'Playfair Display',Georgia,serif;color:#9a9482}
+  .od-final-img{display:block;width:100%;max-height:32rem;border-radius:.9rem;border:1px solid #e7e2d3;
+    background:#faf8f3;object-fit:contain}
+  .od-tiles{display:grid;gap:.6rem;margin:1rem 0 0;grid-template-columns:repeat(auto-fit,minmax(7.5rem,1fr))}
+  .od-tile{padding:.7rem .85rem;border-radius:.8rem;background:#faf8f3;border:1px solid #e7e2d3}
+  .od-tile dt{font-size:.62rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#9a9482}
+  .od-tile dd{margin:.25rem 0 0;font-family:ui-monospace,Menlo,monospace;font-size:.95rem;font-weight:700;color:#0a0a0a}
+  .od-tile.is-gold{background:#0a0a0a;border-color:#D4AF37}
+  .od-tile.is-gold dt{color:rgba(255,255,255,.7)}
+  .od-tile.is-gold dd{color:#D4AF37}
+  .od-notes{margin:1rem 0 0;font-size:.85rem;color:#3b3a33}
+  .od-sub{margin:.2rem 0 0;font-size:.78rem;color:#6b6759}
+
+  .od-pay-item{display:flex;align-items:flex-start;justify-content:space-between;gap:.75rem;
+    padding:.85rem 0;border-bottom:1px solid #f0ecde}
+  .od-pay-item:last-child{border-bottom:0}
+  .od-pay-amt{font-family:ui-monospace,Menlo,monospace;font-size:1rem;font-weight:700;color:#0a0a0a}
+  .od-pay-meta{margin:.15rem 0 0;font-size:.74rem;color:#6b6759}
+  .od-pay-reason{margin:.3rem 0 0;font-size:.74rem;color:#b91c1c}
+  .od-pay-req{margin:.2rem 0 0;font-size:.74rem;color:#3b3a33}
+  .od-note{margin-top:.9rem;padding:.7rem .9rem;border-radius:.8rem;font-size:.84rem;border:1px solid}
+  .od-note.is-ok{background:#e8f5e9;border-color:#bfe3c6;color:#166534}
+  .od-note.is-wait{background:#fffbea;border-color:#ecd98a;color:#3b3a33}
+  .od-note.is-neutral{background:#faf8f3;border-color:#e7e2d3;color:#6b6759}
+  .od-send{margin-top:1.25rem;padding-top:1.1rem;border-top:1px solid #e7e2d3}
+  .od-send h3{margin:0;font-family:'Playfair Display',Georgia,serif;font-size:1.05rem;color:#0a0a0a}
+  .od-send .cp-btn{margin-top:.9rem;width:100%}
+  @media (min-width:640px){.od-send .cp-btn{width:auto}}
+
+  /* Front / Back previews */
+  .od-previews{display:grid;gap:.75rem;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .od-prev-label{margin:0 0 .35rem;font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b6759}
+  .od-prev-btn{display:block;width:100%;padding:.3rem;border:1px solid #e7e2d3;border-radius:.9rem;background:#faf8f3;
+    cursor:zoom-in;transition:border-color .15s,box-shadow .15s}
+  .od-prev-btn:hover{border-color:#D4AF37;box-shadow:0 8px 20px rgba(10,10,10,.10)}
+  .od-prev-btn img{display:block;width:100%;height:11rem;object-fit:contain}
+  .od-previews .od-preview-empty{height:11rem}
+
+  /* Full-screen viewer */
+  .pv{position:fixed;inset:0;z-index:90;flex-direction:column;align-items:center;justify-content:center;padding:1rem;
+    background:rgba(10,10,10,.92);backdrop-filter:blur(4px)}
+  .pv-backdrop{position:absolute;inset:0}
+  .pv-bar{position:absolute;top:.75rem;left:.75rem;right:.75rem;z-index:3;display:flex;align-items:center;justify-content:space-between;gap:.5rem}
+  .pv-switch{display:inline-flex;gap:.35rem;padding:.25rem;border-radius:9999px;background:rgba(255,255,255,.1);border:1px solid rgba(212,175,55,.4)}
+  .pv-switch button{padding:.35rem .9rem;border-radius:9999px;border:0;background:transparent;color:#fff;font-size:.8rem;font-weight:600;cursor:pointer}
+  .pv-switch button.is-on{background:#D4AF37;color:#0a0a0a}
+  .pv-close{padding:.45rem 1rem;border-radius:9999px;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.08);color:#fff;font-size:.8rem;font-weight:600;cursor:pointer}
+  .pv-close:hover{background:#D4AF37;border-color:#D4AF37;color:#0a0a0a}
+  .pv-stage{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;width:100%;max-width:56rem}
+  .pv-label{margin:0 0 .5rem;font-size:.85rem;color:#fff}
+  .pv-img{max-height:72dvh;max-width:100%;object-fit:contain;transform-origin:center;user-select:none}
+  .pv-hint{margin:.6rem 0 0;font-size:.72rem;color:rgba(255,255,255,.6)}
+</style>
+
+<div class="cp-page">
+<section class="cp-wrap"
          data-payment-upload
          data-proof-max-mb="{{ PROOF_MAX_UPLOAD_MB }}">
-  <p class="text-sm text-ink-muted">
-    <a href="{% url 'app_home' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Dashboard</a>
-    <span class="mx-1">/</span>
-    <a href="{% url 'order_list' %}" class="underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">Orders</a>
-    <span class="mx-1">/</span>
-    <span class="font-mono">{{ order.order_id }}</span>
-  </p>
 
-  <div class="mt-4 flex flex-wrap items-end justify-between gap-4">
-    <div>
-      <h1 class="font-display text-3xl text-ink">{{ order.order_id }}</h1>
-      <p class="mt-1 text-ink-muted">{{ order.design.title }} · {{ order.get_status_display }}</p>
+  <nav class="od-crumbs" aria-label="Breadcrumb">
+    <a href="{% url 'app_home' %}">Dashboard</a>
+    <span class="sep">/</span>
+    <a href="{% url 'order_list' %}">Orders</a>
+    <span class="sep">/</span>
+    <span class="cur">{{ order.order_id }}</span>
+  </nav>
+
+  <!-- Hero -->
+  <header class="cp-hero">
+    <div class="cp-hero-row">
+      <div>
+        <p class="cp-eyebrow">Order</p>
+        <h1 class="cp-h1 cp-mono" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.02em">{{ order.order_id }}</h1>
+        <p class="cp-lead">{{ order.design.title }}</p>
+      </div>
+      <div class="od-hero-pills">
+        <span class="cp-pill is-job">{{ order.get_status_display }}</span>
+        {% with status=order.payment_status %}
+        <span class="cp-pill {% if status == 'Fully Paid' %}is-paid{% elif status == 'Downpayment Paid' %}is-down{% else %}is-out{% endif %}">{{ status }}</span>
+        {% endwith %}
+      </div>
     </div>
-    {% if order.payment_status == "Fully Paid" %}
-      {% include "components/badge.html" with label=order.payment_status variant="success" %}
-    {% else %}
-      {% include "components/badge.html" with label=order.payment_status variant="warning" %}
+  </header>
+
+  <!-- Rejection / amount due -->
+  {% if rejected_payment %}
+  <div class="od-alert is-bad">
+    <div>
+      <p class="od-alert-title">Your payment of ₱{{ rejected_payment.amount_claimed }} was rejected.</p>
+      {% if rejected_payment.rejection_reason %}
+      <p class="od-alert-text">Reason: {{ rejected_payment.rejection_reason }}</p>
+      {% endif %}
+      <p class="od-alert-text">Please pay exactly <strong>₱{{ rejected_payment.requested_amount }}</strong>.</p>
+    </div>
+    {% if can_upload %}
+    <button type="button" data-payment-sheet-open class="cp-btn cp-btn-dark">Pay Exact Amount</button>
     {% endif %}
   </div>
+  {% elif required_amount and can_upload %}
+  <div class="od-alert is-due">
+    <div>
+      <p class="od-alert-title">Payment due</p>
+      <p class="od-alert-text">Amount due: <strong>₱{{ required_amount }}</strong></p>
+    </div>
+    <button type="button" data-payment-sheet-open class="cp-btn cp-btn-dark">Pay Here</button>
+  </div>
+  {% endif %}
 
-  <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
-    <h2 class="mb-4 text-sm font-medium uppercase tracking-wide text-ink-subtle">Job phase</h2>
-    {% include "components/stepper.html" with steps=job_steps current=current_step %}
+  <!-- Job phase -->
+  <div class="cp-card od-gap">
+    <div class="cp-card-head"><h2 class="cp-card-title">Job phase</h2></div>
+    <div class="od-body">
+      {% include "components/stepper.html" with steps=job_steps current=current_step %}
+    </div>
   </div>
 
+  <!-- Final design -->
   {% if order.final_design %}
-  <div class="mt-8 rounded-lg border border-border bg-canvas p-4 sm:p-6">
-    <div class="flex flex-wrap items-end justify-between gap-4">
+  <div class="cp-card od-gap">
+    <div class="cp-card-head">
       <div>
-        <h2 class="font-display text-xl text-ink">Final design</h2>
-        <p class="mt-1 text-sm text-ink-muted">
-          Version {{ order.final_design_version }}
-          {% if order.approved_version %}
-            · you approved v{{ order.approved_version }}
-          {% endif %}
+        <h2 class="cp-card-title">Final design</h2>
+        <p class="od-sub">
+          Version {{ order.final_design_version }}{% if order.approved_version %} · you approved v{{ order.approved_version }}{% endif %}
         </p>
       </div>
       {% if can_approve_final_design %}
-      <form method="post" action="{% url 'approve_final_design' order.order_id %}">
+      <form method="post" action="{% url 'approve_final_design' order.order_id %}"
+            onsubmit="return confirm('Approve this version? Our staff will then move your order to Production.');">
         {% csrf_token %}
         <input type="hidden" name="version" value="{{ order.final_design_version }}">
-        {% include "components/button.html" with label="Approve final design" type="submit" variant="primary" %}
+        <button type="submit" class="cp-btn cp-btn-gold cp-btn-sm">Approve this revision</button>
       </form>
+      {% elif order.customer_approved_current_design and order.status == "pending_edit" %}
+      <span class="cp-pill is-down">Approved · waiting for staff</span>
       {% endif %}
     </div>
-    <div class="mt-4">
+    <div class="od-body">
+      {% if order.customer_approved_current_design and order.status == "pending_edit" %}
+      <p class="od-sub" style="margin:0 0 .75rem">
+        You approved version {{ order.approved_version }}{% if order.approved_at %} on {{ order.approved_at|date:"M j, Y g:i A" }}{% endif %}.
+        Our staff will review it and move your order to Production.
+      </p>
+      {% endif %}
       {% if order.final_design_is_pdf %}
-      <a href="{{ order.final_design.url }}"
-         target="_blank"
-         rel="noopener"
-         class="inline-block text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-        Download final design (PDF)
-      </a>
+      <a href="{{ order.final_design.url }}" target="_blank" rel="noopener" class="cp-btn cp-btn-ghost cp-btn-sm">Download final design (PDF)</a>
       {% elif order.final_design_is_image %}
-      <img src="{{ order.final_design.url }}"
-           alt="Final design version {{ order.final_design_version }}"
-           class="w-full max-h-[32rem] rounded-md border border-border object-contain bg-surface">
+      <img src="{{ order.final_design.url }}" alt="Final design version {{ order.final_design_version }}" class="od-final-img">
       {% else %}
-      <a href="{{ order.final_design.url }}"
-         target="_blank"
-         rel="noopener"
-         class="inline-block text-sm underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-        Download final design
-      </a>
+      <a href="{{ order.final_design.url }}" target="_blank" rel="noopener" class="cp-btn cp-btn-ghost cp-btn-sm">Download final design</a>
       {% endif %}
     </div>
   </div>
   {% endif %}
 
-  <div class="mt-8 grid grid-cols-1 gap-6 md:landscape:grid-cols-2 lg:grid-cols-2">
-    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <h2 class="font-display text-xl text-ink">Mock-up preview</h2>
-      {% if order.preview_image %}
-      <img src="{{ order.preview_image.url }}" alt="Order preview" class="mt-4 w-full rounded-md border border-border object-contain">
-      {% elif order.design.preview_image %}
-      <img src="{{ order.design.preview_image.url }}" alt="Design preview" class="mt-4 w-full rounded-md border border-border object-contain">
-      {% else %}
-      <div class="mt-4 flex h-48 items-center justify-center rounded-md border border-dashed border-border bg-surface font-display text-ink-subtle">
-        Preview placeholder
-      </div>
-      {% endif %}
-      <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <dt class="text-ink-subtle">Agreed total</dt>
-          <dd class="font-mono text-ink">{% if order.agreed_total %}₱{{ order.agreed_total }}{% else %}Not set{% endif %}</dd>
-        </div>
-        <div>
-          <dt class="text-ink-subtle">Total paid</dt>
-          <dd class="font-mono text-ink">₱{{ order.total_paid }}</dd>
-        </div>
-        <div>
-          <dt class="text-ink-subtle">Balance</dt>
-          <dd class="font-mono text-ink">{% if order.balance is not None %}₱{{ order.balance }}{% else %}—{% endif %}</dd>
-        </div>
-      </dl>
-      {% if order.notes %}
-      <p class="mt-4 text-sm text-ink-muted">{{ order.notes }}</p>
-      {% endif %}
-    </div>
+  <div class="od-grid">
 
-    <div class="rounded-lg border border-border bg-canvas p-4 sm:p-6">
-      <h2 class="font-display text-xl text-ink">Payment history</h2>
-      <p class="mt-1 text-sm text-ink-muted">P2P claims only — money never touches Blytz. Strictly no refunds.</p>
-      {% if payments %}
-      <div class="mt-4 overflow-x-auto rounded-md border border-border md:border md:border-border">
-        <table class="table-responsive-cards w-full border-collapse text-left text-sm md:min-w-[20rem]">
-          <thead>
-            <tr class="border-b border-border bg-surface">
-              <th class="px-3 py-2 font-medium">Amount</th>
-              <th class="px-3 py-2 font-medium">Channel</th>
-              <th class="px-3 py-2 font-medium">Date</th>
-              <th class="px-3 py-2 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-border">
-            {% for payment in payments %}
-            <tr>
-              <td class="px-3 py-2 font-mono" data-label="Amount">₱{{ payment.amount_claimed }}</td>
-              <td class="px-3 py-2" data-label="Channel">
-                {% if payment.channel %}{{ payment.channel.display_name }}{% elif payment.is_manual_adjustment %}Manual{% else %}—{% endif %}
-              </td>
-              <td class="px-3 py-2 text-ink-muted whitespace-nowrap" data-label="Date">{{ payment.created_at|date:"Y-m-d H:i" }}</td>
-              <td class="px-3 py-2" data-label="Status">
-                {% if payment.status == "accepted" %}
-                  {% include "components/badge.html" with label="Accepted" variant="success" %}
-                {% elif payment.status == "rejected" %}
-                  {% include "components/badge.html" with label="Rejected" variant="danger" %}
-                {% else %}
-                  {% include "components/badge.html" with label="Pending" variant="warning" %}
-                {% endif %}
-                {% if payment.rejection_reason %}
-                <p class="mt-1 text-xs text-danger">{{ payment.rejection_reason }}</p>
-                {% endif %}
-              </td>
-            </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      </div>
-      {% else %}
-      <div class="mt-4">
-        {% include "components/empty_state.html" with title="No payments yet" description="Upload proof after you transfer." class="py-8" %}
-      </div>
-      {% endif %}
-
-      <div class="mt-8 border-t border-border pt-6">
-        <h3 class="font-display text-lg text-ink">Send another payment</h3>
-        {% if fully_paid %}
-        <p class="mt-3 rounded-md border border-success/30 bg-success/5 px-3 py-2 text-sm text-success">Fully paid</p>
-        {% elif pending_payment %}
-        <p class="mt-3 rounded-md border border-warning/40 bg-warning/5 px-3 py-2 text-sm text-ink">Payment awaiting staff review</p>
-        {% elif can_upload %}
-        <button type="button"
-                class="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-ink px-4 py-2 text-sm font-medium text-canvas hover:bg-ink/90 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink sm:w-auto"
-                data-payment-sheet-open>
-          Upload payment proof
-        </button>
-        <div id="order-payment-sheet"
-             class="payment-upload-sheet fixed inset-0 z-50 hidden"
-             role="dialog"
-             aria-modal="true"
-             aria-labelledby="order-payment-sheet-title"
-             data-payment-sheet>
-          <div class="payment-upload-sheet-backdrop absolute inset-0 bg-ink/50" data-payment-sheet-close tabindex="-1"></div>
-          <div class="payment-upload-sheet-panel relative z-10 flex max-h-[100dvh] w-full flex-col overflow-hidden bg-canvas shadow-lg sm:max-h-[90dvh] sm:max-w-lg sm:rounded-lg sm:border sm:border-border">
-            <div class="flex items-center justify-between border-b border-border px-4 py-3"
-                 style="padding-top:max(0.75rem,env(safe-area-inset-top))">
-              <h4 id="order-payment-sheet-title" class="font-display text-lg text-ink">Upload payment proof</h4>
-              <button type="button"
-                      class="inline-flex min-h-11 min-w-11 items-center justify-center rounded-md text-ink-muted hover:bg-surface hover:text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                      data-payment-sheet-close
-                      aria-label="Close">
-                <span aria-hidden="true">&times;</span>
-              </button>
-            </div>
-            <form method="post" enctype="multipart/form-data" class="flex min-h-0 flex-1 flex-col overflow-hidden" data-payment-upload-form>
-              {% csrf_token %}
-              <div class="flex-1 space-y-4 overflow-y-auto px-4 py-4"
-                   style="padding-bottom:max(1rem,env(safe-area-inset-bottom))">
-                {% if channels %}
-                <div>
-                  <label for="order-payment-channel" class="mb-1.5 block text-sm font-medium text-ink">Payment channel</label>
-                  <select id="order-payment-channel"
-                          name="channel"
-                          required
-                          data-channel-select
-                          class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2.5 text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink">
-                    {% for ch in channels %}
-                    <option value="{{ ch.pk }}"
-                            data-account-name="{{ ch.account_name }}"
-                            data-account-number="{{ ch.account_number }}"
-                            data-instructions="{{ ch.instructions|escape }}"
-                            {% if ch.qr_image %}data-qr-url="{{ ch.qr_image.url }}"{% endif %}>
-                      {{ ch.display_name }} ({{ ch.get_kind_display }})
-                    </option>
-                    {% endfor %}
-                  </select>
-                  <div data-channel-details class="mt-2"></div>
-                </div>
-                {% else %}
-                <p class="text-sm text-danger">No active payment channels. Contact staff on Messenger.</p>
-                {% endif %}
-
-                <div>
-                  <label for="order-payment-amount" class="mb-1.5 block text-sm font-medium text-ink">Amount claimed</label>
-                  <input type="number"
-                         id="order-payment-amount"
-                         name="amount_claimed"
-                         min="0.01"
-                         step="0.01"
-                         inputmode="decimal"
-                         required
-                         value="{{ payment_form.amount_claimed.value|default_if_none:'' }}"
-                         class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2.5 font-mono text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                         placeholder="0.00">
-                  {% if payment_form.amount_claimed.errors %}
-                  <p class="mt-1 text-sm text-danger">{{ payment_form.amount_claimed.errors|striptags }}</p>
-                  {% endif %}
-                </div>
-
-                <div>
-                  <label for="order-payment-proof" class="mb-1.5 block text-sm font-medium text-ink">Proof of payment</label>
-                  <input type="file"
-                         id="order-payment-proof"
-                         name="proof_file"
-                         accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,image/*,application/pdf"
-                         capture="environment"
-                         required
-                         data-proof-input
-                         class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2 text-base text-ink file:mr-3 file:rounded file:border-0 file:bg-ink file:px-3 file:py-2 file:text-sm file:font-medium file:text-canvas focus-visible:outline focus-visible:outline-2 focus-visible:outline-ink">
-                  <p class="mt-1.5 text-xs text-ink-subtle">PNG, JPG, JPEG, or PDF · camera photos and screenshots OK · max {{ PROOF_MAX_UPLOAD_MB }} MB</p>
-                  <p class="mt-1 text-sm text-danger" data-payment-client-error role="alert">
-                    {% if payment_form.proof_file.errors %}{{ payment_form.proof_file.errors|striptags }}{% endif %}
-                  </p>
-                </div>
-                <div>
-                  <label for="order-payment-ref" class="mb-1.5 block text-sm font-medium text-ink">Reference Number</label>
-                  <input type="text"
-                        id="order-payment-ref"
-                        name="reference_number"
-                        maxlength="100"
-                        class="block w-full min-h-11 rounded-md border border-border bg-canvas px-3 py-2.5 text-base text-ink focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                        placeholder="Enter reference / transaction number">
-                  <p class="mt-1.5 text-xs text-ink-subtle">The reference number from your GCash, Maya, or bank transfer</p>
-                </div>
-              </div>
-              {% if channels %}
-              <div class="flex flex-wrap justify-end gap-2 border-t border-border px-4 py-3"
-                   style="padding-bottom:max(0.75rem,env(safe-area-inset-bottom))">
-                <button type="button"
-                        class="inline-flex min-h-11 items-center rounded-md border border-border-strong bg-canvas px-4 py-2 text-sm font-medium text-ink hover:bg-surface focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                        data-payment-sheet-close>
-                  Cancel
-                </button>
-                {% include "components/button.html" with label="Upload payment proof" type="submit" variant="primary" %}
-              </div>
-              {% endif %}
-            </form>
+    <!-- Mock-up + totals -->
+    <div class="cp-card">
+      <div class="cp-card-head"><h2 class="cp-card-title">Mock-up preview</h2></div>
+      <div class="od-body">
+        <div class="od-previews">
+          <div>
+            <p class="od-prev-label">Front</p>
+            {% if order.preview_image %}
+            <button type="button" class="od-prev-btn" data-preview-open
+                    data-preview-src="{{ order.preview_image.url }}" data-preview-label="Front mock-up">
+              <img src="{{ order.preview_image.url }}" alt="Front mock-up">
+            </button>
+            {% elif order.design.preview_image %}
+            <button type="button" class="od-prev-btn" data-preview-open
+                    data-preview-src="{{ order.design.preview_image.url }}" data-preview-label="Front mock-up">
+              <img src="{{ order.design.preview_image.url }}" alt="Front mock-up">
+            </button>
+            {% else %}
+            <div class="od-preview-empty">No front preview</div>
+            {% endif %}
+          </div>
+          <div>
+            <p class="od-prev-label">Back</p>
+            {% if order.preview_back_image %}
+            <button type="button" class="od-prev-btn" data-preview-open
+                    data-preview-src="{{ order.preview_back_image.url }}" data-preview-label="Back mock-up">
+              <img src="{{ order.preview_back_image.url }}" alt="Back mock-up">
+            </button>
+            {% else %}
+            <div class="od-preview-empty">No back preview</div>
+            {% endif %}
           </div>
         </div>
+
+        <dl class="od-tiles">
+          <div class="od-tile">
+            <dt>Agreed total</dt>
+            <dd>{% if order.agreed_total %}₱{{ order.agreed_total }}{% else %}Not set{% endif %}</dd>
+          </div>
+          <div class="od-tile">
+            <dt>Total paid</dt>
+            <dd>₱{{ order.total_paid }}</dd>
+          </div>
+          <div class="od-tile">
+            <dt>Balance</dt>
+            <dd>{% if order.balance is not None %}₱{{ order.balance }}{% else %}—{% endif %}</dd>
+          </div>
+          {% if order.balance_due is not None %}
+          <div class="od-tile is-gold">
+            <dt>Final balance</dt>
+            <dd>₱{{ order.balance_due }}</dd>
+          </div>
+          {% endif %}
+        </dl>
+        {% if order.notes %}
+        <p class="od-notes">{{ order.notes }}</p>
         {% endif %}
       </div>
     </div>
+
+    <!-- Payment history + send -->
+    <div class="cp-card">
+      <div class="cp-card-head">
+        <div>
+          <h2 class="cp-card-title">Payment history</h2>
+          <p class="od-sub">P2P claims only — money never touches Blytz. Strictly no refunds.</p>
+        </div>
+      </div>
+      <div class="od-body">
+        {% if payments %}
+        <div>
+          {% for payment in payments %}
+          <div class="od-pay-item">
+            <div class="min-w-0">
+              <span class="od-pay-amt">₱{{ payment.amount_claimed }}</span>
+              <p class="od-pay-meta">
+                {% if payment.channel %}{{ payment.channel.display_name }}{% elif payment.is_manual_adjustment %}Manual{% else %}—{% endif %}
+                · {{ payment.get_purpose_display }}
+                · {{ payment.created_at|date:"Y-m-d H:i" }}
+              </p>
+              {% if payment.rejection_reason %}
+              <p class="od-pay-reason">{{ payment.rejection_reason }}</p>
+              {% endif %}
+              {% if payment.requested_amount %}
+              <p class="od-pay-req">Staff requested: <strong class="cp-mono">₱{{ payment.requested_amount }}</strong></p>
+              {% endif %}
+            </div>
+            {% if payment.status == "accepted" %}
+              <span class="cp-pill is-paid">Accepted</span>
+            {% elif payment.status == "rejected" %}
+              <span class="cp-pill is-out">Rejected</span>
+            {% else %}
+              <span class="cp-pill is-warn">Pending</span>
+            {% endif %}
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="cp-empty">
+          <span class="cp-empty-icon" aria-hidden="true"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"/></svg></span>
+          <h3>No payments yet</h3>
+          <p>Upload proof after you transfer.</p>
+        </div>
+        {% endif %}
+
+        <div class="od-send">
+          <h3>Send another payment</h3>
+          {% if fully_paid %}
+          <p class="od-note is-ok">Fully paid</p>
+          {% elif pending_payment %}
+          <p class="od-note is-wait">Payment awaiting staff review</p>
+          {% elif can_upload %}
+          <button type="button" class="cp-btn cp-btn-dark" data-payment-sheet-open>
+            {% if rejected_payment %}Pay Exact Amount{% elif required_amount %}Pay Here{% else %}Upload payment proof{% endif %}
+          </button>
+
+          <div id="order-payment-sheet"
+               class="payment-upload-sheet pp-sheet hidden"
+               role="dialog"
+               aria-modal="true"
+               aria-labelledby="order-payment-sheet-title"
+               data-payment-sheet>
+            <div class="pp-backdrop" data-payment-sheet-close tabindex="-1"></div>
+            <div class="pp-panel">
+              <header class="pp-head">
+                <div>
+                  <p class="pp-eyebrow">{{ order.order_id }}</p>
+                  <h4 id="order-payment-sheet-title" class="pp-title">Upload payment proof</h4>
+                  <p class="pp-sub">Send your payment first, then attach the screenshot or photo here.</p>
+                </div>
+                <button type="button" class="pp-close" data-payment-sheet-close aria-label="Close">&times;</button>
+              </header>
+
+              <form method="post" enctype="multipart/form-data" class="pp-form" data-payment-upload-form>
+                {% csrf_token %}
+                <div class="pp-body">
+                  <ol class="pp-steps">
+                    <li><span>1</span>Send payment</li>
+                    <li><span>2</span>Upload proof</li>
+                  </ol>
+
+                  {% if channels %}
+                  <div class="pp-field">
+                    <label for="order-payment-channel" class="pp-label">Payment channel</label>
+                    <select id="order-payment-channel" name="channel" required data-channel-select class="pp-input">
+                      {% for ch in channels %}
+                      <option value="{{ ch.pk }}"
+                              data-account-name="{{ ch.account_name }}"
+                              data-account-number="{{ ch.account_number }}"
+                              data-instructions="{{ ch.instructions|escape }}"
+                              {% if ch.qr_image %}data-qr-url="{{ ch.qr_image.url }}"{% endif %}>
+                        {{ ch.display_name }} ({{ ch.get_kind_display }})
+                      </option>
+                      {% endfor %}
+                    </select>
+                    <div data-channel-details class="mt-2"></div>
+                  </div>
+                  {% else %}
+                  <p class="pp-error">No active payment channels. Contact staff on Messenger.</p>
+                  {% endif %}
+
+                  <div class="pp-field">
+                    <label for="order-payment-amount" class="pp-label">Amount claimed</label>
+                    <div class="pp-amount{% if required_amount %} is-locked{% endif %}">
+                      <span class="pp-amount-cur">₱</span>
+                      <input type="number"
+                             id="order-payment-amount"
+                             name="amount_claimed"
+                             min="0.01"
+                             step="0.01"
+                             inputmode="decimal"
+                             required
+                             value="{% if required_amount %}{{ required_amount|stringformat:'s' }}{% else %}{{ payment_form.amount_claimed.value|default_if_none:'' }}{% endif %}"
+                             {% if required_amount %}readonly{% endif %}
+                             class="pp-amount-input"
+                             placeholder="0.00">
+                    </div>
+                    {% if required_amount %}
+                    <p class="pp-hint">This is the exact amount staff requested. It can't be changed.</p>
+                    {% else %}
+                    <p class="pp-hint">Enter the amount you sent.</p>
+                    {% endif %}
+                    {% if payment_form.amount_claimed.errors %}
+                    <p class="pp-error">{{ payment_form.amount_claimed.errors|striptags }}</p>
+                    {% endif %}
+                  </div>
+
+                  <div class="pp-field">
+                    <span class="pp-label">Proof of payment</span>
+                    <label class="pp-drop" for="order-payment-proof" data-proof-drop>
+                      <input type="file"
+                             id="order-payment-proof"
+                             name="proof_file"
+                             accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,image/*,application/pdf"
+                             required
+                             data-proof-input
+                             class="pp-drop-input">
+                      <span class="pp-drop-icon" aria-hidden="true">
+                        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M16 8l-4-4m0 0L8 8m4-4v12"/></svg>
+                      </span>
+                      <span class="pp-drop-title" data-proof-title>Tap to upload or drag a file here</span>
+                      <span class="pp-drop-sub" data-proof-sub>PNG, JPG, JPEG or PDF · max {{ PROOF_MAX_UPLOAD_MB }} MB</span>
+                      <img data-proof-thumb class="pp-drop-thumb" alt="Selected proof preview" hidden>
+                    </label>
+                    <p class="pp-error" data-payment-client-error role="alert">{% if payment_form.proof_file.errors %}{{ payment_form.proof_file.errors|striptags }}{% endif %}</p>
+                  </div>
+
+                  <div class="pp-field">
+                    <label for="order-payment-ref" class="pp-label">Reference number</label>
+                    <input type="text"
+                           id="order-payment-ref"
+                           name="reference_number"
+                           maxlength="100"
+                           class="pp-input"
+                           placeholder="Enter reference / transaction number">
+                    <p class="pp-hint">The reference number from your GCash, Maya, or bank transfer.</p>
+                  </div>
+                </div>
+
+                {% if channels %}
+                <footer class="pp-foot">
+                  <button type="button" class="pp-btn pp-btn-ghost" data-payment-sheet-close>Cancel</button>
+                  <button type="submit" class="pp-btn pp-btn-primary">Submit payment proof</button>
+                </footer>
+                {% endif %}
+              </form>
+            </div>
+          </div>
+
+          <script>
+            (function () {
+              var input = document.querySelector("#order-payment-sheet [data-proof-input]");
+              if (!input) return;
+              var drop = input.closest("[data-proof-drop]");
+              var title = drop.querySelector("[data-proof-title]");
+              var sub = drop.querySelector("[data-proof-sub]");
+              var thumb = drop.querySelector("[data-proof-thumb]");
+              var defaultTitle = title.textContent;
+              var defaultSub = sub.textContent;
+
+              function render() {
+                var f = input.files && input.files[0];
+                drop.classList.toggle("has-file", !!f);
+                if (!f) {
+                  title.textContent = defaultTitle;
+                  sub.textContent = defaultSub;
+                  thumb.hidden = true;
+                  thumb.removeAttribute("src");
+                  return;
+                }
+                title.textContent = f.name;
+                sub.textContent = (f.size / 1048576).toFixed(2) + " MB · tap to change";
+                if (/^image\//.test(f.type)) {
+                  thumb.src = URL.createObjectURL(f);
+                  thumb.hidden = false;
+                } else {
+                  thumb.hidden = true;
+                }
+              }
+
+              input.addEventListener("change", render);
+              ["dragenter", "dragover"].forEach(function (ev) {
+                drop.addEventListener(ev, function () { drop.classList.add("is-drag"); });
+              });
+              ["dragleave", "drop"].forEach(function (ev) {
+                drop.addEventListener(ev, function () { drop.classList.remove("is-drag"); });
+              });
+            })();
+          </script>
+          {% else %}
+          <p class="od-note is-neutral">No payment is due right now.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
   </div>
+
+  <script>
+    window.addEventListener("load", function () {
+      if (new URLSearchParams(window.location.search).get("pay") === "1") {
+        var btn = document.querySelector("[data-payment-sheet-open]");
+        if (btn) btn.click();
+      }
+    });
+  </script>
 </section>
+</div>
+
+<div id="preview-lightbox" class="pv hidden" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Mock-up preview">
+  <div class="pv-backdrop" data-lightbox-close tabindex="-1"></div>
+  <div class="pv-bar">
+    <div class="pv-switch" role="group" aria-label="Choose side">
+      {% if order.preview_image or order.design.preview_image %}<button type="button" data-pv-switch="Front mock-up">Front</button>{% endif %}
+      {% if order.preview_back_image %}<button type="button" data-pv-switch="Back mock-up">Back</button>{% endif %}
+    </div>
+    <button type="button" class="pv-close" data-lightbox-close>Close</button>
+  </div>
+  <div class="pv-stage" data-lightbox-stage style="touch-action:none">
+    <p class="pv-label" data-lightbox-label></p>
+    <img data-lightbox-img alt="" class="pv-img" draggable="false" style="touch-action:none">
+    <p class="pv-hint">Pinch or scroll to zoom · drag when zoomed</p>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var overlay = document.getElementById("preview-lightbox");
+    if (!overlay) return;
+    var label = overlay.querySelector("[data-lightbox-label]");
+    var buttons = [].slice.call(overlay.querySelectorAll("[data-pv-switch]"));
+    function sync() {
+      var t = label ? label.textContent : "";
+      buttons.forEach(function (b) { b.classList.toggle("is-on", b.getAttribute("data-pv-switch") === t); });
+    }
+    buttons.forEach(function (b) {
+      b.addEventListener("click", function () {
+        var target = document.querySelector('[data-preview-open][data-preview-label="' + b.getAttribute("data-pv-switch") + '"]');
+        if (target) { target.click(); setTimeout(sync, 0); }
+      });
+    });
+    document.querySelectorAll("[data-preview-open]").forEach(function (btn) {
+      btn.addEventListener("click", function () { setTimeout(sync, 0); });
+    });
+  })();
+</script>
 {% endblock %}

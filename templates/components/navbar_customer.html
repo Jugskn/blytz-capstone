@@ -18,6 +18,8 @@
     <!-- Right: User Menu & Mobile Toggle (flex-1 pushes it to the far right) -->
     <div class="flex flex-1 items-center justify-end gap-3 sm:gap-4">
       
+      {% include "components/_customer_bell.html" %}
+
       <!-- User Dropdown Menu -->
       <details class="relative group z-50">
         <!-- Trigger: Matches the provided image -->
@@ -101,6 +103,33 @@
 
 {# Spacer — pushes content below the fixed navbar #}
 <div class="h-[64px] sm:h-[72px]" aria-hidden="true"></div>
+
+{# Action banner: shows while a payment needs the customer's attention #}
+{% if customer_actions and request.resolver_match.url_name != "order_detail" %}
+{% with a=customer_actions.0 %}
+<style>
+  .cn-banner{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem .85rem;padding:.65rem 1rem;
+    background:linear-gradient(90deg,#fffbea,#fff6d6);border-bottom:1px solid #ecd98a;color:#3b3a33;font-size:.85rem}
+  .cn-banner strong{color:#0a0a0a}
+  .cn-banner .dot{width:.55rem;height:.55rem;border-radius:9999px;background:#D4AF37;box-shadow:0 0 0 4px rgba(212,175,55,.25)}
+  .cn-banner a{margin-left:auto;display:inline-flex;align-items:center;min-height:2rem;padding:.25rem .9rem;border-radius:9999px;
+    background:#0a0a0a;color:#fff;font-size:.78rem;font-weight:600;text-decoration:none}
+  .cn-banner a:hover{background:#D4AF37;color:#0a0a0a}
+</style>
+<div class="cn-banner" role="status">
+  <span class="dot" aria-hidden="true"></span>
+  <p style="margin:0">
+    {% if a.kind == "rejected" %}
+      Payment rejected for <strong>{{ a.order.order_id }}</strong>. Please pay exactly <strong>₱{{ a.amount }}</strong>.
+    {% else %}
+      Balance due on <strong>{{ a.order.order_id }}</strong>: <strong>₱{{ a.amount }}</strong>.
+    {% endif %}
+    {% if customer_actions|length > 1 %}<span>(+{{ customer_actions|length|add:"-1" }} more)</span>{% endif %}
+  </p>
+  <a href="{% url 'order_detail' a.order.order_id %}?pay=1">Pay now</a>
+</div>
+{% endwith %}
+{% endif %}
 
 <!-- Mobile drawer -->
 <div id="customer-nav-drawer" class="nav-drawer">
