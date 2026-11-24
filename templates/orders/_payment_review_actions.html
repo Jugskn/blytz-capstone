@@ -1,0 +1,20 @@
+{% if payment.status == "pending" %}
+<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-start">
+  <form method="post" action="{% url 'review_payment' order.order_id payment.pk %}" class="inline">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="accept">
+    {% include "components/button.html" with label="Accept" type="submit" variant="primary" size="sm" %}
+  </form>
+  <form method="post" action="{% url 'review_payment' order.order_id payment.pk %}" class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="reject">
+    <input type="text" name="rejection_reason" maxlength="255" placeholder="Reason (optional)"
+           aria-label="Rejection reason"
+           class="min-h-9 w-full min-w-0 flex-1 rounded-md border border-border px-2 py-1.5 text-sm">
+    <input type="number" name="requested_amount" min="0.01" step="0.01" inputmode="decimal"
+           placeholder="Exact amount to pay (₱)" aria-label="Exact amount customer must pay"
+           class="min-h-9 w-full min-w-0 rounded-md border border-border px-2 py-1.5 font-mono text-sm sm:w-48">
+    {% include "components/button.html" with label="Reject" type="submit" variant="danger" size="sm" %}
+  </form>
+</div>
+{% endif %}

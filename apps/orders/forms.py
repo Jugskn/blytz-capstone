@@ -15,7 +15,9 @@ class OrderPaymentUploadForm(forms.Form):
         max_digits=10,
         decimal_places=2,
     )
+    
     proof_file = forms.FileField()
+    reference_number = forms.CharField(max_length=100, required=False)
 
     def clean_proof_file(self):
         return validate_and_process_proof(self.cleaned_data["proof_file"])
@@ -37,6 +39,20 @@ class PaymentRejectForm(forms.Form):
         required=False,
         strip=True,
     )
+    requested_amount = forms.DecimalField(
+        required=False,
+        min_value=Decimal("0.01"),
+        max_digits=10,
+        decimal_places=2,
+    )
+
+
+class CompleteOrderForm(forms.Form):
+    balance_due = forms.DecimalField(
+        min_value=Decimal("0.00"),
+        max_digits=10,
+        decimal_places=2,
+    )
 
 
 class FinalDesignUploadForm(forms.Form):
@@ -48,3 +64,28 @@ class FinalDesignUploadForm(forms.Form):
 
 class ApproveFinalDesignForm(forms.Form):
     version = forms.IntegerField(min_value=1)
+
+class OrderPricingForm(forms.Form):
+    agreed_total = forms.DecimalField(
+        required=False,
+        min_value=Decimal("0.00"),
+        max_digits=10,
+        decimal_places=2,
+    )
+    agreed_downpayment = forms.DecimalField(
+        required=False,
+        min_value=Decimal("0.00"),
+        max_digits=10,
+        decimal_places=2,
+    )
+
+    def clean(self):
+        data = super().clean()
+        total = data.get("agreed_total")
+        down = data.get("agreed_downpayment")
+        if total is not None and down is not None and down > total:
+            self.add_error(
+                "agreed_downpayment",
+                "The downpayment cannot be higher than the agreed total.",
+            )
+        return data

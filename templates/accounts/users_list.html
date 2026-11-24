@@ -2,20 +2,20 @@
 
 {% block title %}Users — Blytz{% endblock %}
 
-{% block content %}
-<section class="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-  <nav class="text-sm text-ink-muted" aria-label="Breadcrumb">
-    <a href="{% url 'staff_home' %}" class="underline">Staff</a>
-    <span class="mx-1">/</span>
-    <span class="text-ink">Users</span>
-  </nav>
-  <div class="mt-4 flex flex-wrap items-end justify-between gap-3">
-    <div>
-      <h1 class="font-display text-3xl text-ink">Users</h1>
-      <p class="mt-1 text-ink-muted">Create staff, change roles, grant accounting edit.</p>
-    </div>
-    {% include "components/button.html" with label="Create staff" href="/staff/users/add/" variant="primary" %}
+{% block staff_content %}
+<!-- <section class="w-full px-4 py-10 sm:px-6"> -->
+
+  {# ── Page header ─────────────────────────────────────────── #}
+<header class="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+  <div>
+    <p class="text-xs font-medium uppercase tracking-wider text-text-muted">Admin · User Management </p>
+    <h1 class="mt-1 text-2xl font-bold text-text-primary sm:text-3xl">Users</h1>
+    <p class="mt-1 text-sm text-text-muted">Create staff, change roles, grant accounting edit permissions.</p>
   </div>
+      {% include "components/button.html" with label="Create staff" href="/staff/users/add/" variant="primary" %}
+</header>
+
+  
 
   {% if empty %}
     {% include "components/empty_state.html" with title="No users" class="mt-8" %}
@@ -55,5 +55,5 @@
     </table>
   </div>
   {% endif %}
-</section>
+<!-- </section> -->
 {% endblock %}

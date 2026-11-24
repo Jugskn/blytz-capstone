@@ -19,8 +19,10 @@ from apps.orders.customer_display import (
 from apps.orders.design_details import parse_design_details
 from apps.orders.forms import (
     ApproveFinalDesignForm,
+    CompleteOrderForm,
     FinalDesignUploadForm,
     OrderPaymentUploadForm,
+    OrderPricingForm,
     PaymentRejectForm,
 )
 from apps.orders.models import Order, OrderPhaseChange, Payment, PaymentChannel
@@ -59,7 +61,13 @@ PIPELINE_COLUMNS = [
 ADVANCE_NEEDS_ACCEPTED_PAYMENT = (
     "At least one accepted payment is required before moving to Pending Edit."
 )
-
+ADVANCE_NEEDS_DOWNPAYMENT = (
+    'Payment status must be "Downpayment Paid" before moving this order forward.'
+)
+ADVANCE_NEEDS_FULL_PAYMENT = (
+    'Payment status must be "Fully Paid" before this order can be completed. '
+    "Request the final payment and wait until the customer's payment is accepted."
+)
 
 @customer_required
 def order_list(request):
@@ -134,12 +142,26 @@ def order_detail(request, order_id):
                     if locked.payment_status == Order.FULLY_PAID:
                         messages.error(request, "This order is fully paid.")
                         return redirect("order_detail", order_id=order.order_id)
+                    amount = payment_form.cleaned_data["amount_claimed"]
+                    required = locked.amount_due
+                    if required is not None and amount != required:
+                        messages.error(
+                            request,
+                            f"Please pay the exact amount requested: ₱{required}.",
+                        )
+                        return redirect("order_detail", order_id=order.order_id)
                     Payment.objects.create(
                         order=locked,
                         channel=payment_form.cleaned_data["channel"],
-                        amount_claimed=payment_form.cleaned_data["amount_claimed"],
+                        amount_claimed=amount,
                         proof_file=payment_form.cleaned_data["proof_file"],
+                        reference_number=payment_form.cleaned_data.get("reference_number", ""),
                         status=Payment.Status.PENDING,
+                        purpose=(
+                            Payment.Purpose.BALANCE
+                            if locked.balance_due is not None
+                            else Payment.Purpose.DOWNPAYMENT
+                        ),
                     )
             except IntegrityError:
                 messages.error(
@@ -177,6 +199,8 @@ def order_detail(request, order_id):
             "pending_payment": pending,
             "fully_paid": fully_paid,
             "can_approve_final_design": order.can_approve_final_design(),
+            "required_amount": order.amount_due,
+            "rejected_payment": order.rejected_request,
         },
     )
 
@@ -208,25 +232,17 @@ def approve_final_design(request, order_id):
         if seen_version != locked.final_design_version:
             messages.error(request, STALE_FINAL_DESIGN_MESSAGE)
             return redirect("order_detail", order_id=locked.order_id)
+        if locked.approved_version == locked.final_design_version:
+            messages.info(
+                request,
+                "You already approved this version. Staff will move your order to Production.",
+            )
+            return redirect("order_detail", order_id=locked.order_id)
 
-        previous = locked.status
-        now = timezone.now()
+        # Record the approval only. Staff decide when the order moves to Production.
         locked.approved_version = locked.final_design_version
-        locked.approved_at = now
-        locked.status = Order.Status.PRODUCTION
-        locked.save(
-            update_fields=[
-                "approved_version",
-                "approved_at",
-                "status",
-            ]
-        )
-        OrderPhaseChange.objects.create(
-            order=locked,
-            from_status=previous,
-            to_status=Order.Status.PRODUCTION,
-            changed_by=request.user,
-        )
+        locked.approved_at = timezone.now()
+        locked.save(update_fields=["approved_version", "approved_at"])
         ActivityLog.objects.create(
             customer=locked.customer,
             design=locked.design,
@@ -236,15 +252,15 @@ def approve_final_design(request, order_id):
 
     messages.success(
         request,
-        f"Final design approved. {locked.order_id} is now in Production.",
+        "Thank you! Your approval was sent to our staff. They will move your order to Production.",
     )
     return redirect("order_detail", order_id=locked.order_id)
 
-
 @staff_required
 def jobs_pipeline(request):
-    qs = Order.objects.select_related("customer", "design").prefetch_related("payments")
-
+    qs = Order.objects.select_related("customer", "design").prefetch_related(
+        "payments__reviewed_by"
+    )
     q = (request.GET.get("q") or "").strip()
     customer = (request.GET.get("customer") or "").strip()
     pending_review = (request.GET.get("pending_review") or "").strip() in {
@@ -298,13 +314,36 @@ def staff_order_detail(request, order_id):
     next_status = order.next_status()
     advance_blocked_reason = None
     if (
-        next_status == Order.Status.PENDING_EDIT
-        and not order.has_accepted_payment
+        next_status in (Order.Status.PENDING_EDIT, Order.Status.PRODUCTION)
+        and order.payment_status != Order.DOWNPAYMENT_PAID
     ):
-        advance_blocked_reason = ADVANCE_NEEDS_ACCEPTED_PAYMENT
+        advance_blocked_reason = ADVANCE_NEEDS_DOWNPAYMENT
+    elif (
+        next_status == Order.Status.COMPLETED
+        and order.payment_status != Order.FULLY_PAID
+    ):
+        advance_blocked_reason = ADVANCE_NEEDS_FULL_PAYMENT
+
+    can_request_final_payment = (
+        order.status == Order.Status.PRODUCTION
+        and order.balance_paid == 0
+        and order.pending_payment is None
+    )
 
     design_details = parse_design_details(order.canvas_json_snapshot)
     is_pending_edit = order.status == Order.Status.PENDING_EDIT
+
+    production_confirm_message = ""
+    if is_pending_edit and next_status == Order.Status.PRODUCTION:
+        if not order.final_design:
+            production_confirm_message = (
+                "No final design has been uploaded. Move to Production anyway?"
+            )
+        elif not order.customer_approved_current_design:
+            production_confirm_message = (
+                "The customer has not approved the latest final design yet. "
+                "Move to Production anyway?"
+            )
 
     return render(
         request,
@@ -327,6 +366,8 @@ def staff_order_detail(request, order_id):
             ),
             "advance_blocked_reason": advance_blocked_reason,
             "reject_form": PaymentRejectForm(),
+            "can_edit_pricing": request.user.can_edit_accounting_page(),
+            "can_request_final_payment": can_request_final_payment,            
             "final_design_form": FinalDesignUploadForm(),
             "is_pending_edit": is_pending_edit,
             "needs_final_design_confirm": (
@@ -334,6 +375,7 @@ def staff_order_detail(request, order_id):
                 and next_status == Order.Status.PRODUCTION
                 and not order.final_design
             ),
+            "production_confirm_message": production_confirm_message,
         },
     )
 
@@ -425,8 +467,15 @@ def advance_order_phase(request, order_id):
         messages.error(request, "Order is already completed.")
         return redirect("staff_order_detail", order_id=order.order_id)
 
-    if nxt == Order.Status.PENDING_EDIT and not order.has_accepted_payment:
-        messages.error(request, ADVANCE_NEEDS_ACCEPTED_PAYMENT)
+    if (
+        nxt in (Order.Status.PENDING_EDIT, Order.Status.PRODUCTION)
+        and order.payment_status != Order.DOWNPAYMENT_PAID
+    ):
+        messages.error(request, ADVANCE_NEEDS_DOWNPAYMENT)
+        return redirect("staff_order_detail", order_id=order.order_id)
+
+    if nxt == Order.Status.COMPLETED and order.payment_status != Order.FULLY_PAID:
+        messages.error(request, ADVANCE_NEEDS_FULL_PAYMENT)
         return redirect("staff_order_detail", order_id=order.order_id)
 
     previous = order.status
@@ -471,6 +520,7 @@ def review_payment(request, order_id, payment_id):
             payment.reject(
                 request.user,
                 form.cleaned_data.get("rejection_reason") or "",
+                form.cleaned_data.get("requested_amount"),
             )
             messages.success(request, "Payment rejected.")
         else:
@@ -479,3 +529,90 @@ def review_payment(request, order_id, payment_id):
         raise PermissionDenied
 
     return redirect("staff_order_detail", order_id=order.order_id)
+
+def _money(value):
+    return "not set" if value is None else f"₱{value:,.2f}"
+
+@staff_required
+@require_POST
+def update_order_pricing(request, order_id):
+    order = get_object_or_404(Order, order_id=order_id)
+    if not request.user.can_edit_accounting_page():
+        raise PermissionDenied
+
+    form = OrderPricingForm(request.POST)
+    if not form.is_valid():
+        for errors in form.errors.values():
+            for err in errors:
+                messages.error(request, err)
+        return redirect("staff_order_detail", order_id=order.order_id)
+
+    old_total, old_down = order.agreed_total, order.agreed_downpayment
+    order.agreed_total = form.cleaned_data["agreed_total"]
+    order.agreed_downpayment = form.cleaned_data["agreed_downpayment"]
+    order.accounting_edited_by = request.user
+    order.accounting_edited_at = timezone.now()
+    order.save(
+        update_fields=[
+            "agreed_total",
+            "agreed_downpayment",
+            "accounting_edited_by",
+            "accounting_edited_at",
+        ]
+    )
+    if (old_total, old_down) != (order.agreed_total, order.agreed_downpayment):
+        actor = request.user.get_full_name() or request.user.email
+        ActivityLog.objects.create(
+            customer=order.customer,
+            design=order.design,
+            order=order,
+            kind=ActivityLog.Kind.PRICING_UPDATED,
+            detail=(
+                f"Total {_money(old_total)} → {_money(order.agreed_total)} · "
+                f"Downpayment {_money(old_down)} → {_money(order.agreed_downpayment)} · by {actor}"
+            ),
+        )
+    messages.success(request, "Order pricing updated.")    
+    return redirect("staff_order_detail", order_id=order.order_id)
+
+@staff_required
+@require_POST
+def request_final_payment(request, order_id):
+    order = get_object_or_404(
+        Order.objects.prefetch_related("payments"), order_id=order_id
+    )
+    back = redirect("staff_order_detail", order_id=order.order_id)
+
+    if order.status != Order.Status.PRODUCTION:
+        messages.error(
+            request,
+            "The final payment can only be requested while the order is in Production.",
+        )
+        return back
+    if order.balance_paid > 0 or order.pending_payment is not None:
+        messages.error(
+            request,
+            "The final balance can't be changed after the customer has paid or submitted a payment.",
+        )
+        return back
+
+    form = CompleteOrderForm(request.POST)
+    if not form.is_valid():
+        messages.error(request, "Enter the final balance (0 or more).")
+        return back
+
+    order.balance_due = form.cleaned_data["balance_due"]
+    order.save(update_fields=["balance_due"])
+    actor = request.user.get_full_name() or request.user.email
+    ActivityLog.objects.create(
+        customer=order.customer,
+        design=order.design,
+        order=order,
+        kind=ActivityLog.Kind.FINAL_PAYMENT_REQUESTED,
+        detail=f"Final balance {_money(order.balance_due)} · by {actor}",
+    )
+    messages.success(
+        request,
+        f"Final payment requested: ₱{order.balance_due}. The customer can now pay it.",
+    )
+    return back

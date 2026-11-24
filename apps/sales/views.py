@@ -6,13 +6,15 @@ from apps.accounts.decorators import staff_required
 from apps.designs.models import ActivityLog, Design
 
 from .models import Lead
-
+from .timeline import build_order_timeline
 
 @staff_required
 def sales_pipeline(request):
     tab = request.GET.get("tab", "leads")
-    leads = Lead.objects.select_related("customer", "order", "order__design").order_by(
-        "-created_at"
+    leads = (
+        Lead.objects.select_related("customer", "order", "order__design")
+        .prefetch_related("order__payments")
+        .order_by("-created_at")
     )
 
     stages = []
@@ -57,13 +59,16 @@ def update_lead_stage(request, lead_id):
         return redirect("sales_pipeline")
 
     if lead.stage != new_stage:
+        old_label = lead.get_stage_display()
         lead.stage = new_stage
         lead.save(update_fields=["stage"])
+        actor = request.user.get_full_name() or request.user.email
         ActivityLog.objects.create(
             customer=lead.customer,
             design=lead.order.design if lead.order_id else None,
             order=lead.order,
             kind=ActivityLog.Kind.LEAD_STAGE_CHANGED,
+            detail=f"{old_label} → {lead.get_stage_display()} · by {actor}",
         )
         messages.success(request, f"Lead moved to {lead.get_stage_display()}.")
     return redirect(request.POST.get("next") or "sales_pipeline")
@@ -75,9 +80,8 @@ def lead_detail(request, lead_id):
         Lead.objects.select_related("customer", "order", "order__design"),
         pk=lead_id,
     )
-    timeline = ActivityLog.objects.filter(customer=lead.customer).select_related(
-        "design", "order"
-    )
+    timeline = build_order_timeline(lead.order)
+
     return render(
         request,
         "sales/lead_detail.html",

@@ -1563,7 +1563,7 @@
     }
 
     if (submitBtn) {
-      submitBtn.addEventListener("click", function () {
+      var onSubmitClick = function () {
         if (alreadySubmitted) {
           setStatus("Already submitted.");
           refreshReadiness();
@@ -1609,7 +1609,10 @@
         openModal(modalId);
         showChannelDetails();
         startPaymentWindow();
-      });
+      };
+      submitBtn.addEventListener("click", onSubmitClick);
+      // Lets the approval modal run the real submit flow after the customer accepts.
+      window.BlytzEditorBeginPayment = onSubmitClick;
     }
 
     if (channelSelect) {
@@ -1702,6 +1705,7 @@
           currentTitle(),
           currentGarment()
         );
+        const submitTitle = currentTitle();
         var frozenEnvelope;
         try {
           frozenEnvelope = JSON.parse(prepared.jsonString);
@@ -1793,6 +1797,7 @@
               dataURLToBlob(urls[1]),
               "preview_back.png"
             );
+            body.set("title", submitTitle);
             return fetch(form.action, {
               method: "POST",
               body: body,

@@ -164,6 +164,7 @@ class DesignSubmitForm(forms.Form):
     window_started_at = forms.CharField()
     garment_template = forms.CharField(max_length=100, required=False)
     garment_color = forms.CharField(max_length=50, required=False)
+    title = forms.CharField(max_length=200, required=False)
 
     def __init__(self, *args, stored_canvas=None, **kwargs):
         self.stored_canvas = stored_canvas
@@ -182,6 +183,13 @@ class DesignSubmitForm(forms.Form):
 
     def clean_garment_color(self):
         return _clean_optional_garment_color(self.cleaned_data.get("garment_color"))
+   
+    def clean_title(self):
+        # Only normalize when the client actually sent a title.
+        if self.data is not None and "title" not in self.data:
+            return None
+        title = (self.cleaned_data.get("title") or "").strip()
+        return title[:200] or "Untitled design"
 
     def clean_window_started_at(self):
         raw = self.cleaned_data["window_started_at"]

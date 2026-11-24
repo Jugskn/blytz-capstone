@@ -14,14 +14,17 @@ from django.views.decorators.http import require_POST
 from apps.accounts.decorators import customer_required
 from apps.orders.models import Order, Payment, PaymentChannel
 from apps.sales.models import Lead
-from services.ai_design import AIDesignError, gemini_configured, suggest_design_candidates
+from services.ai_design import AIDesignError, gemini_configured, suggest_design_candidates, vision_configured
 
 from .ai_suggest import (
     AI_BOUNDS_MAX_RETRIES,
     AISuggestValidationError,
     check_rate_limit,
+    detect_scope,
+    finalize_scope_result,
     record_rate_limit_success,
     should_generate_dual_side,
+    validate_reference_image,
     validate_two_candidates,
 )
 from .forms import DesignSaveForm, DesignSubmitForm
@@ -43,8 +46,11 @@ def _wants_json(request) -> bool:
 @customer_required
 def dashboard(request):
     designs = Design.objects.filter(owner=request.user).order_by("-updated_at")
-    orders = Order.objects.filter(customer=request.user).select_related("design")
-
+    orders = (
+        Order.objects.filter(customer=request.user)
+        .select_related("design")
+        .prefetch_related("payments")
+    )
     designs_list = list(designs)
     submitted_ids = set(
         Order.objects.filter(design_id__in=[d.pk for d in designs_list]).values_list(
@@ -116,6 +122,7 @@ def design_editor(request, pk):
             "already_submitted": design.is_submitted,
             "canvas_json_initial": json.dumps(design.canvas_json or {}),
             "ai_suggest_enabled": gemini_configured(),
+            "ai_vision_enabled": vision_configured(),
         },
     )
 
@@ -226,6 +233,7 @@ def design_submit(request, pk):
     canvas = form.cleaned_data["canvas_json"]
     preview_front = form.cleaned_data["preview_image"]
     preview_back = form.cleaned_data["preview_back_image"]
+    reference_number = request.POST.get("reference_number", "")
 
     # One retry: SQLite can return "database is locked" immediately when two
     # deferred transactions both already hold a read lock. After this request
@@ -253,6 +261,9 @@ def design_submit(request, pk):
                 else:
                     design.canvas_json = canvas
                     update_fields = ["canvas_json", "updated_at"]
+                    if form.cleaned_data.get("title") is not None:
+                        design.title = form.cleaned_data["title"]
+                        update_fields.append("title")
                     if form.cleaned_data.get("garment_template") is not None:
                         design.garment_template = form.cleaned_data["garment_template"]
                         update_fields.append("garment_template")
@@ -278,6 +289,7 @@ def design_submit(request, pk):
                         channel=channel,
                         amount_claimed=amount,
                         proof_file=proof,
+                        reference_number=reference_number,
                     )
                     Lead.objects.create(
                         customer=request.user,
@@ -385,6 +397,7 @@ def _parse_ai_suggest_body(request):
         # Client hints ignored when Design row has values (see view).
         "garment_template_hint": str(payload.get("garment_template") or "").strip(),
         "garment_color_hint": str(payload.get("garment_color") or "").strip(),
+        "reference_image": payload.get("reference_image") or None,
     }, None
 
 
@@ -452,6 +465,27 @@ def design_ai_suggest(request, pk):
         else []
     )
 
+    scope = detect_scope(parsed["message"])
+
+    reference_image = None
+    raw_image = parsed.get("reference_image")
+    if raw_image:
+        if not vision_configured():
+            return JsonResponse(
+                {"ok": False, "code": "ai_validation",
+                 "error": "Image input is not available for the current provider.",
+                 "message": "Image input is not available for the current provider."},
+                status=400,
+            )
+        try:
+            reference_image = validate_reference_image(raw_image)
+        except AISuggestValidationError as exc:
+            msg = getattr(exc, "message", None) or str(exc) or "Invalid image."
+            return JsonResponse(
+                {"ok": False, "code": "bad_request", "error": msg},
+                status=400,
+            )
+
     result = None
     suggestions = None
     last_validation_error = None
@@ -470,15 +504,41 @@ def design_ai_suggest(request, pk):
                 other_side_print_areas=other_areas,
                 dual_side=dual_side,
                 repair_hint=repair_hint,
+                scope=scope,
+                reference_image=reference_image,
             )
-            suggestions = validate_two_candidates(
-                result["suggestions"],
-                garment_template=garment,
-                active_side=active_side,
-                prior_canvas=parsed["canvas_json"],
-                message=parsed["message"],
-                dual_side=dual_side,
-            )
+            try:
+                result = finalize_scope_result(
+                    parsed["message"],
+                    parsed["canvas_json"],
+                    result,
+                    garment_template=garment,
+                    active_side=active_side,
+                    print_areas=print_areas,
+                )
+            except AIDesignError as exc:
+                logger.info(
+                    "ai_suggest scope_violation user_id=%s design_id=%s code=%s",
+                    request.user.pk,
+                    pk,
+                    exc.code,
+                )
+                return JsonResponse(
+                    {"ok": False, "error": exc.message, "code": exc.code},
+                    status=503,
+                )
+
+            if scope in ("color", "text","element"):
+                suggestions = result["suggestions"]
+            else:
+                suggestions = validate_two_candidates(
+                    result["suggestions"],
+                    garment_template=garment,
+                    active_side=active_side,
+                    prior_canvas=parsed["canvas_json"],
+                    message=parsed["message"],
+                    dual_side=dual_side,
+                )
             last_validation_error = None
             break
         except AIDesignError as exc:
@@ -489,7 +549,11 @@ def design_ai_suggest(request, pk):
                 exc.code,
                 attempt + 1,
             )
-            status = 503 if exc.code == "ai_unavailable" else 400
+            status = (
+                503
+                if exc.code in ("ai_unavailable", "ai_timeout", "ai_upstream")
+                else 400
+            )
             return JsonResponse(
                 {"ok": False, "error": exc.message, "code": exc.code},
                 status=status,
